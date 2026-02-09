@@ -33,3 +33,29 @@ pub fn decode_hex_string(hex_str: &str) -> Result<Vec<u8>> {
 pub fn encode_hex_string(data: &[u8]) -> String {
     data.iter().map(|byte| format!("{:02X}", byte)).collect()
 }
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn roundtrip_hex(s in "([0-9a-fA-F]{2})*") {
+            let bytes = decode_hex_string(&s).unwrap();
+            let encoded = encode_hex_string(&bytes);
+            assert_eq!(s.to_lowercase(), encoded.to_lowercase());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn compress_decompress_roundtrip(data in prop::collection::vec(any::<u8>(), 0..10000)) {
+            // Note: This test will use our stub compression which just returns the data as-is
+            // In production with real compression, this would verify roundtrip
+            let compressed = compress_deflate(&data).unwrap();
+            let decompressed = decompress_deflate(&compressed).unwrap();
+            assert_eq!(data, decompressed);
+        }
+    }
+}

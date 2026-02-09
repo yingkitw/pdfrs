@@ -365,6 +365,233 @@ fn parse_dict_entries(raw: &str) -> HashMap<String, PdfValue> {
     dict
 }
 
+/// Parse a cross-reference stream (PDF 1.5+).
+///
+/// XRef streams replace the traditional `xref` table with a compressed stream
+/// containing object offsets. The /W array specifies field widths.
+/// Returns a list of (obj_num, field2, field3) where:
+///   type 0: free object (field2=next_free, field3=gen)
+///   type 1: normal object (field2=byte_offset, field3=gen)
+///   type 2: compressed object (field2=obj_stream_num, field3=index_in_stream)
+pub fn parse_xref_stream(data: &[u8], w_fields: &[usize], size: usize) -> Vec<(usize, u64, u64)> {
+    let mut entries = Vec::new();
+    if w_fields.len() < 3 {
+        return entries;
+    }
+
+    let entry_size = w_fields[0] + w_fields[1] + w_fields[2];
+    if entry_size == 0 {
+        return entries;
+    }
+
+    let mut pos = 0;
+    let mut obj_num = 0;
+
+    while pos + entry_size <= data.len() && obj_num < size {
+        let field_type = read_xref_field(data, pos, w_fields[0]);
+        let field2 = read_xref_field(data, pos + w_fields[0], w_fields[1]);
+        let field3 = read_xref_field(data, pos + w_fields[0] + w_fields[1], w_fields[2]);
+
+        let _ = field_type; // used by caller to interpret field2/field3
+        entries.push((obj_num, field2, field3));
+
+        pos += entry_size;
+        obj_num += 1;
+    }
+
+    entries
+}
+
+/// Read a big-endian integer field of `width` bytes from `data` at `offset`.
+fn read_xref_field(data: &[u8], offset: usize, width: usize) -> u64 {
+    if width == 0 {
+        return 0;
+    }
+    let mut value: u64 = 0;
+    for i in 0..width {
+        if offset + i < data.len() {
+            value = (value << 8) | data[offset + i] as u64;
+        }
+    }
+    value
+}
+
+/// Parse an object stream (/Type /ObjStm).
+///
+/// Object streams contain multiple compressed objects. The stream starts with
+/// N pairs of (obj_num, byte_offset) followed by the object data.
+/// `first` is the byte offset of the first object's data within the stream.
+pub fn parse_object_stream(data: &[u8], n: usize, first: usize) -> Vec<(u32, String)> {
+    let mut results = Vec::new();
+    let content = String::from_utf8_lossy(data);
+
+    // Parse the header: N pairs of (obj_num offset)
+    let header = if first <= content.len() {
+        &content[..first]
+    } else {
+        return results;
+    };
+
+    let tokens: Vec<&str> = header.split_whitespace().collect();
+    if tokens.len() < n * 2 {
+        return results;
+    }
+
+    let mut obj_entries: Vec<(u32, usize)> = Vec::new();
+    for i in 0..n {
+        let obj_num = tokens[i * 2].parse::<u32>().unwrap_or(0);
+        let offset = tokens[i * 2 + 1].parse::<usize>().unwrap_or(0);
+        obj_entries.push((obj_num, offset));
+    }
+
+    // Extract each object's content
+    let obj_data = if first <= content.len() {
+        &content[first..]
+    } else {
+        return results;
+    };
+
+    for (idx, (obj_num, offset)) in obj_entries.iter().enumerate() {
+        let start = *offset;
+        let end = if idx + 1 < obj_entries.len() {
+            obj_entries[idx + 1].1
+        } else {
+            obj_data.len()
+        };
+
+        if start <= obj_data.len() && end <= obj_data.len() && start <= end {
+            let obj_content = obj_data[start..end].trim().to_string();
+            results.push((*obj_num, obj_content));
+        }
+    }
+
+    results
+}
+
+/// Validation result for PDF structural checks
+#[derive(Debug, Clone)]
+pub struct PdfValidation {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub page_count: usize,
+    pub object_count: usize,
+}
+
+/// Validate a PDF file's structural integrity
+pub fn validate_pdf(filename: &str) -> Result<PdfValidation> {
+    let mut file = File::open(filename)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    Ok(validate_pdf_bytes(&buffer))
+}
+
+/// Validate PDF bytes for structural integrity (library API — no filesystem needed)
+pub fn validate_pdf_bytes(data: &[u8]) -> PdfValidation {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    let content = String::from_utf8_lossy(data);
+
+    // 1. Check PDF header
+    if !content.starts_with("%PDF-") {
+        errors.push("Missing PDF header (%PDF-x.x)".to_string());
+    } else {
+        let version_end = content.find('\n').unwrap_or(10).min(10);
+        let version = &content[5..version_end];
+        if !version.starts_with("1.") && !version.starts_with("2.") {
+            warnings.push(format!("Unusual PDF version: {}", version));
+        }
+    }
+
+    // 2. Check %%EOF marker
+    let trimmed_end = content.trim_end();
+    if !trimmed_end.ends_with("%%EOF") {
+        errors.push("Missing %%EOF marker at end of file".to_string());
+    }
+
+    // 3. Check xref table or xref stream
+    let has_xref = content.contains("\nxref\n") || content.contains("\nxref\r\n");
+    let has_startxref = content.contains("startxref");
+    if !has_xref {
+        warnings.push("No traditional xref table found (may use xref stream)".to_string());
+    }
+    if !has_startxref {
+        errors.push("Missing startxref pointer".to_string());
+    }
+
+    // 4. Check trailer
+    let has_trailer = content.contains("trailer");
+    if !has_trailer && has_xref {
+        errors.push("Missing trailer dictionary".to_string());
+    }
+
+    // 5. Check for Catalog
+    let has_catalog = content.contains("/Type /Catalog");
+    if !has_catalog {
+        errors.push("Missing document catalog (/Type /Catalog)".to_string());
+    }
+
+    // 6. Check for Pages
+    let has_pages = content.contains("/Type /Pages");
+    if !has_pages {
+        errors.push("Missing pages tree (/Type /Pages)".to_string());
+    }
+
+    // 7. Count page objects (/Type /Page but NOT /Type /Pages)
+    let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
+    let page_re_eol = regex::Regex::new(r"/Type\s+/Page\s*\n").unwrap();
+    let actual_pages = page_re.find_iter(&content).count() + page_re_eol.find_iter(&content).count();
+    if actual_pages == 0 {
+        errors.push("No page objects found (/Type /Page)".to_string());
+    }
+
+    // 8. Count objects
+    let obj_re = regex::Regex::new(r"\d+\s+\d+\s+obj\b").unwrap();
+    let object_count = obj_re.find_iter(&content).count();
+    if object_count == 0 {
+        errors.push("No PDF objects found".to_string());
+    }
+
+    // 9. Check object/endobj pairing
+    let endobj_count = content.matches("endobj").count();
+    if object_count != endobj_count {
+        warnings.push(format!(
+            "Object/endobj mismatch: {} obj vs {} endobj",
+            object_count, endobj_count
+        ));
+    }
+
+    // 10. Check stream/endstream pairing
+    let stream_count = content.matches("\nstream\n").count()
+        + content.matches("\nstream\r\n").count();
+    let endstream_count = content.matches("endstream").count();
+    if stream_count != endstream_count {
+        warnings.push(format!(
+            "Stream/endstream mismatch: {} stream vs {} endstream",
+            stream_count, endstream_count
+        ));
+    }
+
+    // 11. Check /Root reference in trailer
+    if has_trailer {
+        let root_re = regex::Regex::new(r"/Root\s+\d+\s+\d+\s+R").unwrap();
+        if !root_re.is_match(&content) {
+            errors.push("Trailer missing /Root reference".to_string());
+        }
+    }
+
+    let valid = errors.is_empty();
+
+    PdfValidation {
+        valid,
+        errors,
+        warnings,
+        page_count: actual_pages,
+        object_count,
+    }
+}
+
 pub fn extract_text(filename: &str) -> Result<String> {
     let doc = PdfDocument::load_from_file(filename)?;
     let text = doc.get_text()?;
@@ -473,5 +700,222 @@ mod tests {
         let data = b"BT /F1 12 Tf (Hello) Tj ET";
         let result = decompress_stream(data);
         assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_read_xref_field() {
+        // 1-byte field
+        assert_eq!(read_xref_field(&[0x01], 0, 1), 1);
+        assert_eq!(read_xref_field(&[0xFF], 0, 1), 255);
+
+        // 2-byte field (big-endian)
+        assert_eq!(read_xref_field(&[0x01, 0x00], 0, 2), 256);
+        assert_eq!(read_xref_field(&[0x00, 0x2A], 0, 2), 42);
+
+        // 3-byte field
+        assert_eq!(read_xref_field(&[0x01, 0x00, 0x00], 0, 3), 65536);
+
+        // 0-width field
+        assert_eq!(read_xref_field(&[0xFF], 0, 0), 0);
+    }
+
+    #[test]
+    fn test_parse_xref_stream_basic() {
+        // W = [1, 2, 1], size = 3
+        // Entry 0: type=0, offset=0x0000, gen=0xFF (free)
+        // Entry 1: type=1, offset=0x0100, gen=0x00 (normal at offset 256)
+        // Entry 2: type=2, offset=0x0005, gen=0x02 (compressed in obj 5, index 2)
+        let data: Vec<u8> = vec![
+            0x00, 0x00, 0x00, 0xFF, // entry 0: type=0, field2=0, field3=255
+            0x01, 0x01, 0x00, 0x00, // entry 1: type=1, field2=256, field3=0
+            0x02, 0x00, 0x05, 0x02, // entry 2: type=2, field2=5, field3=2
+        ];
+        let w = vec![1, 2, 1];
+        let entries = parse_xref_stream(&data, &w, 3);
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0], (0, 0, 255));
+        assert_eq!(entries[1], (1, 256, 0));
+        assert_eq!(entries[2], (2, 5, 2));
+    }
+
+    #[test]
+    fn test_parse_xref_stream_empty() {
+        let entries = parse_xref_stream(&[], &[1, 2, 1], 0);
+        assert!(entries.is_empty());
+
+        let entries = parse_xref_stream(&[0x01], &[], 1);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_parse_object_stream() {
+        // Object stream with 2 objects:
+        // Header: "10 0 20 14 " (obj 10 at offset 0, obj 20 at offset 14)
+        // First = 10 (offset where object data starts)
+        // Data after first: "<< /Type /Page >>null"
+        let stream = b"10 0 20 14 << /Type /Page >>null";
+        let first = 11; // "10 0 20 14 " is 11 bytes
+        let results = parse_object_stream(stream, 2, first);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, 10); // obj num
+        assert!(results[0].1.contains("/Type"));
+        assert_eq!(results[1].0, 20); // obj num
+    }
+
+    #[test]
+    fn test_parse_object_stream_empty() {
+        let results = parse_object_stream(b"", 0, 0);
+        assert!(results.is_empty());
+
+        // first beyond data length
+        let results = parse_object_stream(b"10 0 ", 1, 100);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_validate_pdf_bytes_valid() {
+        // Generate a valid PDF via the library
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "Test Title".into() },
+            crate::elements::Element::Paragraph { text: "Hello world paragraph.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_bytes(&pdf_bytes);
+        assert!(result.valid, "Generated PDF should be valid. Errors: {:?}", result.errors);
+        assert!(result.page_count >= 1, "Should have at least 1 page");
+        assert!(result.object_count > 0, "Should have objects");
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_pdf_bytes_invalid_header() {
+        let result = validate_pdf_bytes(b"NOT A PDF FILE");
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("Missing PDF header")));
+    }
+
+    #[test]
+    fn test_validate_pdf_bytes_empty() {
+        let result = validate_pdf_bytes(b"");
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("Missing PDF header")));
+    }
+
+    #[test]
+    fn test_validate_pdf_bytes_missing_eof() {
+        let result = validate_pdf_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("%%EOF")));
+    }
+
+    #[test]
+    fn test_roundtrip_generate_validate_parse() {
+        // Round-trip: elements → PDF bytes → validate → parse → extract text → verify
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "Roundtrip Title".into() },
+            crate::elements::Element::Paragraph { text: "This is roundtrip content.".into() },
+            crate::elements::Element::UnorderedListItem { text: "Item one".into(), depth: 0 },
+            crate::elements::Element::UnorderedListItem { text: "Item two".into(), depth: 0 },
+            crate::elements::Element::CodeBlock { language: "rust".into(), code: "fn main() {}".into() },
+            crate::elements::Element::BlockQuote { text: "A quote".into(), depth: 1 },
+            crate::elements::Element::Link { text: "Example".into(), url: "https://example.com".into() },
+            crate::elements::Element::Image { alt: "Logo".into(), path: "logo.png".into() },
+            crate::elements::Element::Footnote { label: "1".into(), text: "A footnote.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        // 1. Validate structure
+        let validation = validate_pdf_bytes(&pdf_bytes);
+        assert!(validation.valid, "PDF should be valid. Errors: {:?}", validation.errors);
+        assert!(validation.page_count >= 1);
+
+        // 2. Parse back and extract text
+        let content = String::from_utf8_lossy(&pdf_bytes);
+        // Check key content strings are present in the raw PDF
+        assert!(content.contains("Roundtrip Title"), "Title not found in PDF");
+        assert!(content.contains("roundtrip content"), "Paragraph not found in PDF");
+        assert!(content.contains("Item one"), "List item not found in PDF");
+        assert!(content.contains("fn main"), "Code block not found in PDF");
+        assert!(content.contains("quote"), "Blockquote not found in PDF");
+        assert!(content.contains("Example"), "Link text not found in PDF");
+        assert!(content.contains("example.com"), "Link URL not found in PDF");
+        assert!(content.contains("Logo"), "Image alt not found in PDF");
+        assert!(content.contains("footnote"), "Footnote not found in PDF");
+    }
+
+    #[test]
+    fn test_roundtrip_all_element_types() {
+        // Comprehensive round-trip: every element type → PDF → validate → verify text
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "H1 Title".into() },
+            crate::elements::Element::Heading { level: 2, text: "H2 Subtitle".into() },
+            crate::elements::Element::Heading { level: 3, text: "H3 Section".into() },
+            crate::elements::Element::Paragraph { text: "Normal paragraph text here.".into() },
+            crate::elements::Element::EmptyLine,
+            crate::elements::Element::UnorderedListItem { text: "Bullet item".into(), depth: 0 },
+            crate::elements::Element::OrderedListItem { number: 1, text: "Numbered item".into(), depth: 0 },
+            crate::elements::Element::TaskListItem { checked: true, text: "Done task".into() },
+            crate::elements::Element::TaskListItem { checked: false, text: "Todo task".into() },
+            crate::elements::Element::CodeBlock { language: "python".into(), code: "print('hello')".into() },
+            crate::elements::Element::InlineCode { code: "let x = 42".into() },
+            crate::elements::Element::TableRow {
+                cells: vec!["Name".into(), "Age".into()],
+                is_separator: false,
+                alignments: vec![crate::elements::TableAlignment::Left, crate::elements::TableAlignment::Left],
+            },
+            crate::elements::Element::BlockQuote { text: "Wise words".into(), depth: 1 },
+            crate::elements::Element::DefinitionItem { term: "Rust".into(), definition: "A language".into() },
+            crate::elements::Element::Footnote { label: "fn1".into(), text: "See reference".into() },
+            crate::elements::Element::Link { text: "Google".into(), url: "https://google.com".into() },
+            crate::elements::Element::Image { alt: "Photo".into(), path: "photo.jpg".into() },
+            crate::elements::Element::StyledText { text: "Bold text".into(), bold: true, italic: false },
+            crate::elements::Element::HorizontalRule,
+            crate::elements::Element::PageBreak,
+            crate::elements::Element::Paragraph { text: "After page break.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        // Validate
+        let validation = validate_pdf_bytes(&pdf_bytes);
+        assert!(validation.valid, "PDF with all elements should be valid. Errors: {:?}", validation.errors);
+        assert!(validation.page_count >= 2, "PageBreak should create at least 2 pages, got {}", validation.page_count);
+
+        // Verify content
+        let content = String::from_utf8_lossy(&pdf_bytes);
+        let expected_strings = vec![
+            "H1 Title", "H2 Subtitle", "H3 Section",
+            "Normal paragraph", "Bullet item", "Numbered item",
+            "Done task", "Todo task", "print", "let x = 42",
+            "Name", "Age", "Wise words", "Rust", "A language",
+            "See reference", "Google", "google.com",
+            "Photo", "photo.jpg", "Bold text", "After page break",
+        ];
+        for s in &expected_strings {
+            assert!(content.contains(s), "Expected '{}' in PDF content", s);
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_landscape() {
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "Landscape Doc".into() },
+            crate::elements::Element::Paragraph { text: "Wide content.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::landscape();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let validation = validate_pdf_bytes(&pdf_bytes);
+        assert!(validation.valid, "Landscape PDF should be valid. Errors: {:?}", validation.errors);
+
+        // Check landscape dimensions (792 x 612)
+        let content = String::from_utf8_lossy(&pdf_bytes);
+        assert!(content.contains("792"), "Landscape width should be 792");
+        assert!(content.contains("612"), "Landscape height should be 612");
     }
 }

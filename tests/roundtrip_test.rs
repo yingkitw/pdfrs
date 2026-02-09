@@ -304,3 +304,591 @@ fn test_rotate_pdf() {
     assert!(text.len() > 10, "Rotated PDF text extraction too short");
     println!("=== PASSED: rotate ===");
 }
+
+#[test]
+fn test_watermark_pdf() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_src = format!("{}/test.md", base);
+    let pdf_src = format!("{}/watermark_source.pdf", out_dir);
+    let pdf_wm = format!("{}/watermarked.pdf", out_dir);
+
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_src, &pdf_src]);
+    assert!(ok, "Failed to create source PDF");
+
+    let (stdout, _, ok) = run_pdf_cli(&["watermark", &pdf_src, "-o", &pdf_wm, "--text", "CONFIDENTIAL"]);
+    assert!(ok, "Watermark failed");
+    println!("[watermark] {}", stdout.trim());
+    assert!(Path::new(&pdf_wm).exists());
+
+    // Verify watermark text is in the PDF
+    let raw = fs::read(&pdf_wm).unwrap();
+    let content = String::from_utf8_lossy(&raw);
+    assert!(content.contains("CONFIDENTIAL"), "Watermark text not found in PDF");
+    println!("=== PASSED: watermark ===");
+}
+
+#[test]
+fn test_reorder_pdf() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    // Use the merged PDF which has multiple pages
+    let md_a = format!("{}/test.md", base);
+    let md_b = format!("{}/roundtrip_test.md", base);
+    let pdf_a = format!("{}/reorder_a.pdf", out_dir);
+    let pdf_b = format!("{}/reorder_b.pdf", out_dir);
+    let merged = format!("{}/reorder_merged.pdf", out_dir);
+    let reordered = format!("{}/reordered.pdf", out_dir);
+
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_a, &pdf_a]);
+    assert!(ok);
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_b, &pdf_b]);
+    assert!(ok);
+    let (_, _, ok) = run_pdf_cli(&["merge", &pdf_a, &pdf_b, "-o", &merged]);
+    assert!(ok, "Merge failed");
+
+    // Reorder: reverse order
+    let (stdout, _, ok) = run_pdf_cli(&["reorder", &merged, "-o", &reordered, "--pages", "2,1"]);
+    assert!(ok, "Reorder failed");
+    println!("[reorder] {}", stdout.trim());
+    assert!(Path::new(&reordered).exists());
+    assert!(fs::metadata(&reordered).unwrap().len() > 0);
+    println!("=== PASSED: reorder ===");
+}
+
+#[test]
+fn test_full_features_roundtrip() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_src = format!("{}/examples/full_features.md", base);
+    let pdf_out = format!("{}/full_features.pdf", out_dir);
+    let md_out = format!("{}/full_features_roundtrip.md", out_dir);
+
+    // Step 1: MD -> PDF
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_src, &pdf_out]);
+    assert!(ok, "md-to-pdf failed for full_features");
+    let pdf_size = fs::metadata(&pdf_out).unwrap().len();
+    println!("[full_features] PDF size: {} bytes", pdf_size);
+    assert!(pdf_size > 5000, "PDF too small: {} bytes", pdf_size);
+
+    // Step 2: Validate raw PDF structure
+    let raw = fs::read(&pdf_out).unwrap();
+    let raw_str = String::from_utf8_lossy(&raw);
+    assert!(raw_str.starts_with("%PDF-"), "Missing PDF header");
+    assert!(raw_str.contains("/Type /Catalog"), "Missing catalog");
+    assert!(raw_str.contains("/Type /Pages"), "Missing pages tree");
+    assert!(raw_str.contains("%%EOF"), "Missing EOF marker");
+
+    // Count pages (should be multi-page due to content + pagebreak)
+    let page_count = raw_str.matches("/Type /Page\n").count()
+        + raw_str.matches("/Type /Page\r").count();
+    println!("[full_features] Page objects found: {}", page_count);
+    assert!(page_count >= 4, "Expected at least 4 pages, got {}", page_count);
+
+    // Step 3: PDF -> MD round-trip
+    let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
+    assert!(ok, "pdf-to-md failed for full_features");
+    let roundtrip = fs::read_to_string(&md_out).unwrap();
+
+    // Step 4: Verify all element types survived round-trip
+    let must_contain = vec![
+        // Headings
+        "Full Feature Showcase",
+        "Text Formatting",
+        "Lists",
+        // Paragraphs
+        "exercises every supported element type",
+        "bold text",
+        "italic text",
+        // Unordered lists
+        "First item at depth zero",
+        "Nested item at depth one",
+        "Deep nested item",
+        // Ordered lists
+        "First numbered item",
+        "Second numbered item",
+        // Task lists
+        "[x] Completed task one",
+        "[ ] Pending task three",
+        // Code blocks
+        "fibonacci",
+        "quicksort",
+        "fn main",
+        "def quicksort",
+        // Tables
+        "Feature",
+        "Status",
+        "Priority",
+        "PDF Generation",
+        "Done",
+        // Blockquotes
+        "simple blockquote",
+        "Triple nested",
+        // Definition items
+        "Rust",
+        "systems programming language",
+        "Portable Document Format",
+        // Footnotes
+        "first footnote",
+        "second footnote",
+        // Links
+        "rust-lang.org",
+        "adobe.com",
+        // Images
+        "Rust Logo",
+        "rust-logo.png",
+        "PDF Icon",
+        // Horizontal rules
+        "Content above the rule",
+        "Content below the rule",
+        // Page breaks (content after break)
+        "new page after the break",
+        // Mixed content
+        "Initialize the project",
+        "cargo test",
+    ];
+
+    let mut missing = Vec::new();
+    for s in &must_contain {
+        if !roundtrip.contains(s) {
+            missing.push(*s);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "Round-trip missing {} items: {:?}",
+        missing.len(),
+        missing
+    );
+    println!("[full_features] All {} content checks passed", must_contain.len());
+    println!("=== PASSED: full_features_roundtrip ===");
+}
+
+#[test]
+fn test_full_features_landscape_metadata() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_src = format!("{}/examples/full_features.md", base);
+    let pdf_out = format!("{}/full_features_landscape_meta.pdf", out_dir);
+
+    // Generate landscape PDF with metadata
+    let (_, _, ok) = run_pdf_cli(&[
+        "md-to-pdf-meta", &md_src, &pdf_out,
+        "--title", "Full Features Showcase",
+        "--author", "pdf-rs test suite",
+        "--subject", "Integration testing",
+        "--keywords", "pdf,rust,test,library",
+        "--landscape",
+    ]);
+    assert!(ok, "md-to-pdf-meta --landscape failed");
+
+    let raw = fs::read(&pdf_out).unwrap();
+    let content = String::from_utf8_lossy(&raw);
+
+    // Verify landscape dimensions
+    assert!(content.contains("792"), "Missing landscape width 792");
+    assert!(content.contains("612"), "Missing landscape height 612");
+
+    // Verify metadata
+    assert!(content.contains("/Title (Full Features Showcase)"), "Title missing");
+    assert!(content.contains("/Author (pdf-rs test suite)"), "Author missing");
+    assert!(content.contains("/Subject (Integration testing)"), "Subject missing");
+    assert!(content.contains("/Producer (pdf-cli)"), "Producer missing");
+
+    // Verify content survived
+    assert!(content.contains("fibonacci"), "Code block content missing");
+    assert!(content.contains("quicksort"), "Python code missing");
+
+    println!("[landscape_meta] PDF size: {} bytes", raw.len());
+    println!("=== PASSED: full_features_landscape_metadata ===");
+}
+
+#[test]
+fn test_full_features_watermark() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_src = format!("{}/examples/full_features.md", base);
+    let pdf_src = format!("{}/full_features_wm_src.pdf", out_dir);
+    let pdf_wm = format!("{}/full_features_watermarked.pdf", out_dir);
+
+    // Generate source PDF
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_src, &pdf_src]);
+    assert!(ok, "Source PDF generation failed");
+
+    // Apply watermark
+    let (_, _, ok) = run_pdf_cli(&[
+        "watermark", &pdf_src, "-o", &pdf_wm,
+        "--text", "DRAFT",
+        "--size", "60",
+        "--opacity", "0.2",
+    ]);
+    assert!(ok, "Watermark failed");
+
+    let raw = fs::read(&pdf_wm).unwrap();
+    let content = String::from_utf8_lossy(&raw);
+    assert!(content.contains("DRAFT"), "Watermark text not found");
+
+    // Original content should still be present
+    assert!(content.contains("fibonacci"), "Original content lost after watermark");
+
+    println!("[watermark] Watermarked PDF size: {} bytes", raw.len());
+    println!("=== PASSED: full_features_watermark ===");
+}
+
+#[test]
+fn test_library_api_generate_validate() {
+    // Pure library API test: no CLI, no filesystem (except final write for inspection)
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_content = fs::read_to_string(format!("{}/examples/full_features.md", base)).unwrap();
+
+    // Step 1: Parse markdown into elements
+    let elements = pdf_rs::elements::parse_markdown(&md_content);
+    println!("[lib_api] Parsed {} elements from full_features.md", elements.len());
+    assert!(elements.len() > 50, "Expected many elements, got {}", elements.len());
+
+    // Verify element type diversity
+    let has_heading = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Heading { .. }));
+    let has_paragraph = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Paragraph { .. }));
+    let has_list = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::UnorderedListItem { .. }));
+    let has_ordered = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::OrderedListItem { .. }));
+    let has_task = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::TaskListItem { .. }));
+    let has_code = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::CodeBlock { .. }));
+    let has_table = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::TableRow { .. }));
+    let has_quote = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::BlockQuote { .. }));
+    let has_def = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::DefinitionItem { .. }));
+    let has_footnote = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Footnote { .. }));
+    let has_link = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Link { .. }));
+    let has_image = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Image { .. }));
+    let has_hr = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::HorizontalRule));
+    let has_pagebreak = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::PageBreak));
+    let has_empty = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::EmptyLine));
+
+    assert!(has_heading, "Missing Heading elements");
+    assert!(has_paragraph, "Missing Paragraph elements");
+    assert!(has_list, "Missing UnorderedListItem elements");
+    assert!(has_ordered, "Missing OrderedListItem elements");
+    assert!(has_task, "Missing TaskListItem elements");
+    assert!(has_code, "Missing CodeBlock elements");
+    assert!(has_table, "Missing TableRow elements");
+    assert!(has_quote, "Missing BlockQuote elements");
+    assert!(has_def, "Missing DefinitionItem elements");
+    assert!(has_footnote, "Missing Footnote elements");
+    assert!(has_link, "Missing Link elements");
+    assert!(has_image, "Missing Image elements");
+    assert!(has_hr, "Missing HorizontalRule elements");
+    assert!(has_pagebreak, "Missing PageBreak elements");
+    assert!(has_empty, "Missing EmptyLine elements");
+    println!("[lib_api] All 15 element types found in parsed output");
+
+    // Step 2: Generate PDF bytes in memory
+    let layout = pdf_rs::pdf_generator::PageLayout::portrait();
+    let pdf_bytes = pdf_rs::pdf_generator::generate_pdf_bytes(
+        &elements, "Helvetica", 12.0, layout,
+    ).expect("generate_pdf_bytes failed");
+    println!("[lib_api] Generated {} bytes of PDF", pdf_bytes.len());
+    assert!(pdf_bytes.len() > 5000, "PDF too small: {} bytes", pdf_bytes.len());
+
+    // Step 3: Validate PDF structure
+    let validation = pdf_rs::pdf::validate_pdf_bytes(&pdf_bytes);
+    println!("[lib_api] Validation: valid={}, pages={}, objects={}, errors={:?}, warnings={:?}",
+        validation.valid, validation.page_count, validation.object_count,
+        validation.errors, validation.warnings);
+    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
+    assert!(validation.page_count >= 4, "Expected >= 4 pages, got {}", validation.page_count);
+    assert!(validation.object_count > 10, "Expected many objects, got {}", validation.object_count);
+
+    // Step 4: Verify content strings in raw PDF bytes
+    let content = String::from_utf8_lossy(&pdf_bytes);
+    let content_checks = vec![
+        "Full Feature Showcase", "fibonacci", "quicksort",
+        "Completed task", "Pending task",
+        "First item at depth zero", "Deep nested",
+        "systems programming language",
+        "rust-lang.org", "Rust Logo",
+        "new page after the break",
+    ];
+    for s in &content_checks {
+        assert!(content.contains(s), "PDF bytes missing content: '{}'", s);
+    }
+    println!("[lib_api] All {} content checks passed", content_checks.len());
+
+    // Step 5: Write to disk for manual inspection
+    let out_path = format!("{}/lib_api_generated.pdf", out_dir);
+    fs::write(&out_path, &pdf_bytes).unwrap();
+    println!("[lib_api] Written to {} for inspection", out_path);
+
+    println!("=== PASSED: library_api_generate_validate ===");
+}
+
+#[test]
+fn test_technical_report_complex_roundtrip() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_src = format!("{}/examples/technical_report_complex.md", base);
+    let pdf_out = format!("{}/technical_report_complex.pdf", out_dir);
+    let md_out = format!("{}/technical_report_complex_rt.md", out_dir);
+
+    // Step 1: MD -> PDF
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_src, &pdf_out]);
+    assert!(ok, "md-to-pdf failed for technical_report_complex");
+    let pdf_size = fs::metadata(&pdf_out).unwrap().len();
+    println!("[tech_report] PDF size: {} bytes", pdf_size);
+    assert!(pdf_size > 15000, "PDF too small: {} bytes", pdf_size);
+
+    // Step 2: Validate PDF structure via library API
+    let raw = fs::read(&pdf_out).unwrap();
+    let validation = pdf_rs::pdf::validate_pdf_bytes(&raw);
+    println!("[tech_report] valid={}, pages={}, objects={}, errors={:?}",
+        validation.valid, validation.page_count, validation.object_count, validation.errors);
+    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
+    assert!(validation.page_count >= 6, "Expected >= 6 pages, got {}", validation.page_count);
+    assert!(validation.object_count > 15, "Expected many objects, got {}", validation.object_count);
+
+    // Step 3: PDF -> MD round-trip
+    let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
+    assert!(ok, "pdf-to-md failed for technical_report_complex");
+    let roundtrip = fs::read_to_string(&md_out).unwrap();
+
+    // Step 4: Verify content survival across all element types
+    let must_contain = vec![
+        // Headings
+        "Distributed Systems Performance Analysis",
+        "Executive Summary",
+        "System Architecture Overview",
+        "Benchmark Methodology",
+        "Capacity Planning",
+        "Recommendations",
+        // Paragraphs with bold/numbers
+        "2.4 million requests per second",
+        "99.97%",
+        "47%",
+        // Tables
+        "gRPC", "Kafka", "NATS", "Redis",
+        "API Gateway", "Order Engine", "Inventory", "Pricing",
+        "847,000", "2,482,000",
+        "BM-001", "BM-005",
+        // Code blocks (Rust)
+        "LoadGenerator", "Semaphore", "BenchmarkResult",
+        "target_rps", "concurrency",
+        // Code blocks (Python)
+        "LatencyDistribution", "confidence_interval",
+        "np.percentile",
+        // Code blocks (YAML)
+        "HorizontalPodAutoscaler", "order-engine",
+        "minReplicas", "maxReplicas",
+        // Ordered lists with nesting
+        "Gateway Layer", "Core Business Logic", "Data Pipeline",
+        "API Gateway with rate limiting",
+        "Event ingestion",
+        // Task lists
+        "Circuit breaker activation",
+        "Cross-region failover",
+        // Blockquotes
+        "Key Finding",
+        "Critical Issue",
+        // Definition lists
+        "50th percentile",
+        "Service Level Agreement",
+        "Command Query Responsibility Segregation",
+        // Footnotes
+        "latency measurements",
+        "Cost projections",
+        // Links
+        "dist-sys-patterns",
+        "sre.google",
+        "kafka.apache.org",
+        // Horizontal rules (content around them)
+        "Engineering Team",
+        "February 2026",
+        // Page break content
+        "Raw Benchmark Data",
+        // Cost table
+        "142,000", "318,000",
+    ];
+
+    let mut missing = Vec::new();
+    for s in &must_contain {
+        if !roundtrip.contains(s) {
+            missing.push(*s);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "[tech_report] Round-trip missing {} items: {:?}",
+        missing.len(), missing
+    );
+    println!("[tech_report] All {} content checks passed", must_contain.len());
+    println!("=== PASSED: technical_report_complex_roundtrip ===");
+}
+
+#[test]
+fn test_api_reference_complex_roundtrip() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_src = format!("{}/examples/api_reference_complex.md", base);
+    let pdf_out = format!("{}/api_reference_complex.pdf", out_dir);
+    let md_out = format!("{}/api_reference_complex_rt.md", out_dir);
+
+    // Step 1: MD -> PDF
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_src, &pdf_out]);
+    assert!(ok, "md-to-pdf failed for api_reference_complex");
+    let pdf_size = fs::metadata(&pdf_out).unwrap().len();
+    println!("[api_ref] PDF size: {} bytes", pdf_size);
+    assert!(pdf_size > 20000, "PDF too small: {} bytes", pdf_size);
+
+    // Step 2: Validate PDF structure via library API
+    let raw = fs::read(&pdf_out).unwrap();
+    let validation = pdf_rs::pdf::validate_pdf_bytes(&raw);
+    println!("[api_ref] valid={}, pages={}, objects={}, errors={:?}",
+        validation.valid, validation.page_count, validation.object_count, validation.errors);
+    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
+    assert!(validation.page_count >= 8, "Expected >= 8 pages, got {}", validation.page_count);
+
+    // Step 3: PDF -> MD round-trip
+    let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
+    assert!(ok, "pdf-to-md failed for api_reference_complex");
+    let roundtrip = fs::read_to_string(&md_out).unwrap();
+
+    // Step 4: Verify content survival
+    let must_contain = vec![
+        // Headings
+        "PDF-RS Library API Reference",
+        "Module Overview",
+        "Elements Module",
+        "PDF Module",
+        "PDF Generator Module",
+        "PDF Operations Module",
+        "Markdown Module",
+        "Error Handling",
+        "Usage Examples",
+        // Element enum variants in code blocks
+        "Heading", "Paragraph", "CodeBlock", "BlockQuote",
+        "UnorderedListItem", "OrderedListItem", "TaskListItem",
+        "InlineCode", "Link", "Image", "StyledText",
+        "TableRow", "DefinitionItem", "Footnote",
+        "HorizontalRule", "PageBreak", "EmptyLine",
+        // Function signatures
+        "parse_markdown", "strip_inline_formatting",
+        "validate_pdf", "validate_pdf_bytes",
+        "generate_pdf_bytes", "extract_text",
+        // Types
+        "PdfDocument", "PdfValidation", "PageLayout", "Color",
+        "TextAlign", "PdfMetadata",
+        "TextAnnotation", "LinkAnnotation", "HighlightAnnotation",
+        // Tables
+        "elements", "pdf_generator", "pdf_ops", "markdown",
+        "compression", "security",
+        // Code examples
+        "Helvetica", "portrait",
+        "assert!", "validation.valid",
+        // Definition items
+        "612 x 792", "792 x 612",
+        "positioned text note",
+        "clickable rectangular region",
+        "colored highlight overlay",
+        // Footnotes
+        "17 element variants",
+        "In-memory validation",
+        // Feature matrix
+        "FlateDecode", "DCTDecode",
+        // Blockquotes
+        "primary library API",
+        "Best Practice",
+        // Links
+        "pdf-rs v0.1.0",
+    ];
+
+    let mut missing = Vec::new();
+    for s in &must_contain {
+        if !roundtrip.contains(s) {
+            missing.push(*s);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "[api_ref] Round-trip missing {} items: {:?}",
+        missing.len(), missing
+    );
+    println!("[api_ref] All {} content checks passed", must_contain.len());
+    println!("=== PASSED: api_reference_complex_roundtrip ===");
+}
+
+#[test]
+fn test_complex_examples_library_api_batch() {
+    // Pure library API: parse + generate + validate all complex examples in one test
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let examples = vec![
+        ("full_features.md", 50, 4),
+        ("technical_report_complex.md", 80, 6),
+        ("api_reference_complex.md", 100, 8),
+    ];
+
+    for (filename, min_elements, min_pages) in &examples {
+        let md_path = format!("{}/examples/{}", base, filename);
+        let md_content = fs::read_to_string(&md_path)
+            .unwrap_or_else(|_| panic!("Failed to read {}", md_path));
+
+        // Parse
+        let elements = pdf_rs::elements::parse_markdown(&md_content);
+        println!("[batch:{}] Parsed {} elements", filename, elements.len());
+        assert!(
+            elements.len() >= *min_elements,
+            "{}: expected >= {} elements, got {}", filename, min_elements, elements.len()
+        );
+
+        // Generate portrait
+        let layout_p = pdf_rs::pdf_generator::PageLayout::portrait();
+        let bytes_p = pdf_rs::pdf_generator::generate_pdf_bytes(
+            &elements, "Helvetica", 12.0, layout_p,
+        ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes portrait failed: {}", filename, e));
+
+        // Validate portrait
+        let val_p = pdf_rs::pdf::validate_pdf_bytes(&bytes_p);
+        assert!(val_p.valid, "{} portrait validation failed: {:?}", filename, val_p.errors);
+        assert!(
+            val_p.page_count >= *min_pages,
+            "{}: expected >= {} pages, got {}", filename, min_pages, val_p.page_count
+        );
+        println!("[batch:{}] Portrait: {} bytes, {} pages, {} objects",
+            filename, bytes_p.len(), val_p.page_count, val_p.object_count);
+
+        // Generate landscape
+        let layout_l = pdf_rs::pdf_generator::PageLayout::landscape();
+        let bytes_l = pdf_rs::pdf_generator::generate_pdf_bytes(
+            &elements, "Times-Roman", 11.0, layout_l,
+        ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes landscape failed: {}", filename, e));
+
+        // Validate landscape
+        let val_l = pdf_rs::pdf::validate_pdf_bytes(&bytes_l);
+        assert!(val_l.valid, "{} landscape validation failed: {:?}", filename, val_l.errors);
+        println!("[batch:{}] Landscape: {} bytes, {} pages, {} objects",
+            filename, bytes_l.len(), val_l.page_count, val_l.object_count);
+
+        // Write both for manual inspection
+        let stem = filename.replace(".md", "");
+        fs::write(format!("{}/batch_{}_portrait.pdf", out_dir, stem), &bytes_p).unwrap();
+        fs::write(format!("{}/batch_{}_landscape.pdf", out_dir, stem), &bytes_l).unwrap();
+    }
+
+    println!("=== PASSED: complex_examples_library_api_batch ===");
+}

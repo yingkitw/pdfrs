@@ -1,22 +1,39 @@
 # PDF-CLI
 
-A powerful command-line tool for reading, writing, and converting PDF files to and from Markdown, implemented entirely in Rust without relying on external PDF libraries.
+A Rust library and CLI tool for reading, writing, and manipulating PDF files. Converts to/from Markdown. Implemented entirely in Rust without external PDF libraries.
 
 ## Features
 
-- **PDF Generation**: Create PDFs from scratch with custom fonts and text content
-- **PDF Parsing**: Extract text content from existing PDF files (Tj, TJ operators, font encodings)
-- **Markdown to PDF**: Convert Markdown documents to PDF with rich formatting (headers, lists, task lists, blockquotes, tables, code blocks, definition lists)
-- **PDF to Markdown**: Extract text from PDFs and save as Markdown
-- **Image Support**: Embed JPEG images with dimension parsing and aspect-ratio scaling
-- **PDF Merging**: Combine multiple PDFs into one
-- **PDF Splitting**: Extract page ranges into new PDFs
-- **Page Rotation**: Rotate pages by 0/90/180/270°
-- **Document Metadata**: Embed title, author, subject, keywords
-- **Annotations**: Text notes and clickable link annotations
-- **Landscape/Portrait**: Configurable page orientation
-- **Page Numbering**: Automatic footer page numbers
-- **Multi-page Support**: Automatically split long documents into multiple pages
+### Library API
+- **In-memory PDF generation**: `generate_pdf_bytes()` — no filesystem needed
+- **PDF validation**: `validate_pdf()` / `validate_pdf_bytes()` — structural integrity checks
+- **Rich element model**: 17 `Element` variants for document modeling
+- **Accessibility**: `StructureType` enum (35 types), `StructureElement` tree, `AccessibilityOptions`
+
+### PDF Generation
+- **From scratch**: Create PDFs with custom fonts and text content
+- **From Markdown**: Rich formatting (headers, lists, task lists, blockquotes, tables, code blocks, definition lists, footnotes, images, links, page breaks)
+- **Text color**: `Color` struct (RGB), code blocks in gray, links in blue
+- **Text alignment**: H1 centered, configurable `TextAlign` enum
+- **Page orientation**: Landscape/portrait with `--landscape` CLI flag
+- **Page numbering**: Automatic footer page numbers
+- **Watermarks**: Diagonal text with configurable opacity/size
+
+### PDF Parsing
+- **Text extraction**: Tj, TJ operators, font encodings (WinAnsi, MacRoman)
+- **Cross-reference streams**: PDF 1.5+ xref stream parsing
+- **Object streams**: Compressed object stream handling
+- **Validation**: Header, xref, trailer, catalog, pages, object pairing checks
+
+### PDF Manipulation
+- **Merge**: Combine multiple PDFs
+- **Split**: Extract page ranges
+- **Rotate**: 0/90/180/270°
+- **Reorder**: Arbitrary page ordering
+- **Watermark**: Diagonal text overlay
+- **Metadata**: Title, author, subject, keywords
+- **Annotations**: Text, link, and highlight annotations
+- **Images**: JPEG embedding with aspect-ratio scaling
 
 ## Installation
 
@@ -160,24 +177,61 @@ pdf-cli md-to-pdf sample.md sample.pdf --font "Times-Roman" --font-size 12
 
 ```
 
+## Library Usage
+
+```rust
+use pdf_rs::{elements, pdf_generator, pdf};
+
+// Parse markdown into elements
+let elements = elements::parse_markdown("# Hello\n\nWorld");
+
+// Generate PDF bytes in memory
+let layout = pdf_generator::PageLayout::portrait();
+let pdf_bytes = pdf_generator::generate_pdf_bytes(
+    &elements, "Helvetica", 12.0, layout
+).unwrap();
+
+// Validate the generated PDF
+let validation = pdf::validate_pdf_bytes(&pdf_bytes);
+assert!(validation.valid);
+assert!(validation.page_count >= 1);
+```
+
 ## Architecture
 
 This tool is built with a modular architecture:
 
-- **PDF Parser** (`src/pdf.rs`): PDF parsing, text extraction, font encoding (WinAnsi/MacRoman)
-- **PDF Generator** (`src/pdf_generator.rs`): Creates PDFs with configurable layout and page numbering
-- **Elements** (`src/elements.rs`): Structured markdown element types and parser
+- **PDF Parser** (`src/pdf.rs`): PDF parsing, text extraction, validation, xref/object stream parsing
+- **PDF Generator** (`src/pdf_generator.rs`): Creates PDFs with layout, color, alignment, accessibility
+- **Elements** (`src/elements.rs`): 17 structured element types and markdown parser
 - **Markdown** (`src/markdown.rs`): Markdown-to-PDF pipeline with rich formatting
-- **PDF Operations** (`src/pdf_ops.rs`): Merge, split, rotate, metadata, annotations
-- **Image Handler** (`src/image.rs`): JPEG embedding with dimension parsing
-- **Compression** (`src/compression.rs`): PDF stream compression
+- **PDF Operations** (`src/pdf_ops.rs`): Merge, split, rotate, reorder, watermark, metadata, annotations
+- **Image Handler** (`src/image.rs`): JPEG/PNG/BMP embedding with dimension parsing
+- **Compression** (`src/compression.rs`): PDF stream compression (deflate)
+- **Security** (`src/security.rs`): Password protection, permissions
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation.
+
+## Testing
+
+251 tests across 4 test suites:
+- **115 lib tests**: Unit tests for all modules
+- **112 bin tests**: CLI command tests
+- **13 integration tests**: End-to-end roundtrip, merge, split, rotate, watermark, reorder
+- **11 bench tests**: Property-based and benchmark tests
+
+Round-trip validation tests verify that every element type survives: generate → validate → parse → verify.
+
+```bash
+cargo test
+```
 
 ## Limitations
 
 - Text extraction works best with PDFs generated by this tool or simple Type 1 font PDFs
 - Font support is limited to standard Type 1 fonts (Helvetica, Times-Roman, Courier)
-- Image support is JPEG only (PNG/BMP dimension parsing available but not embedding)
-- Encryption and interactive forms are not yet implemented
+- Image embedding is JPEG-focused (PNG/BMP dimension parsing available)
+- Full tagged PDF output not yet implemented (structure types defined)
 
 ## Contributing
 

@@ -27,7 +27,7 @@ fn elements_to_text(elements: &[Element]) -> String {
                 text.push_str(t);
                 text.push('\n');
             }
-            Element::OrderedListItem { number, text: t, .. } => {
+            Element::OrderedListItem { number: _, text: t, .. } => {
                 text.push_str("• ");
                 text.push_str(t);
                 text.push('\n');
@@ -70,6 +70,30 @@ fn elements_to_text(elements: &[Element]) -> String {
                 text.push_str(&prefix);
                 text.push_str(t);
                 text.push('\n');
+            }
+            Element::InlineCode { code } => {
+                text.push_str(code);
+                text.push('\n');
+            }
+            Element::Link { text: t, url } => {
+                text.push_str(t);
+                text.push_str(" (");
+                text.push_str(url);
+                text.push_str(")\n");
+            }
+            Element::Image { alt, path } => {
+                text.push_str("[Image: ");
+                text.push_str(alt);
+                text.push_str("] (");
+                text.push_str(path);
+                text.push_str(")\n");
+            }
+            Element::StyledText { text: t, .. } => {
+                text.push_str(t);
+                text.push('\n');
+            }
+            Element::PageBreak => {
+                text.push_str("\n---\n");
             }
             Element::HorizontalRule => {
                 text.push_str("---\n");

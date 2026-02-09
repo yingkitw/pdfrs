@@ -1,0 +1,667 @@
+%PDF-1.4
+%����
+1 0 obj
+<< /Length 2247 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+72 712 Td
+/F1 24 Tf
+78 712 Td
+(Quarterly Engineering Report - Q4 2025) Tj
+72 676 Td
+72 668 Td
+72 660 Td
+/F1 19.2 Tf
+72 660 Td
+(Executive Summary) Tj
+72 628.8 Td
+72 620.8 Td
+/F1 12 Tf
+72 620.8 Td
+(This report covers the critical milestones achieved during Q4 2025. Our team delivered significant improvements across all product lines, with a focus on performance optimization and system reliability.) Tj
+72 596.8 Td
+72 588.8 Td
+/F1 12 Tf
+72 588.8 Td
+(---) Tj
+72 564.8 Td
+72 556.8 Td
+72 548.8 Td
+/F1 19.2 Tf
+72 548.8 Td
+(1. Project Metrics Overview) Tj
+72 517.6 Td
+72 509.59998 Td
+/F1 12 Tf
+72 509.59998 Td
+(Metric  Q3 2025  Q4 2025  Change) Tj
+/F1 12 Tf
+72 493.59998 Td
+(--------  ---------  ---------  --------) Tj
+/F1 12 Tf
+72 477.59998 Td
+(Uptime  99.2%  99.8%  +0.6%) Tj
+/F1 12 Tf
+72 461.59998 Td
+(Response Time \(ms\)  245  128  -47.8%) Tj
+/F1 12 Tf
+72 445.59998 Td
+(Active Users  12,500  18,300  +46.4%) Tj
+/F1 12 Tf
+72 429.59998 Td
+(Bug Reports  87  34  -60.9%) Tj
+/F1 12 Tf
+72 413.59998 Td
+(Test Coverage  72%  91%  +19%) Tj
+72 389.59998 Td
+72 381.59998 Td
+/F1 15.599999 Tf
+72 381.59998 Td
+(Performance Breakdown by Service) Tj
+72 353.99997 Td
+72 345.99997 Td
+/F1 12 Tf
+72 345.99997 Td
+(Service  Latency P50  Latency P99  Error Rate) Tj
+/F1 12 Tf
+72 329.99997 Td
+(---------  -------------  -------------  ------------) Tj
+/F1 12 Tf
+72 313.99997 Td
+(Auth API  12ms  45ms  0.01%) Tj
+/F1 12 Tf
+72 297.99997 Td
+(Data Pipeline  230ms  890ms  0.12%) Tj
+/F1 12 Tf
+72 281.99997 Td
+(Search Engine  45ms  210ms  0.03%) Tj
+/F1 12 Tf
+72 265.99997 Td
+(Notification  8ms  32ms  0.00%) Tj
+72 241.99997 Td
+72 233.99997 Td
+/F1 19.2 Tf
+72 233.99997 Td
+(2. Architecture Changes) Tj
+72 202.79997 Td
+72 194.79997 Td
+72 186.79997 Td
+/F1 15.599999 Tf
+72 186.79997 Td
+(2.1 Microservice Migration) Tj
+72 159.19998 Td
+72 151.19998 Td
+/F1 12 Tf
+72 151.19998 Td
+(We completed the migration from monolith to microservices:) Tj
+72 127.19998 Td
+/F1 12 Tf
+72 127.19998 Td
+(• Auth Service: Handles authentication and authorization) Tj
+/F1 12 Tf
+72 111.19998 Td
+(• User Service: Manages user profiles and preferences) Tj
+/F1 12 Tf
+72 95.19998 Td
+(• Data Service: Processes and stores application data) Tj
+ET
+BT
+/F1 9 Tf
+286 36 Td
+(Page 1) Tj
+ET
+
+endstream
+endobj
+2 0 obj
+<< /Type /Page
+/Parent 16 0 R
+/MediaBox [0 0 612 792]
+/Contents 1 0 R
+/Resources << /Font << /F1 3 0 R >> >>
+>>
+endobj
+3 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+4 0 obj
+<< /Length 2564 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+/F1 12 Tf
+72 720 Td
+(• Notification Service: Manages email, SMS, and push notifications) Tj
+/F1 12 Tf
+72 704 Td
+(• Analytics Service: Real-time event processing and reporting) Tj
+72 680 Td
+72 672 Td
+/F1 15.599999 Tf
+72 672 Td
+(2.2 Infrastructure Updates) Tj
+72 644.4 Td
+72 636.4 Td
+/F1 12 Tf
+72 636.4 Td
+(1. Migrated to Kubernetes 1.28) Tj
+/F1 12 Tf
+72 620.4 Td
+(2. Implemented service mesh with Istio) Tj
+/F1 12 Tf
+72 604.4 Td
+(3. Deployed distributed tracing with OpenTelemetry) Tj
+/F1 12 Tf
+72 588.4 Td
+(4. Set up automated canary deployments) Tj
+/F1 12 Tf
+72 572.4 Td
+(  1. Blue-green deployment for critical services) Tj
+/F1 12 Tf
+72 556.4 Td
+(  2. Rolling updates for non-critical services) Tj
+72 532.4 Td
+72 524.4 Td
+/F1 15.599999 Tf
+72 524.4 Td
+(2.3 Database Architecture) Tj
+72 496.80002 Td
+72 488.80002 Td
+72 480.80002 Td
+0.5 0.5 0.5 rg
+/F1 10.200001 Tf
+72 480.80002 Td
+(-- New sharding strategy for user data) Tj
+/F1 10.200001 Tf
+72 466.6 Td
+(CREATE TABLE users_shard_0 \() Tj
+/F1 10.200001 Tf
+72 452.4 Td
+(    id BIGINT PRIMARY KEY,) Tj
+/F1 10.200001 Tf
+72 438.19998 Td
+(    username VARCHAR\(255\) NOT NULL,) Tj
+/F1 10.200001 Tf
+72 423.99997 Td
+(    email VARCHAR\(255\) UNIQUE,) Tj
+/F1 10.200001 Tf
+72 409.79996 Td
+(    created_at TIMESTAMP DEFAULT NOW\(\),) Tj
+/F1 10.200001 Tf
+72 395.59995 Td
+(    shard_key INT GENERATED ALWAYS AS \(id % 16\) STORED) Tj
+/F1 10.200001 Tf
+72 381.39993 Td
+(\);) Tj
+/F1 10.200001 Tf
+72 367.19992 Td
+() Tj
+/F1 10.200001 Tf
+72 352.9999 Td
+(-- Index optimization) Tj
+/F1 10.200001 Tf
+72 338.7999 Td
+(CREATE INDEX idx_users_email ON users_shard_0\(email\);) Tj
+/F1 10.200001 Tf
+72 324.59988 Td
+(CREATE INDEX idx_users_created ON users_shard_0\(created_at DESC\);) Tj
+0 0 0 rg
+72 302.39987 Td
+72 294.39987 Td
+72 286.39987 Td
+/F1 19.2 Tf
+72 286.39987 Td
+(3. Code Quality Improvements) Tj
+72 255.19986 Td
+72 247.19986 Td
+72 239.19986 Td
+/F1 15.599999 Tf
+72 239.19986 Td
+(3.1 Rust Backend Refactoring) Tj
+72 211.59985 Td
+72 203.59985 Td
+72 195.59985 Td
+0.5 0.5 0.5 rg
+/F1 10.200001 Tf
+72 195.59985 Td
+(use std::sync::Arc;) Tj
+/F1 10.200001 Tf
+72 181.39986 Td
+(use tokio::sync::RwLock;) Tj
+/F1 10.200001 Tf
+72 167.19986 Td
+() Tj
+/F1 10.200001 Tf
+72 152.99986 Td
+(#[derive\(Clone\)]) Tj
+/F1 10.200001 Tf
+72 138.79987 Td
+(pub struct AppState {) Tj
+/F1 10.200001 Tf
+72 124.59987 Td
+(    db: Arc<RwLock<DatabasePool>>,) Tj
+/F1 10.200001 Tf
+72 110.39987 Td
+(    cache: Arc<RwLock<CacheLayer>>,) Tj
+/F1 10.200001 Tf
+72 96.199875 Td
+(    config: Arc<AppConfig>,) Tj
+ET
+BT
+/F1 9 Tf
+286 36 Td
+(Page 2) Tj
+ET
+
+endstream
+endobj
+5 0 obj
+<< /Type /Page
+/Parent 16 0 R
+/MediaBox [0 0 612 792]
+/Contents 4 0 R
+/Resources << /Font << /F1 6 0 R >> >>
+>>
+endobj
+6 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+7 0 obj
+<< /Length 2741 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+/F1 10.200001 Tf
+72 720 Td
+(}) Tj
+/F1 10.200001 Tf
+72 705.8 Td
+() Tj
+/F1 10.200001 Tf
+72 691.6 Td
+(impl AppState {) Tj
+/F1 10.200001 Tf
+72 677.39996 Td
+(    pub async fn new\(config: AppConfig\) -> anyhow::Result<Self> {) Tj
+/F1 10.200001 Tf
+72 663.19995 Td
+(        let db = DatabasePool::connect\(&config.database_url\).await?;) Tj
+/F1 10.200001 Tf
+72 648.99994 Td
+(        let cache = CacheLayer::new\(&config.cache_url\).await?;) Tj
+/F1 10.200001 Tf
+72 634.7999 Td
+(        Ok\(Self {) Tj
+/F1 10.200001 Tf
+72 620.5999 Td
+(            db: Arc::new\(RwLock::new\(db\)\),) Tj
+/F1 10.200001 Tf
+72 606.3999 Td
+(            cache: Arc::new\(RwLock::new\(cache\)\),) Tj
+/F1 10.200001 Tf
+72 592.1999 Td
+(            config: Arc::new\(config\),) Tj
+/F1 10.200001 Tf
+72 577.9999 Td
+(        }\)) Tj
+/F1 10.200001 Tf
+72 563.79987 Td
+(    }) Tj
+/F1 10.200001 Tf
+72 549.59985 Td
+(}) Tj
+0 0 0 rg
+72 527.39984 Td
+72 519.39984 Td
+72 511.39984 Td
+/F1 15.599999 Tf
+72 511.39984 Td
+(3.2 Python Data Pipeline) Tj
+72 483.79984 Td
+72 475.79984 Td
+72 467.79984 Td
+0.5 0.5 0.5 rg
+/F1 10.200001 Tf
+72 467.79984 Td
+(from dataclasses import dataclass) Tj
+/F1 10.200001 Tf
+72 453.59982 Td
+(from typing import List, Optional) Tj
+/F1 10.200001 Tf
+72 439.3998 Td
+(import asyncio) Tj
+/F1 10.200001 Tf
+72 425.1998 Td
+() Tj
+/F1 10.200001 Tf
+72 410.9998 Td
+(@dataclass) Tj
+/F1 10.200001 Tf
+72 396.79977 Td
+(class PipelineConfig:) Tj
+/F1 10.200001 Tf
+72 382.59976 Td
+(    batch_size: int = 1000) Tj
+/F1 10.200001 Tf
+72 368.39975 Td
+(    max_retries: int = 3) Tj
+/F1 10.200001 Tf
+72 354.19974 Td
+(    timeout_seconds: float = 30.0) Tj
+/F1 10.200001 Tf
+72 339.99973 Td
+() Tj
+/F1 10.200001 Tf
+72 325.7997 Td
+(async def process_batch\(items: List[dict], config: PipelineConfig\) -> dict:) Tj
+/F1 10.200001 Tf
+72 311.5997 Td
+(    results = {"processed": 0, "failed": 0, "skipped": 0}) Tj
+/F1 10.200001 Tf
+72 297.3997 Td
+(    for item in items:) Tj
+/F1 10.200001 Tf
+72 283.19968 Td
+(        try:) Tj
+/F1 10.200001 Tf
+72 268.99966 Td
+(            await transform_and_load\(item\)) Tj
+/F1 10.200001 Tf
+72 254.79967 Td
+(            results["processed"] += 1) Tj
+/F1 10.200001 Tf
+72 240.59967 Td
+(        except Exception as e:) Tj
+/F1 10.200001 Tf
+72 226.39967 Td
+(            results["failed"] += 1) Tj
+/F1 10.200001 Tf
+72 212.19968 Td
+(    return results) Tj
+0 0 0 rg
+72 189.99968 Td
+72 181.99968 Td
+72 173.99968 Td
+/F1 19.2 Tf
+72 173.99968 Td
+(4. Team Accomplishments) Tj
+72 142.79968 Td
+72 134.79968 Td
+72 126.79968 Td
+/F1 15.599999 Tf
+72 126.79968 Td
+(Engineering Team) Tj
+72 99.199684 Td
+72 91.199684 Td
+/F1 12 Tf
+72 91.199684 Td
+(• Alice Chen: Led the Kubernetes migration, reducing deployment time by 75%) Tj
+ET
+BT
+/F1 9 Tf
+286 36 Td
+(Page 3) Tj
+ET
+
+endstream
+endobj
+8 0 obj
+<< /Type /Page
+/Parent 16 0 R
+/MediaBox [0 0 612 792]
+/Contents 7 0 R
+/Resources << /Font << /F1 9 0 R >> >>
+>>
+endobj
+9 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+10 0 obj
+<< /Length 2515 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+/F1 12 Tf
+72 720 Td
+(• Bob Martinez: Implemented distributed caching, improving response times by 48%) Tj
+/F1 12 Tf
+72 704 Td
+(• Charlie Kim: Redesigned the data pipeline, handling 3x more throughput) Tj
+/F1 12 Tf
+72 688 Td
+(• Diana Patel: Built the new monitoring dashboard with real-time alerting) Tj
+72 664 Td
+72 656 Td
+/F1 15.599999 Tf
+72 656 Td
+(Key Deliverables) Tj
+72 628.4 Td
+72 620.4 Td
+/F1 12 Tf
+72 620.4 Td
+(1. Zero-downtime deployment pipeline) Tj
+/F1 12 Tf
+72 604.4 Td
+(2. Automated security scanning in CI/CD) Tj
+/F1 12 Tf
+72 588.4 Td
+(3. Real-time anomaly detection system) Tj
+/F1 12 Tf
+72 572.4 Td
+(4. Self-healing infrastructure with auto-scaling) Tj
+/F1 12 Tf
+72 556.4 Td
+(5. Comprehensive API documentation portal) Tj
+72 532.4 Td
+72 524.4 Td
+/F1 19.2 Tf
+72 524.4 Td
+(5. Challenges and Lessons Learned) Tj
+72 493.2 Td
+72 485.2 Td
+/F1 12 Tf
+72 485.2 Td
+(The migration presented several challenges:) Tj
+72 461.2 Td
+/F1 12 Tf
+72 461.2 Td
+(• Memory leaks in the connection pooling layer required careful profiling with valgrind and heaptrack) Tj
+/F1 12 Tf
+72 445.2 Td
+(• Race conditions in the distributed lock mechanism needed thorough testing with chaos engineering) Tj
+/F1 12 Tf
+72 429.2 Td
+(• Schema migrations across 16 database shards required careful coordination) Tj
+72 405.2 Td
+72 397.2 Td
+/F1 15.599999 Tf
+72 397.2 Td
+(Risk Mitigation Strategies) Tj
+72 369.6 Td
+72 361.6 Td
+/F1 12 Tf
+72 361.6 Td
+(Risk  Probability  Impact  Mitigation) Tj
+/F1 12 Tf
+72 345.6 Td
+(------  -------------  --------  ------------) Tj
+/F1 12 Tf
+72 329.6 Td
+(Data loss during migration  Low  Critical  Multi-region backups) Tj
+/F1 12 Tf
+72 313.6 Td
+(Service degradation  Medium  High  Circuit breakers) Tj
+/F1 12 Tf
+72 297.6 Td
+(Security vulnerability  Low  Critical  Automated scanning) Tj
+/F1 12 Tf
+72 281.6 Td
+(Team burnout  Medium  Medium  Sprint planning) Tj
+72 257.6 Td
+72 249.6 Td
+/F1 19.2 Tf
+72 249.6 Td
+(6. Next Quarter Goals) Tj
+72 218.40001 Td
+72 210.40001 Td
+72 202.40001 Td
+/F1 15.599999 Tf
+72 202.40001 Td
+(Q1 2026 Priorities) Tj
+72 174.80002 Td
+72 166.80002 Td
+/F1 12 Tf
+72 166.80002 Td
+([ ] Complete GraphQL API migration) Tj
+/F1 12 Tf
+72 150.80002 Td
+([ ] Implement end-to-end encryption) Tj
+/F1 12 Tf
+72 134.80002 Td
+([ ] Launch self-service analytics portal) Tj
+/F1 12 Tf
+72 118.80002 Td
+([ ] Achieve 99.95% uptime SLA) Tj
+/F1 12 Tf
+72 102.80002 Td
+([ ] Reduce P99 latency below 200ms for all services) Tj
+72 78.80002 Td
+ET
+BT
+/F1 9 Tf
+286 36 Td
+(Page 4) Tj
+ET
+
+endstream
+endobj
+11 0 obj
+<< /Type /Page
+/Parent 16 0 R
+/MediaBox [0 0 612 792]
+/Contents 10 0 R
+/Resources << /Font << /F1 12 0 R >> >>
+>>
+endobj
+12 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+13 0 obj
+<< /Length 709 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+72 712 Td
+/F1 15.599999 Tf
+72 712 Td
+(Budget Allocation) Tj
+72 684.4 Td
+72 676.4 Td
+/F1 12 Tf
+72 676.4 Td
+(Category  Budget  Spent  Remaining) Tj
+/F1 12 Tf
+72 660.4 Td
+(----------  --------  -------  -----------) Tj
+/F1 12 Tf
+72 644.4 Td
+(Infrastructure  $120,000  $98,500  $21,500) Tj
+/F1 12 Tf
+72 628.4 Td
+(Tooling  $45,000  $38,200  $6,800) Tj
+/F1 12 Tf
+72 612.4 Td
+(Training  $20,000  $12,000  $8,000) Tj
+/F1 12 Tf
+72 596.4 Td
+(Contingency  $15,000  $3,200  $11,800) Tj
+72 572.4 Td
+72 564.4 Td
+/F1 12 Tf
+72 564.4 Td
+(---) Tj
+72 540.4 Td
+72 532.4 Td
+/F1 12 Tf
+72 532.4 Td
+(Report generated on 2025-12-31. Confidential - Internal Use Only.) Tj
+ET
+BT
+/F1 9 Tf
+286 36 Td
+(Page 5) Tj
+ET
+
+endstream
+endobj
+14 0 obj
+<< /Type /Page
+/Parent 16 0 R
+/MediaBox [0 0 612 792]
+/Contents 13 0 R
+/Resources << /Font << /F1 15 0 R >> >>
+>>
+endobj
+15 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+16 0 obj
+<< /Type /Pages
+/Kids [2 0 R 5 0 R 8 0 R 11 0 R 14 0 R]
+/Count 5
+>>
+endobj
+17 0 obj
+<< /Type /Catalog
+/Pages 16 0 R
+>>
+endobj
+xref
+0 18
+0000000000 65535 f 
+0000000015 00000 n 
+0000002314 00000 n 
+0000002441 00000 n 
+0000002511 00000 n 
+0000005127 00000 n 
+0000005254 00000 n 
+0000005324 00000 n 
+0000008117 00000 n 
+0000008244 00000 n 
+0000008314 00000 n 
+0000010882 00000 n 
+0000011012 00000 n 
+0000011083 00000 n 
+0000011844 00000 n 
+0000011974 00000 n 
+0000012045 00000 n 
+0000012129 00000 n 
+trailer
+<<
+/Size 18
+/Root 17 0 R
+>>
+startxref
+12180
+%%EOF

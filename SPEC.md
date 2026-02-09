@@ -72,6 +72,33 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR8.1**: Text annotations with positioned notes on pages
 - **FR8.2**: Link annotations with clickable URI actions
 - **FR8.3**: Multiple JPEG images per page with independent positioning
+- **FR8.4**: Highlight annotations with QuadPoints and color
+
+#### FR9: Library API
+
+- **FR9.1**: In-memory PDF generation via `generate_pdf_bytes()` (no filesystem needed)
+- **FR9.2**: PDF structural validation via `validate_pdf_bytes()` returning `PdfValidation`
+- **FR9.3**: Rich `Element` enum with 17 variants for document modeling
+- **FR9.4**: Round-trip validation: generate → validate → parse → verify content
+- **FR9.5**: Cross-reference stream parsing for PDF 1.5+ (`parse_xref_stream`)
+- **FR9.6**: Object stream handling for compressed objects (`parse_object_stream`)
+
+#### FR10: Extended Markdown Elements
+
+- **FR10.1**: Image elements (`![alt](path)`) parsed and rendered
+- **FR10.2**: Standalone link elements (`[text](url)`) parsed and rendered in blue
+- **FR10.3**: Page break elements (`<!-- pagebreak -->` or `\pagebreak`)
+- **FR10.4**: Inline code elements rendered with gray color
+- **FR10.5**: Styled text elements (bold/italic) preserved
+- **FR10.6**: Footnotes with label and text (`[^label]: text`)
+- **FR10.7**: Definition lists (`term` / `: definition`)
+
+#### FR11: Text Styling
+
+- **FR11.1**: RGB color support via `Color` struct
+- **FR11.2**: Text alignment (Left, Center) via `TextAlign` enum
+- **FR11.3**: H1 headings centered, code blocks in gray, links in blue
+- **FR11.4**: Watermarks with diagonal text, configurable opacity/size
 
 ### Non-Functional Requirements
 
@@ -330,24 +357,21 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 
 ## Future Enhancements
 
-### Phase 2 Features
+### Completed Features
 
-- Advanced PDF parsing (forms, annotations)
-- More font options and embedding
-- Enhanced image support (PNG with transparency)
-- Advanced Markdown features (task lists, footnotes)
+- Advanced PDF parsing (xref streams, object streams, font encodings)
+- Annotations (text, link, highlight)
+- PDF manipulation (merge, split, rotate, reorder, watermark)
+- Security (password protection, permissions)
+- Library API (in-memory generation, validation)
+- 17 element types with round-trip validation
+- 251 tests (115 lib + 112 bin + 13 integration + 11 bench)
 
-### Phase 3 Features
+### Remaining Features
 
-- PDF encryption and security
+- Embedded/TrueType font support
+- Full tagged PDF output for accessibility
+- Vector graphics (SVG) support
 - Digital signatures
-- PDF merging and splitting
-- OCR for scanned PDFs
-- GUI interface
-
-### Long-term Goals
-
-- Full PDF 2.0 compliance
 - WebAssembly compilation
-- Cloud processing capabilities
-- Integration with document management systems
+- Rustdoc API documentation with examples

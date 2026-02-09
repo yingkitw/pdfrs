@@ -34,7 +34,12 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] Roundtrip MD->PDF->MD with complex examples
 - [x] PDF stream parsing for Tj text operators
 - [x] Escaped parentheses handling in PDF strings
-- [x] Integration tests for roundtrip validation (5 test cases)
+- [x] Integration tests for roundtrip validation (17 test cases)
+- [x] Complex PDF generation examples validated via round-trip:
+  - [x] `full_features.md` — all 17 element types (10KB, 6 pages)
+  - [x] `technical_report_complex.md` — dense tables, multi-language code, nested lists (23KB, 6+ pages)
+  - [x] `api_reference_complex.md` — definitions, footnotes, code examples, feature matrix (28KB, 8+ pages)
+- [x] Library API integration tests (generate_pdf_bytes + validate_pdf_bytes, portrait + landscape batch)
 
 ---
 
@@ -48,8 +53,8 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] BMP dimension parsing
   - [x] Image scaling and optimization (aspect-ratio preserving)
   - [x] CLI add-image command wired up
-  - [ ] PNG pixel data embedding
-  - [ ] BMP pixel data embedding
+  - [x] PNG pixel data embedding
+  - [x] BMP pixel data embedding
 
 ### 🟡 High
 
@@ -59,24 +64,24 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] TJ array operator support for text extraction
   - [x] Improved dictionary parsing
   - [x] Octal escape handling in PDF strings
-  - [ ] Cross-reference stream parsing (for PDF 1.5+)
-  - [ ] Object stream handling
+  - [x] Cross-reference stream parsing (for PDF 1.5+) — `parse_xref_stream` with /W field widths
+  - [x] Object stream handling — `parse_object_stream` for /Type /ObjStm
 
 - [x] Enhanced Markdown features
   - [x] Task list support
-  - [ ] Footnotes and references
+  - [x] Footnotes and references (definitions + inline ref stripping)
   - [x] Definition lists
   - [x] Strikethrough text
   - [x] Blockquote support (nested)
   - [x] Tables with alignment parsing (left/center/right)
 
 - [x] PDF generation improvements
-  - [ ] Text justification and alignment
+  - [x] Text justification and alignment (H1 centered, TextAlign enum)
   - [x] Page numbering
   - [x] Header font size hierarchy (H1-H6)
   - [x] Code block reduced font size
   - [x] Horizontal rule rendering
-  - [ ] Watermarks
+  - [x] Watermarks — `watermark` CLI command (diagonal text, configurable opacity/size)
   - [x] Page orientation (landscape/portrait) with --landscape CLI flag
 
 ### 🟢 Medium
@@ -85,11 +90,11 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [ ] Embedded font support
   - [ ] TrueType font handling
   - [x] Font size variations within document (headers, code blocks)
-  - [ ] Text color support
+  - [x] Text color support — `Color` struct (RGB), code blocks in gray
 
-- [ ] Security features
-  - [ ] Password protection
-  - [ ] User/owner permissions
+- [x] Security features
+  - [x] Password protection — `PdfSecurity` with user/owner passwords
+  - [x] User/owner permissions — `PdfPermissions` with PDF 1.7 compliance
   - [ ] Digital signatures
 
 - [ ] Performance improvements
@@ -107,33 +112,36 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] PDF manipulation features
   - [x] PDF merging (combine multiple PDFs) — `merge` CLI command
   - [x] PDF splitting (extract pages) — `split` CLI command
-  - [ ] Page reordering
+  - [x] Page reordering — `reorder` CLI command (comma-separated page order)
   - [x] Page rotation — `rotate` CLI command (0/90/180/270°)
 
-- [ ] Advanced image features
+- [x] Advanced image features
   - [ ] Image filters and effects
   - [x] Multiple images per page — `create_pdf_with_images` API
-  - [ ] Image overlay and watermarking
+  - [x] Image overlay and watermarking
   - [ ] Vector graphics support
 
 - [x] Form and annotation support
-  - [ ] Interactive form fields
+  - [x] Interactive form fields
   - [x] Text annotations — `TextAnnotation` + `create_pdf_with_annotations` API
   - [x] Link annotations — `LinkAnnotation` with URI actions
-  - [ ] Highlighting and markup
+  - [x] Highlighting and markup — `HighlightAnnotation` with QuadPoints
 
 ### 🟢 Medium
 
 - [x] Metadata handling
   - [x] Document properties (title, author, subject, keywords) — `md-to-pdf-meta` CLI
   - [x] Producer tag (pdf-cli)
-  - [ ] Custom metadata fields
-  - [ ] Metadata preservation during conversion
+  - [x] Custom metadata fields
+  - [x] Metadata preservation during conversion
 
-- [ ] Accessibility features
-  - [ ] Tagged PDF generation
-  - [ ] Screen reader support
-  - [ ] Alt text for images
+- [x] Accessibility features
+  - [x] Tagged PDF structure types (`StructureType` enum, 35 types)
+  - [x] `StructureElement` tree with alt_text, actual_text
+  - [x] `element_to_structure()` mapping for all Element variants
+  - [x] `AccessibilityOptions` builder (tagged_pdf, language, title)
+  - [ ] Full tagged PDF generation in output
+  - [ ] Screen reader compliance testing
 
 - [ ] Localization
   - [ ] Multi-language error messages
@@ -146,10 +154,14 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 ### 🟡 High
 
-- [ ] Library API
-  - [ ] Crate for use as a library
-  - [ ] Rust API documentation
-  - [ ] Example usage patterns
+- [x] Library API
+  - [x] Crate for use as a library (`pdf-rs` with `pub mod` exports)
+  - [x] `generate_pdf_bytes()` — in-memory PDF generation without filesystem
+  - [x] `validate_pdf()` / `validate_pdf_bytes()` — structural PDF validation
+  - [x] `PdfValidation` result struct (errors, warnings, page_count, object_count)
+  - [x] Rich `Element` enum with 17 variants for document modeling
+  - [ ] Rust API documentation (rustdoc with examples)
+  - [ ] Example usage patterns (examples/ directory)
 
 - [ ] Plugin system
   - [ ] Plugin architecture
@@ -175,18 +187,21 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 ### 🔴 Critical
 
-- [ ] Comprehensive test suite
-  - [ ] Unit tests for all modules
-  - [ ] Integration tests for workflows
-  - [ ] Performance benchmarks
-  - [ ] Property-based tests
+- [x] Comprehensive test suite (258 tests: 115 lib + 112 bin + 20 integration + 11 bench)
+  - [x] Unit tests for all modules (pdf, pdf_generator, pdf_ops, elements, markdown, image, compression)
+  - [x] Integration tests for workflows (roundtrip, merge, split, rotate, watermark, reorder, metadata)
+  - [x] Round-trip validation tests (generate → validate → parse → verify all element types)
+  - [x] Performance benchmarks (criterion-based)
+  - [x] Property-based tests (proptest for compression, image, pdf_ops, elements modules)
   - [ ] Automated testing pipeline
 
-- [ ] Documentation
-  - [ ] API documentation
+- [x] Documentation
+  - [x] README.md with all CLI commands and examples
+  - [x] ARCHITECTURE.md with module descriptions
+  - [x] SPEC.md with functional requirements
+  - [ ] API documentation (rustdoc with examples)
   - [ ] User guide
   - [ ] Contributing guidelines
-  - [ ] Code comments and documentation
 
 ### 🟡 High
 

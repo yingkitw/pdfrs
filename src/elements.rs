@@ -17,10 +17,15 @@ pub enum Element {
     OrderedListItem { number: u32, text: String, depth: u8 },
     TaskListItem { checked: bool, text: String },
     CodeBlock { language: String, code: String },
+    InlineCode { code: String },
     TableRow { cells: Vec<String>, is_separator: bool, alignments: Vec<TableAlignment> },
     BlockQuote { text: String, depth: u8 },
     DefinitionItem { term: String, definition: String },
     Footnote { label: String, text: String },
+    Link { text: String, url: String },
+    Image { alt: String, path: String },
+    StyledText { text: String, bold: bool, italic: bool },
+    PageBreak,
     HorizontalRule,
     EmptyLine,
 }
@@ -141,6 +146,37 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
             elements.push(Element::Heading { level, text });
             i += 1;
             continue;
+        }
+
+        // Page break: <!-- pagebreak --> or \pagebreak
+        if trimmed == "<!-- pagebreak -->" || trimmed == "\\pagebreak" {
+            elements.push(Element::PageBreak);
+            i += 1;
+            continue;
+        }
+
+        // Image: ![alt](path)
+        if trimmed.starts_with("![") {
+            let img_re = regex::Regex::new(r"^!\[([^\]]*)\]\(([^\)]+)\)$").unwrap();
+            if let Some(caps) = img_re.captures(trimmed) {
+                let alt = caps[1].to_string();
+                let path = caps[2].to_string();
+                elements.push(Element::Image { alt, path });
+                i += 1;
+                continue;
+            }
+        }
+
+        // Standalone link line: [text](url) — only if the entire line is a link
+        if trimmed.starts_with('[') && !trimmed.starts_with("[^") {
+            let link_re = regex::Regex::new(r"^\[([^\]]+)\]\(([^\)]+)\)$").unwrap();
+            if let Some(caps) = link_re.captures(trimmed) {
+                let text = caps[1].to_string();
+                let url = caps[2].to_string();
+                elements.push(Element::Link { text, url });
+                i += 1;
+                continue;
+            }
         }
 
         // Blockquote
@@ -406,5 +442,170 @@ mod tests {
             label: "note".into(),
             text: "A named footnote.".into(),
         });
+    }
+
+    #[test]
+    fn test_parse_image() {
+        let md = "![Logo](images/logo.png)";
+        let elements = parse_markdown(md);
+        assert_eq!(elements.len(), 1);
+        assert_eq!(elements[0], Element::Image {
+            alt: "Logo".into(),
+            path: "images/logo.png".into(),
+        });
+    }
+
+    #[test]
+    fn test_parse_image_empty_alt() {
+        let md = "![](photo.jpg)";
+        let elements = parse_markdown(md);
+        assert_eq!(elements.len(), 1);
+        assert_eq!(elements[0], Element::Image {
+            alt: "".into(),
+            path: "photo.jpg".into(),
+        });
+    }
+
+    #[test]
+    fn test_parse_standalone_link() {
+        let md = "[Click here](https://example.com)";
+        let elements = parse_markdown(md);
+        assert_eq!(elements.len(), 1);
+        assert_eq!(elements[0], Element::Link {
+            text: "Click here".into(),
+            url: "https://example.com".into(),
+        });
+    }
+
+    #[test]
+    fn test_parse_pagebreak_html() {
+        let md = "<!-- pagebreak -->";
+        let elements = parse_markdown(md);
+        assert_eq!(elements.len(), 1);
+        assert_eq!(elements[0], Element::PageBreak);
+    }
+
+    #[test]
+    fn test_parse_pagebreak_latex() {
+        let md = "\\pagebreak";
+        let elements = parse_markdown(md);
+        assert_eq!(elements.len(), 1);
+        assert_eq!(elements[0], Element::PageBreak);
+    }
+
+    #[test]
+    fn test_parse_mixed_new_elements() {
+        let md = "# Title\n\n![img](a.png)\n\n[link](http://x.com)\n\n<!-- pagebreak -->\n\nParagraph after break.";
+        let elements = parse_markdown(md);
+        let types: Vec<&str> = elements.iter().map(|e| match e {
+            Element::Heading { .. } => "heading",
+            Element::Image { .. } => "image",
+            Element::Link { .. } => "link",
+            Element::PageBreak => "pagebreak",
+            Element::Paragraph { .. } => "paragraph",
+            Element::EmptyLine => "empty",
+            _ => "other",
+        }).collect();
+        assert!(types.contains(&"heading"));
+        assert!(types.contains(&"image"));
+        assert!(types.contains(&"link"));
+        assert!(types.contains(&"pagebreak"));
+        assert!(types.contains(&"paragraph"));
+    }
+}
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn strip_inline_formatting_plain_text_idempotent(s in "[a-zA-Z0-9 ]{0,500}") {
+            // For plain text (no markdown chars), stripping should be idempotent
+            let stripped_once = strip_inline_formatting(&s);
+            let stripped_twice = strip_inline_formatting(&stripped_once);
+            prop_assert_eq!(stripped_once, stripped_twice);
+        }
+
+        #[test]
+        fn strip_inline_formatting_removes_formatting(s in "\\PC{0,500}") {
+            // Stripping should reduce or keep same length
+            let original = s.len();
+            let stripped = strip_inline_formatting(&s).len();
+            prop_assert!(stripped <= original, "Stripping should not increase length");
+        }
+
+        #[test]
+        fn strip_inline_formatting_doesnt_crash(s in "\\PC{0,500}") {
+            // Just ensure we don't panic on any input
+            let _ = strip_inline_formatting(&s);
+        }
+
+        #[test]
+        fn heading_levels_valid(heading in "#[ \t]{0,10}[a-zA-Z0-9 ]{0,100}") {
+            let elements = parse_markdown(&heading);
+            for elem in elements {
+                match elem {
+                    Element::Heading { level, .. } => {
+                        prop_assert!(level >= 1 && level <= 6, "Heading level must be 1-6");
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        #[test]
+        fn list_depths_non_negative(list in "-([ \t]{0,10}[a-zA-Z0-9 ]{1,50}){0,5}") {
+            let elements = parse_markdown(&list);
+            for elem in elements {
+                match elem {
+                    Element::UnorderedListItem { depth, .. } |
+                    Element::OrderedListItem { depth, .. } => {
+                        prop_assert!(depth <= 10, "List depth should be reasonable");
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        #[test]
+        fn empty_markdown_yields_empty(input in "\\PC*") {
+            let truncated = if input.len() > 1000 { &input[..1000] } else { &input };
+            let trimmed = truncated.trim();
+            if trimmed.is_empty() {
+                let elements = parse_markdown(trimmed);
+                prop_assert_eq!(elements.len(), 0);
+            }
+        }
+
+        #[test]
+        fn double_newline_creates_empty_line(text in "[a-zA-Z0-9 ]{1,50}") {
+            let md = format!("{}\n\n{}", text, text);
+            let elements = parse_markdown(&md);
+            // Should have at least one EmptyLine between paragraphs
+            prop_assert!(elements.iter().any(|e| matches!(e, Element::EmptyLine)));
+        }
+
+        #[test]
+        fn parse_then_strip_does_not_crash(s in "\\PC{0,1000}") {
+            let _ = parse_markdown(&s);
+            let _ = strip_inline_formatting(&s);
+            // Just ensure we don't panic
+        }
+
+        #[test]
+        fn footnote_definition_has_label(md in "\\[\\^[a-zA-Z0-9_]{1,20}\\]:[ \t]{0,5}[a-zA-Z0-9 ]{0,100}") {
+            let elements = parse_markdown(&md);
+            if !elements.is_empty() {
+                match &elements[0] {
+                    Element::Footnote { label, .. } => {
+                        prop_assert!(!label.is_empty());
+                        prop_assert!(label.len() <= 20);
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 }

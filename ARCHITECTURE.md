@@ -147,8 +147,15 @@ pub enum Element {
     OrderedListItem { number: u32, text: String, depth: u8 },
     TaskListItem { checked: bool, text: String },
     CodeBlock { language: String, code: String },
-    TableRow { cells: Vec<String>, is_separator: bool },
+    InlineCode { code: String },
+    TableRow { cells: Vec<String>, is_separator: bool, alignments: Vec<TableAlignment> },
     BlockQuote { text: String, depth: u8 },
+    DefinitionItem { term: String, definition: String },
+    Footnote { label: String, text: String },
+    Link { text: String, url: String },
+    Image { alt: String, path: String },
+    StyledText { text: String, bold: bool, italic: bool },
+    PageBreak,
     HorizontalRule,
     EmptyLine,
 }
@@ -232,8 +239,36 @@ pub fn create_image_content_stream(
 - `PdfMetadata`: Document properties (title, author, subject, keywords, creator)
 - `TextAnnotation`: Positioned text note on a page
 - `LinkAnnotation`: Clickable URI region on a page
+- `HighlightAnnotation`: Colored highlight rectangle with QuadPoints
+- `Color`: RGB color struct for text rendering
+- `TextAlign`: Left/Center alignment enum
 
-### 8. Compression Module (`src/compression.rs`)
+### 8. PDF Validation (`src/pdf.rs` — validation functions)
+
+**Purpose**: Validate PDF structural integrity
+
+**Key Functions**:
+
+- `validate_pdf()`: Validate a PDF file on disk
+- `validate_pdf_bytes()`: Validate PDF bytes in memory (no filesystem needed)
+- `parse_xref_stream()`: Parse PDF 1.5+ cross-reference streams
+- `parse_object_stream()`: Parse compressed object streams (/Type /ObjStm)
+
+**Key Types**:
+
+```rust
+pub struct PdfValidation {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub page_count: usize,
+    pub object_count: usize,
+}
+```
+
+**Validation Checks**: PDF header, %%EOF marker, xref table, trailer, /Catalog, /Pages, page count, object/endobj pairing, stream/endstream pairing, /Root reference.
+
+### 9. Compression Module (`src/compression.rs`)
 
 **Purpose**: Handle PDF stream compression
 
