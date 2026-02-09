@@ -180,7 +180,7 @@ pdf-cli md-to-pdf sample.md sample.pdf --font "Times-Roman" --font-size 12
 ## Library Usage
 
 ```rust
-use pdf_rs::{elements, pdf_generator, pdf};
+use pdfrs::{elements, pdf_generator, pdf};
 
 // Parse markdown into elements
 let elements = elements::parse_markdown("# Hello\n\nWorld");

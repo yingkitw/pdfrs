@@ -15,7 +15,7 @@ use std::path::Path;
 ///
 /// # Example
 /// ```rust,no_run
-/// use pdf_rs::parallel;
+/// use pdfrs::parallel;
 ///
 /// let inputs = vec!["file1.pdf", "file2.pdf", "file3.pdf"];
 /// let result = parallel::merge_pdfs_parallel(&inputs, "merged.pdf");
@@ -53,7 +53,7 @@ pub fn merge_pdfs_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P], outp
 ///
 /// # Example
 /// ```rust,no_run
-/// use pdf_rs::parallel;
+/// use pdfrs::parallel;
 ///
 /// let results = parallel::extract_text_parallel(&["doc1.pdf", "doc2.pdf"]);
 /// if let Ok(results) = results {
@@ -137,7 +137,7 @@ pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> 
 ///
 /// # Example
 /// ```rust,no_run
-/// use pdf_rs::parallel;
+/// use pdfrs::parallel;
 ///
 /// let results = parallel::process_pdfs_parallel(
 ///     &["doc1.pdf", "doc2.pdf", "doc3.pdf"],
@@ -194,7 +194,7 @@ impl ParallelPdfGenerator {
     ///
     /// # Example
     /// ```rust
-    /// use pdf_rs::parallel::ParallelPdfGenerator;
+    /// use pdfrs::parallel::ParallelPdfGenerator;
     /// use std::collections::HashMap;
     ///
     /// let generator = ParallelPdfGenerator::new();

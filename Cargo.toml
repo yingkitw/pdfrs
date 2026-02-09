@@ -1,16 +1,16 @@
 [package]
-name = "pdf-rs"
+name = "pdfrs"
 version = "0.1.0"
 edition = "2024"
 description = "A CLI tool to read/write PDFs and convert to/from markdown"
 authors = ["Ying Kit WONG"]
-documentation = "https://docs.rs/pdf-rs"
-repository = "https://github.com/yingkitw/pdf-rs"
-homepage = "https://github.com/yingkitw/pdf-rs"
+documentation = "https://docs.rs/pdfrs"
+repository = "https://github.com/yingkitw/pdfrs"
+homepage = "https://github.com/yingkitw/pdfrs"
 license = "Apache-2.0"
 
 [lib]
-name = "pdf_rs"
+name = "pdfrs"
 path = "src/lib.rs"
 
 [dependencies]
@@ -27,7 +27,7 @@ criterion = "0.5"
 proptest = "1.4"
 
 [[bin]]
-name = "pdf-cli"
+name = "pdfcli"
 path = "src/main.rs"
 
 [[bench]]

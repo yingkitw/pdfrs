@@ -3,7 +3,7 @@
 // Run benchmarks with: cargo bench
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use pdf_rs::{pdf, pdf_ops, pdf_generator, elements, builder, optimization, parallel};
+use pdfrs::{pdf, pdf_ops, pdf_generator, elements, builder, optimization, parallel};
 use std::collections::HashMap;
 
 /// Benchmark markdown parsing
@@ -99,7 +99,7 @@ fn bench_image_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("image_operations");
 
     group.bench_function("scale_dimensions", |b| {
-        b.iter(|| pdf_rs::image::scale_to_fit(black_box(1920), black_box(1080), 800.0, 600.0))
+        b.iter(|| pdfrs::image::scale_to_fit(black_box(1920), black_box(1080), 800.0, 600.0))
     });
 
     group.finish();
@@ -112,12 +112,12 @@ fn bench_compression(c: &mut Criterion) {
     let mut group = c.benchmark_group("compression");
 
     group.bench_function("compress_10kb", |b| {
-        b.iter(|| pdf_rs::compression::compress_deflate(black_box(&test_data)))
+        b.iter(|| pdfrs::compression::compress_deflate(black_box(&test_data)))
     });
 
     group.bench_function("decompress_10kb", |b| {
-        let compressed = pdf_rs::compression::compress_deflate(&test_data).unwrap();
-        b.iter(|| pdf_rs::compression::decompress_deflate(black_box(&compressed)))
+        let compressed = pdfrs::compression::compress_deflate(&test_data).unwrap();
+        b.iter(|| pdfrs::compression::decompress_deflate(black_box(&compressed)))
     });
 
     group.finish();
@@ -224,7 +224,7 @@ fn bench_streaming_generation(c: &mut Criterion) {
     group.bench_function("streaming_small", |b| {
         b.iter(|| {
             let small_elements: Vec<_> = large_elements.iter().take(10).cloned().collect();
-            let mut generator = pdf_rs::streaming::StreamingPdfGenerator::new(
+            let mut generator = pdfrs::streaming::StreamingPdfGenerator::new(
                 "/tmp/bench_stream_small.pdf",
                 pdf_generator::PageLayout::portrait(),
             ).unwrap();
@@ -237,7 +237,7 @@ fn bench_streaming_generation(c: &mut Criterion) {
 
     group.bench_function("streaming_large", |b| {
         b.iter(|| {
-            let mut generator = pdf_rs::streaming::StreamingPdfGenerator::new(
+            let mut generator = pdfrs::streaming::StreamingPdfGenerator::new(
                 "/tmp/bench_stream_large.pdf",
                 pdf_generator::PageLayout::portrait(),
             ).unwrap();

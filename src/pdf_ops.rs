@@ -24,7 +24,7 @@ use serde::{Serialize, Deserialize};
 /// # Example
 ///
 /// ```rust,no_run
-/// use pdf_rs::pdf_ops;
+/// use pdfrs::pdf_ops;
 ///
 /// pdf_ops::merge_pdfs(
 ///     &["file1.pdf", "file2.pdf", "file3.pdf"],
@@ -87,8 +87,8 @@ pub fn merge_pdfs(input_files: &[&str], output_file: &str) -> Result<()> {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pdf_rs::pdf_ops;
-/// use pdf_rs::pdf::PdfDocument;
+/// use pdfrs::pdf_ops;
+/// use pdfrs::pdf::PdfDocument;
 ///
 /// let doc1 = PdfDocument::load_from_file("file1.pdf")?;
 /// let doc2 = PdfDocument::load_from_file("file2.pdf")?;
@@ -149,7 +149,7 @@ pub fn merge_pdfs_sequential(
 /// # Example
 ///
 /// ```rust,no_run
-/// use pdf_rs::pdf_ops;
+/// use pdfrs::pdf_ops;
 ///
 /// // Extract pages 3-7 into a new PDF
 /// pdf_ops::split_pdf("input.pdf", "output.pdf", 3, 7)
@@ -212,7 +212,7 @@ pub fn split_pdf(input_file: &str, output_file: &str, start: usize, end: usize) 
 /// # Example
 ///
 /// ```rust
-/// use pdf_rs::pdf_ops::PdfMetadata;
+/// use pdfrs::pdf_ops::PdfMetadata;
 ///
 /// let mut metadata = PdfMetadata::new();
 /// metadata.title = Some("My Document".to_string());
@@ -1160,7 +1160,7 @@ pub fn create_pdf_with_images(
 /// # Example
 ///
 /// ```rust,no_run
-/// use pdf_rs::pdf_ops;
+/// use pdfrs::pdf_ops;
 ///
 /// pdf_ops::watermark_pdf(
 ///     "input.pdf",
@@ -1274,7 +1274,7 @@ pub enum FormFieldType {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pdf_rs::pdf_ops::{FormField, FormFieldType};
+/// use pdfrs::pdf_ops::{FormField, FormFieldType};
 ///
 /// let field = FormField {
 ///     name: "firstName".to_string(),
@@ -1486,7 +1486,7 @@ fn field_type_to_pdf(field_type: &FormFieldType) -> String {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pdf_rs::pdf_ops;
+/// use pdfrs::pdf_ops;
 ///
 /// pdf_ops::overlay_image_on_pdf(
 ///     "input.pdf",
@@ -1854,7 +1854,7 @@ pub fn reorder_pages(input_file: &str, output_file: &str, page_order: &[usize]) 
 /// # Example
 ///
 /// ```rust,no_run
-/// use pdf_rs::{pdf_ops, security};
+/// use pdfrs::{pdf_ops, security};
 ///
 /// let sec = security::PdfSecurity::new()
 ///     .with_user_password("secret".to_string())

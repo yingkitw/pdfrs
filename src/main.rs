@@ -216,7 +216,7 @@ enum Commands {
 }
 
 // Use the library instead of declaring modules
-use pdf_rs::{compression, elements, image, markdown, pdf, pdf_generator, pdf_ops, security};
+use pdfrs::{compression, elements, image, markdown, pdf, pdf_generator, pdf_ops, security};
 
 fn main() {
     let cli = Cli::parse();

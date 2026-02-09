@@ -16,8 +16,8 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use pdf_rs::pdf_generator;
-//! use pdf_rs::elements;
+//! use pdfrs::pdf_generator;
+//! use pdfrs::elements;
 //!
 //! // Parse markdown content
 //! let markdown = "# Hello World\n\nThis is a test document.";
@@ -54,21 +54,21 @@
 //! ### Creating a PDF from Markdown
 //!
 //! ```rust,no_run
-//! use pdf_rs::markdown;
+//! use pdfrs::markdown;
 //!
 //! markdown::markdown_to_pdf_full(
 //!     "input.md",
 //!     "output.pdf",
 //!     "Helvetica",
 //!     12.0,
-//!     pdf_rs::pdf_generator::PageOrientation::Portrait,
+//!     pdfrs::pdf_generator::PageOrientation::Portrait,
 //! ).expect("Failed to convert");
 //! ```
 //!
 //! ### Merging PDFs
 //!
 //! ```rust,no_run
-//! use pdf_rs::pdf_ops;
+//! use pdfrs::pdf_ops;
 //!
 //! pdf_ops::merge_pdfs(
 //!     &["file1.pdf", "file2.pdf"],
@@ -79,7 +79,7 @@
 //! ### Adding a Watermark
 //!
 //! ```rust,no_run
-//! use pdf_rs::pdf_ops;
+//! use pdfrs::pdf_ops;
 //!
 //! pdf_ops::watermark_pdf(
 //!     "input.pdf",
@@ -93,7 +93,7 @@
 //! ### Parallel PDF Operations
 //!
 //! ```rust,no_run
-//! use pdf_rs::parallel;
+//! use pdfrs::parallel;
 //!
 //! // Merge multiple PDFs in parallel (loads inputs concurrently)
 //! parallel::merge_pdfs_parallel(
@@ -112,7 +112,7 @@
 //! ### PDF Optimization Profiles
 //!
 //! ```rust
-//! use pdf_rs::optimization::{OptimizationProfile, OptimizedPdfGenerator};
+//! use pdfrs::optimization::{OptimizationProfile, OptimizedPdfGenerator};
 //!
 //! // Create a web-optimized PDF (smallest file size)
 //! let _pdf_gen = OptimizedPdfGenerator::new(OptimizationProfile::web());
@@ -121,7 +121,7 @@
 //! let _pdf_gen = OptimizedPdfGenerator::new(OptimizationProfile::print());
 //!
 //! // Or create a custom optimization profile
-//! use pdf_rs::optimization::{OptimizationSettings, CompressionLevel};
+//! use pdfrs::optimization::{OptimizationSettings, CompressionLevel};
 //! let settings = OptimizationSettings::new()
 //!     .with_compression(CompressionLevel::High)
 //!     .with_image_dpi(200);

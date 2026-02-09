@@ -555,26 +555,26 @@ fn test_library_api_generate_validate() {
     let md_content = fs::read_to_string(format!("{}/examples/full_features.md", base)).unwrap();
 
     // Step 1: Parse markdown into elements
-    let elements = pdf_rs::elements::parse_markdown(&md_content);
+    let elements = pdfrs::elements::parse_markdown(&md_content);
     println!("[lib_api] Parsed {} elements from full_features.md", elements.len());
     assert!(elements.len() > 50, "Expected many elements, got {}", elements.len());
 
     // Verify element type diversity
-    let has_heading = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Heading { .. }));
-    let has_paragraph = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Paragraph { .. }));
-    let has_list = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::UnorderedListItem { .. }));
-    let has_ordered = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::OrderedListItem { .. }));
-    let has_task = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::TaskListItem { .. }));
-    let has_code = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::CodeBlock { .. }));
-    let has_table = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::TableRow { .. }));
-    let has_quote = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::BlockQuote { .. }));
-    let has_def = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::DefinitionItem { .. }));
-    let has_footnote = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Footnote { .. }));
-    let has_link = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Link { .. }));
-    let has_image = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::Image { .. }));
-    let has_hr = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::HorizontalRule));
-    let has_pagebreak = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::PageBreak));
-    let has_empty = elements.iter().any(|e| matches!(e, pdf_rs::elements::Element::EmptyLine));
+    let has_heading = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Heading { .. }));
+    let has_paragraph = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Paragraph { .. }));
+    let has_list = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::UnorderedListItem { .. }));
+    let has_ordered = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::OrderedListItem { .. }));
+    let has_task = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::TaskListItem { .. }));
+    let has_code = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::CodeBlock { .. }));
+    let has_table = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::TableRow { .. }));
+    let has_quote = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::BlockQuote { .. }));
+    let has_def = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::DefinitionItem { .. }));
+    let has_footnote = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Footnote { .. }));
+    let has_link = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Link { .. }));
+    let has_image = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Image { .. }));
+    let has_hr = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::HorizontalRule));
+    let has_pagebreak = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::PageBreak));
+    let has_empty = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::EmptyLine));
 
     assert!(has_heading, "Missing Heading elements");
     assert!(has_paragraph, "Missing Paragraph elements");
@@ -594,15 +594,15 @@ fn test_library_api_generate_validate() {
     println!("[lib_api] All 15 element types found in parsed output");
 
     // Step 2: Generate PDF bytes in memory
-    let layout = pdf_rs::pdf_generator::PageLayout::portrait();
-    let pdf_bytes = pdf_rs::pdf_generator::generate_pdf_bytes(
+    let layout = pdfrs::pdf_generator::PageLayout::portrait();
+    let pdf_bytes = pdfrs::pdf_generator::generate_pdf_bytes(
         &elements, "Helvetica", 12.0, layout,
     ).expect("generate_pdf_bytes failed");
     println!("[lib_api] Generated {} bytes of PDF", pdf_bytes.len());
     assert!(pdf_bytes.len() > 5000, "PDF too small: {} bytes", pdf_bytes.len());
 
     // Step 3: Validate PDF structure
-    let validation = pdf_rs::pdf::validate_pdf_bytes(&pdf_bytes);
+    let validation = pdfrs::pdf::validate_pdf_bytes(&pdf_bytes);
     println!("[lib_api] Validation: valid={}, pages={}, objects={}, errors={:?}, warnings={:?}",
         validation.valid, validation.page_count, validation.object_count,
         validation.errors, validation.warnings);
@@ -652,7 +652,7 @@ fn test_technical_report_complex_roundtrip() {
 
     // Step 2: Validate PDF structure via library API
     let raw = fs::read(&pdf_out).unwrap();
-    let validation = pdf_rs::pdf::validate_pdf_bytes(&raw);
+    let validation = pdfrs::pdf::validate_pdf_bytes(&raw);
     println!("[tech_report] valid={}, pages={}, objects={}, errors={:?}",
         validation.valid, validation.page_count, validation.object_count, validation.errors);
     assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
@@ -755,7 +755,7 @@ fn test_api_reference_complex_roundtrip() {
 
     // Step 2: Validate PDF structure via library API
     let raw = fs::read(&pdf_out).unwrap();
-    let validation = pdf_rs::pdf::validate_pdf_bytes(&raw);
+    let validation = pdfrs::pdf::validate_pdf_bytes(&raw);
     println!("[api_ref] valid={}, pages={}, objects={}, errors={:?}",
         validation.valid, validation.page_count, validation.object_count, validation.errors);
     assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
@@ -849,7 +849,7 @@ fn test_complex_examples_library_api_batch() {
             .unwrap_or_else(|_| panic!("Failed to read {}", md_path));
 
         // Parse
-        let elements = pdf_rs::elements::parse_markdown(&md_content);
+        let elements = pdfrs::elements::parse_markdown(&md_content);
         println!("[batch:{}] Parsed {} elements", filename, elements.len());
         assert!(
             elements.len() >= *min_elements,
@@ -857,13 +857,13 @@ fn test_complex_examples_library_api_batch() {
         );
 
         // Generate portrait
-        let layout_p = pdf_rs::pdf_generator::PageLayout::portrait();
-        let bytes_p = pdf_rs::pdf_generator::generate_pdf_bytes(
+        let layout_p = pdfrs::pdf_generator::PageLayout::portrait();
+        let bytes_p = pdfrs::pdf_generator::generate_pdf_bytes(
             &elements, "Helvetica", 12.0, layout_p,
         ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes portrait failed: {}", filename, e));
 
         // Validate portrait
-        let val_p = pdf_rs::pdf::validate_pdf_bytes(&bytes_p);
+        let val_p = pdfrs::pdf::validate_pdf_bytes(&bytes_p);
         assert!(val_p.valid, "{} portrait validation failed: {:?}", filename, val_p.errors);
         assert!(
             val_p.page_count >= *min_pages,
@@ -873,13 +873,13 @@ fn test_complex_examples_library_api_batch() {
             filename, bytes_p.len(), val_p.page_count, val_p.object_count);
 
         // Generate landscape
-        let layout_l = pdf_rs::pdf_generator::PageLayout::landscape();
-        let bytes_l = pdf_rs::pdf_generator::generate_pdf_bytes(
+        let layout_l = pdfrs::pdf_generator::PageLayout::landscape();
+        let bytes_l = pdfrs::pdf_generator::generate_pdf_bytes(
             &elements, "Times-Roman", 11.0, layout_l,
         ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes landscape failed: {}", filename, e));
 
         // Validate landscape
-        let val_l = pdf_rs::pdf::validate_pdf_bytes(&bytes_l);
+        let val_l = pdfrs::pdf::validate_pdf_bytes(&bytes_l);
         assert!(val_l.valid, "{} landscape validation failed: {:?}", filename, val_l.errors);
         println!("[batch:{}] Landscape: {} bytes, {} pages, {} objects",
             filename, bytes_l.len(), val_l.page_count, val_l.object_count);
@@ -912,7 +912,7 @@ fn test_math_and_formulas_roundtrip() {
 
     // Step 2: Validate PDF structure
     let raw = fs::read(&pdf_out).unwrap();
-    let validation = pdf_rs::pdf::validate_pdf_bytes(&raw);
+    let validation = pdfrs::pdf::validate_pdf_bytes(&raw);
     println!("[math] valid={}, pages={}, objects={}, errors={:?}",
         validation.valid, validation.page_count, validation.object_count, validation.errors);
     assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
@@ -997,11 +997,11 @@ $$
 Regular paragraph after math.
 "#;
 
-    let elements = pdf_rs::elements::parse_markdown(md);
+    let elements = pdfrs::elements::parse_markdown(md);
 
     // Check that MathInline and MathBlock elements are parsed
-    let math_inline_count = elements.iter().filter(|e| matches!(e, pdf_rs::elements::Element::MathInline { .. })).count();
-    let math_block_count = elements.iter().filter(|e| matches!(e, pdf_rs::elements::Element::MathBlock { .. })).count();
+    let math_inline_count = elements.iter().filter(|e| matches!(e, pdfrs::elements::Element::MathInline { .. })).count();
+    let math_block_count = elements.iter().filter(|e| matches!(e, pdfrs::elements::Element::MathBlock { .. })).count();
 
     println!("[math_api] Parsed {} elements, {} inline math, {} block math",
         elements.len(), math_inline_count, math_block_count);
@@ -1011,33 +1011,33 @@ Regular paragraph after math.
 
     // Verify specific math content
     let has_inline_emc2 = elements.iter().any(|e| {
-        if let pdf_rs::elements::Element::MathInline { expression } = e {
+        if let pdfrs::elements::Element::MathInline { expression } = e {
             expression.contains("E = mc")
         } else { false }
     });
     assert!(has_inline_emc2, "MathInline with E=mc^2 not found");
 
     let has_block_frac = elements.iter().any(|e| {
-        if let pdf_rs::elements::Element::MathBlock { expression } = e {
+        if let pdfrs::elements::Element::MathBlock { expression } = e {
             expression.contains("frac")
         } else { false }
     });
     assert!(has_block_frac, "MathBlock with frac not found");
 
     let has_block_sum = elements.iter().any(|e| {
-        if let pdf_rs::elements::Element::MathBlock { expression } = e {
+        if let pdfrs::elements::Element::MathBlock { expression } = e {
             expression.contains("sum")
         } else { false }
     });
     assert!(has_block_sum, "MathBlock with sum not found");
 
     // Generate PDF and validate
-    let layout = pdf_rs::pdf_generator::PageLayout::portrait();
-    let bytes = pdf_rs::pdf_generator::generate_pdf_bytes(
+    let layout = pdfrs::pdf_generator::PageLayout::portrait();
+    let bytes = pdfrs::pdf_generator::generate_pdf_bytes(
         &elements, "Helvetica", 12.0, layout,
     ).unwrap();
 
-    let val = pdf_rs::pdf::validate_pdf_bytes(&bytes);
+    let val = pdfrs::pdf::validate_pdf_bytes(&bytes);
     assert!(val.valid, "Math PDF validation failed: {:?}", val.errors);
     println!("[math_api] Generated {} bytes, {} pages", bytes.len(), val.page_count);
 

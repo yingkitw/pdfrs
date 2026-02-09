@@ -6,8 +6,8 @@ use anyhow::Result;
 ///
 /// # Example
 /// ```rust,no_run
-/// use pdf_rs::builder::PdfBuilder;
-/// use pdf_rs::pdf_generator::PageLayout;
+/// use pdfrs::builder::PdfBuilder;
+/// use pdfrs::pdf_generator::PageLayout;
 ///
 /// let pdf = PdfBuilder::new()
 ///     .with_layout(PageLayout::landscape())

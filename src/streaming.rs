@@ -14,8 +14,8 @@ use std::io::{Write, BufWriter};
 ///
 /// # Example
 /// ```rust,no_run
-/// use pdf_rs::streaming::StreamingPdfGenerator;
-/// use pdf_rs::pdf_generator::PageLayout;
+/// use pdfrs::streaming::StreamingPdfGenerator;
+/// use pdfrs::pdf_generator::PageLayout;
 ///
 /// let mut pdf_gen = StreamingPdfGenerator::new("output.pdf", PageLayout::portrait()).unwrap();
 /// pdf_gen.add_heading("Large Document", 1).unwrap();
