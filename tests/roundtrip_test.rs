@@ -2,14 +2,16 @@ use std::process::Command;
 use std::fs;
 use std::path::Path;
 
-/// Helper to run pdf-cli commands
+/// Helper to run pdfcli commands using the pre-built binary directly.
+/// This avoids `cargo run` build-lock contention when tests run in parallel.
 fn run_pdf_cli(args: &[&str]) -> (String, String, bool) {
-    let output = Command::new("cargo")
-        .args(["run", "--"])
+    let bin = std::path::PathBuf::from(env!("CARGO_BIN_EXE_pdfcli"));
+
+    let output = Command::new(&bin)
         .args(args)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
-        .expect("Failed to execute pdf-cli");
+        .expect("Failed to execute pdfcli");
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
