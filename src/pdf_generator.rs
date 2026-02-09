@@ -1,7 +1,251 @@
-use crate::elements::Element;
+use crate::elements::{Element, TextSegment};
+use crate::table_renderer::{PdfTableHelper, TableStyle};
 use anyhow::Result;
 use std::fs::File;
 use std::io::Write;
+use syntect::parsing::{SyntaxSet, SyntaxReference};
+
+// Lazy static syntax set and theme
+fn get_syntax_set() -> &'static SyntaxSet {
+    use std::sync::OnceLock;
+    static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+    SYNTAX_SET.get_or_init(|| {
+        SyntaxSet::load_defaults_newlines()
+    })
+}
+
+fn get_syntax_for_language(lang: &str) -> Option<&'static SyntaxReference> {
+    let syntax_set = get_syntax_set();
+    match lang.to_lowercase().as_str() {
+        "rust" | "rs" => syntax_set.find_syntax_by_token("Rust"),
+        "python" | "py" => syntax_set.find_syntax_by_token("Python"),
+        "javascript" | "js" => syntax_set.find_syntax_by_token("JavaScript"),
+        "typescript" | "ts" => syntax_set.find_syntax_by_token("TypeScript"),
+        "html" | "htm" => syntax_set.find_syntax_by_token("HTML"),
+        "css" => syntax_set.find_syntax_by_token("CSS"),
+        "json" => syntax_set.find_syntax_by_token("JSON"),
+        "c" | "cpp" | "cxx" => syntax_set.find_syntax_by_token("C++"),
+        "java" => syntax_set.find_syntax_by_token("Java"),
+        "go" => syntax_set.find_syntax_by_token("Go"),
+        "ruby" => syntax_set.find_syntax_by_token("Ruby"),
+        "php" => syntax_set.find_syntax_by_token("PHP"),
+        "shell" | "bash" | "sh" => syntax_set.find_syntax_by_token("Bash"),
+        "sql" => syntax_set.find_syntax_by_token("SQL"),
+        "markdown" | "md" => syntax_set.find_syntax_by_token("Markdown"),
+        "xml" => syntax_set.find_syntax_by_token("XML"),
+        "yaml" | "yml" => syntax_set.find_syntax_by_token("YAML"),
+        _ => syntax_set.find_syntax_by_token("Plain Text"),
+    }
+}
+
+/// Simple syntax token for rendering (reserved for future use)
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct CodeToken {
+    text: String,
+    color: Color,
+}
+
+/// Perform simple syntax highlighting on code
+fn highlight_code(code: &str, language: &str) -> Vec<CodeToken> {
+    let syntax_set = get_syntax_set();
+
+    let _syntax = get_syntax_for_language(language)
+        .unwrap_or_else(|| syntax_set.find_syntax_by_token("Plain Text").unwrap());
+
+    // Use a simple approach - return tokens with different colors
+    // This is a simplified version; full syntect integration would be more complex
+    let mut tokens = Vec::new();
+
+    // Basic keyword highlighting for common languages
+    let keywords = match language.to_lowercase().as_str() {
+        "rust" | "rs" => vec![
+            "fn", "let", "mut", "pub", "struct", "enum", "impl", "use", "mod",
+            "return", "if", "else", "match", "for", "while", "loop", "break", "continue",
+            "true", "false", "const", "static", "trait", "type", "where", "move",
+            "crate", "ref", "self", "Self", "super", "async", "await", "unsafe",
+        ],
+        "python" | "py" => vec![
+            "def", "class", "if", "else", "elif", "for", "while", "return",
+            "import", "from", "as", "try", "except", "finally", "with", "lambda",
+            "True", "False", "None", "and", "or", "not", "in", "is", "pass", "break", "continue",
+        ],
+        "javascript" | "js" | "typescript" | "ts" => vec![
+            "function", "const", "let", "var", "if", "else", "for", "while", "return",
+            "import", "export", "default", "from", "as", "class", "extends", "new",
+            "true", "false", "null", "undefined", "async", "await", "try", "catch", "finally",
+            "typeof", "instanceof", "this", "super",
+        ],
+        _ => vec![],
+    };
+
+    let string_color = Color::rgb(0.15, 0.49, 0.07); // Green for strings
+    let keyword_color = Color::rgb(0.53, 0.07, 0.24); // Purple for keywords
+    let comment_color = Color::rgb(0.4, 0.4, 0.4); // Gray for comments
+    let number_color = Color::rgb(0.15, 0.15, 0.8); // Blue for numbers
+    let default_color = Color::black();
+
+    // Simple tokenization - split by common patterns
+    let mut remaining = code.to_string();
+
+    while !remaining.is_empty() {
+        // Check for string literals
+        if remaining.starts_with('"') {
+            if let Some(end) = remaining[1..].find('"') {
+                let token = &remaining[..end + 2];
+                tokens.push(CodeToken {
+                    text: token.to_string(),
+                    color: string_color,
+                });
+                remaining = remaining[end + 2..].to_string();
+                continue;
+            }
+        }
+
+        // Check for single quotes
+        if remaining.starts_with('\'') {
+            if let Some(end) = remaining[1..].find('\'') {
+                let token = &remaining[..end + 2];
+                tokens.push(CodeToken {
+                    text: token.to_string(),
+                    color: string_color,
+                });
+                remaining = remaining[end + 2..].to_string();
+                continue;
+            }
+        }
+
+        // Check for comments
+        if remaining.starts_with("//") {
+            if let Some(end) = remaining.find('\n') {
+                let token = &remaining[..end];
+                tokens.push(CodeToken {
+                    text: token.to_string(),
+                    color: comment_color,
+                });
+                remaining = remaining[end..].to_string();
+                continue;
+            } else {
+                tokens.push(CodeToken {
+                    text: remaining.clone(),
+                    color: comment_color,
+                });
+                break;
+            }
+        }
+
+        // Check for comments (hash style)
+        if remaining.starts_with('#') {
+            if let Some(end) = remaining.find('\n') {
+                let token = &remaining[..end];
+                tokens.push(CodeToken {
+                    text: token.to_string(),
+                    color: comment_color,
+                });
+                remaining = remaining[end..].to_string();
+                continue;
+            } else {
+                tokens.push(CodeToken {
+                    text: remaining.clone(),
+                    color: comment_color,
+                });
+                break;
+            }
+        }
+
+        // Check for numbers
+        if remaining.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            let end = remaining.chars()
+                .position(|c| !c.is_ascii_digit() && c != '.')
+                .unwrap_or(remaining.len());
+            let token = &remaining[..end];
+            tokens.push(CodeToken {
+                text: token.to_string(),
+                color: number_color,
+            });
+            remaining = remaining[end..].to_string();
+            continue;
+        }
+
+        // Check for keywords
+        let mut found_keyword = false;
+        for keyword in &keywords {
+            if remaining.starts_with(keyword) {
+                let next_char = remaining.chars().nth(keyword.len());
+                if next_char.map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true) {
+                    tokens.push(CodeToken {
+                        text: keyword.to_string(),
+                        color: keyword_color,
+                    });
+                    remaining = remaining[keyword.len()..].to_string();
+                    found_keyword = true;
+                    break;
+                }
+            }
+        }
+
+        if found_keyword {
+            continue;
+        }
+
+        // Take a run of plain characters (identifiers, whitespace, punctuation)
+        // until we hit something that could start a special token
+        let mut end = 0;
+        let mut chars_iter = remaining.chars();
+        while let Some(c) = chars_iter.next() {
+            let rest = &remaining[end..];
+            // Stop if we see the start of a string, comment, number-at-word-boundary, or keyword
+            if end > 0 && (c == '"' || c == '\''
+                || rest.starts_with("//")
+                || (c == '#' && !remaining[..end].ends_with(|ch: char| ch.is_alphanumeric() || ch == '_'))
+                || (c.is_ascii_digit() && (end == 0 || !remaining.as_bytes().get(end.wrapping_sub(1)).map(|b| b.is_ascii_alphanumeric() || *b == b'_').unwrap_or(false))))
+            {
+                break;
+            }
+            // Check if a keyword starts here (only at word boundary)
+            let mut is_keyword_start = false;
+            if end > 0 {
+                let prev = remaining.as_bytes()[end - 1];
+                if !prev.is_ascii_alphanumeric() && prev != b'_' {
+                    for keyword in &keywords {
+                        if rest.starts_with(keyword) {
+                            let next = rest.chars().nth(keyword.len());
+                            if next.map(|nc| !nc.is_alphanumeric() && nc != '_').unwrap_or(true) {
+                                is_keyword_start = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if is_keyword_start {
+                break;
+            }
+            end += c.len_utf8();
+        }
+        if end == 0 {
+            // Couldn't group, take one character
+            let c = remaining.chars().next().unwrap();
+            end = c.len_utf8();
+        }
+        let chunk = &remaining[..end];
+        tokens.push(CodeToken {
+            text: chunk.to_string(),
+            color: default_color,
+        });
+        remaining = remaining[end..].to_string();
+    }
+
+    // If tokenization failed, just return the whole code as one token
+    if tokens.is_empty() && !code.is_empty() {
+        tokens.push(CodeToken {
+            text: code.to_string(),
+            color: default_color,
+        });
+    }
+
+    tokens
+}
 
 // --- Page orientation and layout ---
 
@@ -203,6 +447,8 @@ impl Color {
 pub enum TextAlign {
     Left,
     Center,
+    Right,
+    Justify,
 }
 
 struct ContentStreamBuilder {
@@ -216,7 +462,18 @@ struct ContentStreamBuilder {
     total_pages: u32,
     show_page_numbers: bool,
     layout: PageLayout,
+    // Font state
+    current_font: String,  // Font name (e.g., "Helvetica", "Helvetica-Bold")
+    current_font_bold: bool,
+    current_font_italic: bool,
 }
+
+// Font name constants
+const FONT_HELVETICA: &str = "Helvetica";
+const FONT_HELVETICA_BOLD: &str = "Helvetica-Bold";
+const FONT_HELVETICA_OBLIQUE: &str = "Helvetica-Oblique";
+const FONT_HELVETICA_BOLD_OBLIQUE: &str = "Helvetica-BoldOblique";
+const FONT_COURIER: &str = "Courier";  // Monospace for code
 
 impl ContentStreamBuilder {
     fn new(base_font_size: f32, show_page_numbers: bool, layout: PageLayout) -> Self {
@@ -231,6 +488,9 @@ impl ContentStreamBuilder {
             total_pages: 0,
             show_page_numbers,
             layout,
+            current_font: FONT_HELVETICA.to_string(),
+            current_font_bold: false,
+            current_font_italic: false,
         };
         b.begin_page();
         b
@@ -240,14 +500,282 @@ impl ContentStreamBuilder {
         self.current.clear();
         self.y = self.layout.content_top();
         self.current.extend_from_slice(b"BT\n");
-        self.set_font(self.base_font_size);
+        self.set_font_with_style(self.base_font_size, false, false);
     }
 
     fn set_font(&mut self, size: f32) {
-        // Always set font after Td to ensure font state is current
+        self.set_font_with_style(size, self.current_font_bold, self.current_font_italic);
+    }
+
+    fn set_font_with_style(&mut self, size: f32, bold: bool, italic: bool) {
         self.current_font_size = size;
+        self.current_font_bold = bold;
+        self.current_font_italic = italic;
+
+        let font_name = match (bold, italic) {
+            (true, true) => FONT_HELVETICA_BOLD_OBLIQUE,
+            (true, false) => FONT_HELVETICA_BOLD,
+            (false, true) => FONT_HELVETICA_OBLIQUE,
+            (false, false) => FONT_HELVETICA,
+        };
+
+        if self.current_font != font_name {
+            self.current_font = font_name.to_string();
+        }
+
+        // Use the current font
         self.current
-            .extend_from_slice(format!("/F1 {} Tf\n", size).as_bytes());
+            .extend_from_slice(format!("/{} {} Tf\n", font_name, size).as_bytes());
+    }
+
+    fn set_monospace_font(&mut self, size: f32) {
+        self.current_font_size = size;
+        self.current_font = FONT_COURIER.to_string();
+        self.current
+            .extend_from_slice(format!("/{} {} Tf\n", FONT_COURIER, size).as_bytes());
+    }
+
+    fn draw_rectangle(&mut self, x: f32, y: f32, width: f32, height: f32, fill_color: Color) {
+        // End text block temporarily to draw rectangle
+        self.current.extend_from_slice(b"ET\n");
+
+        // Set fill color
+        self.current.extend_from_slice(
+            format!("{} {} {} rg\n", fill_color.r, fill_color.g, fill_color.b).as_bytes()
+        );
+
+        // Draw and fill rectangle
+        self.current.extend_from_slice(
+            format!("{} {} {} {} re f\n", x, y, width, height).as_bytes()
+        );
+
+        // Resume text block
+        self.current.extend_from_slice(b"BT\n");
+        self.set_font(self.current_font_size);
+        // Always reset to black text after drawing rectangle
+        self.current_color = Color::black();
+        self.current.extend_from_slice(
+            format!("0 0 0 rg\n").as_bytes()
+        );
+    }
+
+    fn draw_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, line_width: f32, color: Color) {
+        // End text block temporarily to draw line
+        self.current.extend_from_slice(b"ET\n");
+
+        // Set stroke color and line width
+        self.current.extend_from_slice(
+            format!("{} {} {} RG\n", color.r, color.g, color.b).as_bytes()
+        );
+        self.current.extend_from_slice(
+            format!("{} w\n", line_width).as_bytes()
+        );
+
+        // Draw line
+        self.current.extend_from_slice(
+            format!("{} {} m {} {} l S\n", x1, y1, x2, y2).as_bytes()
+        );
+
+        // Resume text block
+        self.current.extend_from_slice(b"BT\n");
+        self.set_font(self.current_font_size);
+        // Reset to current text color
+        self.current.extend_from_slice(
+            format!("{} {} {} rg\n", self.current_color.r, self.current_color.g, self.current_color.b).as_bytes()
+        );
+    }
+
+    /// Render a complete table with borders, text wrapping, and alignment
+    fn render_table(&mut self, rows: &[Vec<String>], base_font_size: f32, alignments: Option<&[crate::elements::TableAlignment]>) {
+        if rows.is_empty() {
+            return;
+        }
+
+        let table_helper = PdfTableHelper::default();
+        let style = TableStyle::default();
+
+        // Convert string rows to TableRow with alignments
+        let table_rows = table_helper.convert_rows(rows, alignments);
+
+        // Calculate table dimensions
+        let dims = table_helper.renderer().calculate_dimensions(
+            &table_rows,
+            &style,
+            base_font_size,
+            self.layout.content_width(),
+        );
+
+        if dims.num_cols == 0 || dims.num_rows == 0 {
+            return;
+        }
+
+        let line_h = line_height(base_font_size);
+        let approx_char_width = base_font_size * 0.5;
+
+        // Add margin above table
+        self.y -= style.margin_top;
+
+        // Check for page break
+        if self.needs_page_break(dims.total_height + style.margin_top + style.margin_bottom) {
+            self.new_page();
+            self.y -= style.margin_top;
+        }
+
+        let start_x = self.layout.margin_left;
+        let start_y = self.y;
+
+        // Draw outer border
+        self.current.extend_from_slice(b"ET\n");
+        let (br, bg, bb) = style.border_color;
+        self.current.extend_from_slice(
+            format!("{} {} {} RG\n", br, bg, bb).as_bytes()
+        );
+        self.current.extend_from_slice(
+            format!("{} w\n", style.border_width).as_bytes()
+        );
+        self.current.extend_from_slice(
+            format!("{} {} m {} {} l S\n", start_x, start_y, start_x + dims.total_width, start_y).as_bytes()
+        );
+        self.current.extend_from_slice(
+            format!("{} {} m {} {} l S\n", start_x, start_y - dims.total_height, start_x + dims.total_width, start_y - dims.total_height).as_bytes()
+        );
+        self.current.extend_from_slice(
+            format!("{} {} m {} {} l S\n", start_x, start_y, start_x, start_y - dims.total_height).as_bytes()
+        );
+        self.current.extend_from_slice(
+            format!("{} {} m {} {} l S\n", start_x + dims.total_width, start_y, start_x + dims.total_width, start_y - dims.total_height).as_bytes()
+        );
+
+        // Draw horizontal grid lines
+        let mut current_y = start_y;
+        for (i, &row_h) in dims.row_heights.iter().enumerate() {
+            if i > 0 {
+                let (gr, gg, gb) = style.grid_color;
+                self.current.extend_from_slice(
+                    format!("{} {} {} RG\n", gr, gg, gb).as_bytes()
+                );
+                self.current.extend_from_slice(
+                    format!("{} w\n", style.grid_line_width).as_bytes()
+                );
+                self.current.extend_from_slice(
+                    format!("{} {} m {} {} l S\n", start_x, current_y, start_x + dims.total_width, current_y).as_bytes()
+                );
+            }
+            current_y -= row_h;
+        }
+
+        // Draw vertical grid lines
+        let mut current_x = start_x;
+        for i in 1..dims.num_cols {
+            current_x += dims.column_widths[i - 1];
+            let (gr, gg, gb) = style.grid_color;
+            self.current.extend_from_slice(
+                format!("{} {} {} RG\n", gr, gg, gb).as_bytes()
+            );
+            self.current.extend_from_slice(
+                format!("{} w\n", style.grid_line_width).as_bytes()
+            );
+            self.current.extend_from_slice(
+                format!("{} {} m {} {} l S\n", current_x, start_y, current_x, start_y - dims.total_height).as_bytes()
+            );
+        }
+
+        // Resume text block
+        self.current.extend_from_slice(b"BT\n");
+        self.set_font(base_font_size);
+        self.current.extend_from_slice(b"0 0 0 rg\n");
+
+        // Draw cell contents with wrapping and alignment
+        let mut row_y = start_y;
+        for (row_idx, row) in table_rows.iter().enumerate() {
+            let mut col_x = start_x;
+            for (col_idx, cell) in row.cells.iter().enumerate() {
+                if col_idx >= dims.num_cols { break; }
+                let cell_width = dims.column_widths[col_idx];
+                let cell_height = dims.row_heights[row_idx];
+                let max_chars = ((cell_width - style.cell_padding * 2.0) / approx_char_width).floor().max(1.0) as usize;
+
+                // Wrap text into lines using the table helper
+                let wrapped = table_helper.renderer().wrap_text(&cell.content, max_chars);
+
+                // Calculate vertical centering
+                let text_height = wrapped.line_count as f32 * line_h;
+                let start_y_pos = row_y - (cell_height - text_height) / 2.0 - line_h / 3.0;
+
+                // Render each line with proper alignment
+                for (line_idx, line) in wrapped.lines.iter().enumerate() {
+                    let line_width = line.len() as f32 * approx_char_width;
+
+                    // Calculate X position using the table helper
+                    let x = table_helper.renderer().calculate_text_x(
+                        &cell.alignment,
+                        col_x,
+                        cell_width,
+                        line_width,
+                        style.cell_padding,
+                    );
+
+                    let y = start_y_pos - (line_idx as f32 * line_h);
+
+                    self.current.extend_from_slice(
+                        format!("1 0 0 1 {} {} Tm\n", x, y).as_bytes()
+                    );
+                    self.current.extend_from_slice(
+                        format!("({}) Tj\n", PdfTableHelper::escape_pdf_string_static(line)).as_bytes()
+                    );
+                }
+
+                col_x += cell_width;
+            }
+            row_y -= dims.row_heights[row_idx];
+        }
+
+        self.y -= dims.total_height + style.margin_bottom;
+    }
+
+    /// Approximate text width for wrapping calculations
+    fn estimate_text_width(&self, text: &str, font_size: f32) -> f32 {
+        // Rough approximation: average character width is 0.5 * font_size
+        // For monospace (Courier), it's closer to 0.6 * font_size
+        let multiplier = if self.current_font == FONT_COURIER { 0.6 } else { 0.5 };
+        text.len() as f32 * font_size * multiplier
+    }
+
+    /// Emit wrapped text that fits within the content width
+    fn emit_wrapped_text(&mut self, text: &str, font_size: f32) {
+        let max_width = self.layout.content_width();
+        let approx_char_width = font_size * 0.5;
+        let max_chars = (max_width / approx_char_width).floor() as usize;
+
+        if text.len() <= max_chars {
+            self.emit_line(text, font_size);
+            return;
+        }
+
+        // Simple word wrapping
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let mut current_line = String::new();
+
+        for word in words {
+            let test_line = if current_line.is_empty() {
+                word.to_string()
+            } else {
+                format!("{} {}", current_line, word)
+            };
+
+            if test_line.len() <= max_chars {
+                current_line = test_line;
+            } else {
+                if !current_line.is_empty() {
+                    self.emit_line(&current_line, font_size);
+                }
+                current_line = word.to_string();
+            }
+        }
+
+        if !current_line.is_empty() {
+            self.emit_line(&current_line, font_size);
+        }
     }
 
     fn set_color(&mut self, color: Color) {
@@ -313,6 +841,16 @@ impl ContentStreamBuilder {
                 let approx_width = text.len() as f32 * font_size * 0.5;
                 self.layout.margin_left + (self.layout.content_width() - approx_width) / 2.0
             }
+            TextAlign::Right => {
+                // Approximate: 0.5 * char_count * font_size * 0.5
+                let approx_width = text.len() as f32 * font_size * 0.5;
+                self.layout.margin_left + self.layout.content_width() - approx_width
+            }
+            TextAlign::Justify => {
+                // Justify is similar to left for positioning, but would adjust word spacing
+                // For simplicity, we treat it like left for now
+                self.layout.margin_left
+            }
         };
 
         // Use Tm (text matrix) for absolute positioning — Td is relative and compounds
@@ -338,9 +876,25 @@ impl ContentStreamBuilder {
     }
 
     fn emit_horizontal_rule(&mut self) {
-        self.emit_empty_line();
-        self.emit_line("---", self.base_font_size);
-        self.emit_empty_line();
+        // Add spacing above the rule
+        self.y -= line_height(self.base_font_size) / 2.0;
+
+        // Check for page break
+        if self.needs_page_break(line_height(self.base_font_size)) {
+            self.new_page();
+        }
+
+        // Draw a horizontal line across the content area
+        let x1 = self.layout.margin_left;
+        let x2 = self.layout.margin_left + self.layout.content_width();
+        let y = self.y;
+        let line_width = 1.0;
+        let color = Color::gray();
+
+        self.draw_line(x1, y, x2, y, line_width, color);
+
+        // Add spacing below the rule
+        self.y -= line_height(self.base_font_size);
     }
 
     fn finish(mut self) -> Vec<Vec<u8>> {
@@ -406,97 +960,281 @@ pub fn create_pdf_from_elements_with_layout(
 
 /// Render elements into a ContentStreamBuilder (shared by file and bytes APIs)
 fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[Element], base_font_size: f32) {
+    let mut table_rows: Vec<Vec<String>> = Vec::new();
+    let mut table_alignments: Option<Vec<crate::elements::TableAlignment>> = None;
+
     for elem in elements {
+        // Handle table rows specially - accumulate them
+        if let Element::TableRow { cells, is_separator, alignments } = elem {
+            if *is_separator {
+                // Store alignments from separator row
+                table_alignments = Some(alignments.clone());
+            } else {
+                // Only add non-separator rows to the table
+                table_rows.push(cells.clone());
+            }
+            continue;
+        }
+
+        // Flush any accumulated table before rendering non-table element
+        if !table_rows.is_empty() {
+            builder.render_table(&table_rows, base_font_size, table_alignments.as_deref());
+            table_rows.clear();
+            table_alignments = None;
+        }
+
+        // Render non-table elements
         match elem {
             Element::Heading { level, text } => {
                 let fs = heading_font_size(*level, base_font_size);
                 let align = if *level == 1 { TextAlign::Center } else { TextAlign::Left };
                 builder.emit_empty_line();
+                builder.set_font_with_style(fs, true, false);
                 builder.emit_line_aligned(text, fs, align);
+                builder.set_font_with_style(base_font_size, false, false);
                 builder.emit_empty_line();
             }
             Element::Paragraph { text } => {
-                builder.emit_line(text, base_font_size);
+                builder.emit_wrapped_text(text, base_font_size);
+            }
+            Element::RichParagraph { segments } => {
+                // Render each styled segment
+                for segment in segments {
+                    match segment {
+                        TextSegment::Plain(text) => {
+                            builder.set_font_with_style(base_font_size, false, false);
+                            builder.emit_wrapped_text(text, base_font_size);
+                        }
+                        TextSegment::Bold(text) => {
+                            builder.set_font_with_style(base_font_size, true, false);
+                            builder.emit_wrapped_text(text, base_font_size);
+                        }
+                        TextSegment::Italic(text) => {
+                            builder.set_font_with_style(base_font_size, false, true);
+                            builder.emit_wrapped_text(text, base_font_size);
+                        }
+                        TextSegment::BoldItalic(text) => {
+                            builder.set_font_with_style(base_font_size, true, true);
+                            builder.emit_wrapped_text(text, base_font_size);
+                        }
+                        TextSegment::Code(code) => {
+                            let code_size = base_font_size * 0.9;
+                            builder.set_monospace_font(code_size);
+                            builder.set_color(Color::gray());
+                            builder.emit_wrapped_text(code, code_size);
+                            builder.set_color(Color::black());
+                            builder.set_font_with_style(base_font_size, false, false);
+                        }
+                        TextSegment::Link { text, url } => {
+                            builder.set_color(Color::blue());
+                            builder.emit_wrapped_text(&format!("{} ({})", text, url), base_font_size);
+                            builder.set_color(Color::black());
+                        }
+                    }
+                }
             }
             Element::UnorderedListItem { text, depth } => {
                 let indent = "  ".repeat(*depth as usize);
                 let line = format!("{}• {}", indent, text);
-                builder.emit_line(&line, base_font_size);
+                builder.emit_wrapped_text(&line, base_font_size);
             }
-            Element::OrderedListItem {
-                number,
-                text,
-                depth,
-            } => {
+            Element::OrderedListItem { number, text, depth } => {
                 let indent = "  ".repeat(*depth as usize);
                 let line = format!("{}{}. {}", indent, number, text);
-                builder.emit_line(&line, base_font_size);
+                builder.emit_wrapped_text(&line, base_font_size);
             }
             Element::TaskListItem { checked, text } => {
                 let marker = if *checked { "[x]" } else { "[ ]" };
                 let line = format!("{} {}", marker, text);
-                builder.emit_line(&line, base_font_size);
+                builder.emit_wrapped_text(&line, base_font_size);
             }
-            Element::CodeBlock { code, .. } => {
+            Element::CodeBlock { code, language } => {
                 let code_size = base_font_size * 0.85;
+                let padding = 8.0;
+                let line_h = line_height(code_size);
+                let all_lines: Vec<&str> = code.lines().collect();
+
                 builder.emit_empty_line();
-                builder.set_color(Color::gray());
-                for code_line in code.lines() {
-                    builder.emit_line(code_line, code_size);
+
+                // Split code block across pages if needed
+                let mut line_idx = 0;
+                while line_idx < all_lines.len() {
+                    // Calculate how many lines fit on current page
+                    let available = builder.y - builder.layout.margin_bottom - padding * 2.0;
+                    let max_lines_on_page = (available / line_h).floor() as usize;
+                    let max_lines_on_page = max_lines_on_page.max(1);
+                    let chunk_end = (line_idx + max_lines_on_page).min(all_lines.len());
+                    let chunk = &all_lines[line_idx..chunk_end];
+                    let chunk_height = chunk.len() as f32 * line_h + padding * 2.0;
+
+                    // Account for top padding before drawing — shift y down by padding
+                    builder.y -= padding;
+
+                    // Draw background rectangle (from current y down by text height + bottom padding)
+                    let text_block_height = chunk.len() as f32 * line_h;
+                    let bg_color = Color::rgb(0.95, 0.95, 0.95);
+                    let rect_x = builder.layout.margin_left - padding;
+                    let rect_y = builder.y - text_block_height - padding;
+                    let rect_width = builder.layout.content_width() + padding * 2.0;
+                    let rect_height = chunk_height;
+                    builder.draw_rectangle(rect_x, rect_y, rect_width, rect_height, bg_color);
+
+                    // Draw border
+                    let border_color = Color::rgb(0.75, 0.75, 0.75);
+                    builder.draw_line(rect_x, rect_y, rect_x + rect_width, rect_y, 0.5, border_color);
+                    builder.draw_line(rect_x, rect_y + rect_height, rect_x + rect_width, rect_y + rect_height, 0.5, border_color);
+                    builder.draw_line(rect_x, rect_y, rect_x, rect_y + rect_height, 0.5, border_color);
+                    builder.draw_line(rect_x + rect_width, rect_y, rect_x + rect_width, rect_y + rect_height, 0.5, border_color);
+
+                    // Set monospace font
+                    builder.set_monospace_font(code_size);
+
+                    // Emit code lines with per-line syntax highlighting
+                    let char_width = code_size * 0.6; // Courier is monospace
+                    for code_line in chunk {
+                        let line_tokens = highlight_code(code_line, language);
+
+                        if line_tokens.is_empty() || line_tokens.iter().all(|t| t.text.is_empty()) {
+                            // Empty line or no tokens — just advance
+                            builder.current.extend_from_slice(
+                                format!("{} {} {} rg\n", 0.15, 0.15, 0.15).as_bytes()
+                            );
+                            builder.current.extend_from_slice(
+                                format!("1 0 0 1 {} {} Tm\n", builder.layout.margin_left, builder.y).as_bytes()
+                            );
+                            builder.current.extend_from_slice(
+                                format!("({}) Tj\n", escape_pdf_string(code_line)).as_bytes()
+                            );
+                        } else {
+                            // Render each token with its color
+                            let mut x_offset = builder.layout.margin_left;
+                            for token in &line_tokens {
+                                if token.text.is_empty() { continue; }
+                                builder.current.extend_from_slice(
+                                    format!("{} {} {} rg\n", token.color.r, token.color.g, token.color.b).as_bytes()
+                                );
+                                builder.current.extend_from_slice(
+                                    format!("1 0 0 1 {} {} Tm\n", x_offset, builder.y).as_bytes()
+                                );
+                                builder.current.extend_from_slice(
+                                    format!("({}) Tj\n", escape_pdf_string(&token.text)).as_bytes()
+                                );
+                                x_offset += token.text.len() as f32 * char_width;
+                            }
+                        }
+                        builder.y -= line_h;
+                    }
+
+                    // Account for bottom padding
+                    builder.y -= padding;
+
+                    line_idx = chunk_end;
+
+                    // If more lines remain, start a new page
+                    if line_idx < all_lines.len() {
+                        builder.set_font_with_style(base_font_size, false, false);
+                        builder.reset_color();
+                        builder.new_page();
+                    }
                 }
+
+                // Reset to normal font and color
+                builder.set_font_with_style(base_font_size, false, false);
                 builder.reset_color();
                 builder.emit_empty_line();
             }
-            Element::TableRow {
-                cells,
-                is_separator,
-                alignments: _,
-            } => {
-                if *is_separator {
-                    let sep: Vec<String> = cells.iter().map(|c| "-".repeat(c.len().max(4))).collect();
-                    builder.emit_line(&sep.join("  "), base_font_size);
-                } else {
-                    builder.emit_line(&cells.join("  "), base_font_size);
-                }
-            }
             Element::DefinitionItem { term, definition } => {
-                builder.emit_line(term, base_font_size);
-                builder.emit_line(&format!("  {}", definition), base_font_size);
+                builder.set_font_with_style(base_font_size, true, false);
+                builder.emit_wrapped_text(term, base_font_size);
+                builder.set_font_with_style(base_font_size, false, false);
+                builder.emit_wrapped_text(&format!("  {}", definition), base_font_size);
             }
             Element::InlineCode { code } => {
                 let code_size = base_font_size * 0.9;
+                builder.set_monospace_font(code_size);
                 builder.set_color(Color::gray());
                 builder.emit_line(code, code_size);
+                builder.set_font_with_style(base_font_size, false, false);
                 builder.reset_color();
             }
             Element::Link { text, url } => {
                 builder.set_color(Color::blue());
-                builder.emit_line(&format!("{} ({})", text, url), base_font_size);
+                builder.emit_wrapped_text(&format!("{} ({})", text, url), base_font_size);
                 builder.reset_color();
             }
             Element::Image { alt, path } => {
-                builder.emit_line(&format!("[Image: {}] ({})", alt, path), base_font_size);
+                builder.emit_wrapped_text(&format!("[Image: {}] ({})", alt, path), base_font_size);
             }
             Element::StyledText { text, bold, italic } => {
-                let prefix = match (*bold, *italic) {
-                    (true, true) => "***",
-                    (true, false) => "**",
-                    (false, true) => "*",
-                    _ => "",
-                };
-                let suffix = prefix;
-                builder.emit_line(&format!("{}{}{}", prefix, text, suffix), base_font_size);
+                builder.set_font_with_style(base_font_size, *bold, *italic);
+                builder.emit_wrapped_text(text, base_font_size);
+                builder.set_font_with_style(base_font_size, false, false);
             }
             Element::PageBreak => {
                 builder.new_page();
             }
             Element::Footnote { label, text } => {
                 let footnote_size = base_font_size * 0.85;
-                builder.emit_line(&format!("[{}] {}", label, text), footnote_size);
+                builder.emit_wrapped_text(&format!("[{}] {}", label, text), footnote_size);
             }
             Element::BlockQuote { text, depth } => {
                 let prefix = "> ".repeat(*depth as usize);
-                builder.emit_line(&format!("{}{}", prefix, text), base_font_size);
+                builder.set_color(Color::gray());
+                builder.emit_wrapped_text(&format!("{}{}", prefix, text), base_font_size);
+                builder.reset_color();
+            }
+            Element::MathBlock { expression } => {
+                let math_size = base_font_size * 1.1;
+                let padding = 10.0;
+                let line_h = line_height(math_size);
+                let math_lines: Vec<&str> = expression.lines().collect();
+                let block_height = math_lines.len() as f32 * line_h + padding * 2.0;
+
+                builder.emit_empty_line();
+
+                // Check page break
+                if builder.needs_page_break(block_height) {
+                    builder.new_page();
+                }
+
+                // Draw light blue background
+                let bg_color = Color::rgb(0.93, 0.95, 1.0);
+                let rect_x = builder.layout.margin_left - padding;
+                let rect_y = builder.y - block_height;
+                let rect_width = builder.layout.content_width() + padding * 2.0;
+                builder.draw_rectangle(rect_x, rect_y, rect_width, block_height, bg_color);
+
+                // Draw left accent border
+                let accent_color = Color::rgb(0.3, 0.4, 0.8);
+                builder.draw_line(rect_x, rect_y, rect_x, rect_y + block_height, 2.0, accent_color);
+
+                // Render math expression in italic
+                builder.set_font_with_style(math_size, false, true);
+                builder.set_color(Color::rgb(0.1, 0.1, 0.3));
+                for math_line in &math_lines {
+                    // Render math symbols with text representation
+                    let rendered = render_math_text(math_line);
+                    builder.current.extend_from_slice(
+                        format!("1 0 0 1 {} {} Tm\n", builder.layout.margin_left + 4.0, builder.y).as_bytes()
+                    );
+                    builder.current.extend_from_slice(
+                        format!("({}) Tj\n", escape_pdf_string(&rendered)).as_bytes()
+                    );
+                    builder.y -= line_h;
+                }
+
+                builder.set_font_with_style(base_font_size, false, false);
+                builder.reset_color();
+                builder.emit_empty_line();
+            }
+            Element::MathInline { expression } => {
+                // Render inline math in italic with slight color
+                let rendered = render_math_text(expression);
+                builder.set_font_with_style(base_font_size, false, true);
+                builder.set_color(Color::rgb(0.1, 0.1, 0.3));
+                builder.emit_line(&rendered, base_font_size);
+                builder.set_font_with_style(base_font_size, false, false);
+                builder.reset_color();
             }
             Element::HorizontalRule => {
                 builder.emit_horizontal_rule();
@@ -504,7 +1242,15 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
             Element::EmptyLine => {
                 builder.emit_empty_line();
             }
+            Element::TableRow { .. } => {
+                // Already handled above
+            }
         }
+    }
+
+    // Flush any remaining table
+    if !table_rows.is_empty() {
+        builder.render_table(&table_rows, base_font_size, table_alignments.as_deref());
     }
 }
 
@@ -523,16 +1269,16 @@ pub fn generate_pdf_bytes(
 }
 
 /// Assemble final PDF bytes from per-page content streams
-fn assemble_pdf_bytes(page_streams: &[Vec<u8>], font: &str, layout: &PageLayout) -> Vec<u8> {
+fn assemble_pdf_bytes(page_streams: &[Vec<u8>], _font: &str, layout: &PageLayout) -> Vec<u8> {
     let mut generator = PdfGenerator::new();
 
     let mut page_ids = Vec::new();
 
     // We need to know the pages object ID ahead of time.
-    // Layout: for each page: content_stream_obj, page_obj, font_obj
+    // Layout: for each page: content_stream_obj, page_obj, fonts_obj (5 fonts)
     // Then: pages_obj, catalog_obj
-    // pages_obj id = page_streams.len() * 3 + 1
-    let pages_obj_id = (page_streams.len() as u32) * 3 + 1;
+    let fonts_per_page = 5; // Helvetica, Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique, Courier
+    let pages_obj_id = (page_streams.len() as u32) * (2 + fonts_per_page) + 1;
 
     for page_stream in page_streams {
         let content_id = generator.add_stream_object(
@@ -540,25 +1286,64 @@ fn assemble_pdf_bytes(page_streams: &[Vec<u8>], font: &str, layout: &PageLayout)
             page_stream.clone(),
         );
 
-        let font_id = content_id + 2; // font obj comes after page obj
+        // Font IDs come right after content stream object
+        let first_font_id = content_id + 1;
+
+        let font_resources = format!(
+            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+            FONT_HELVETICA
+        );
+        generator.add_object(font_resources);
+
+        let font_bold_resources = format!(
+            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+            FONT_HELVETICA_BOLD
+        );
+        generator.add_object(font_bold_resources);
+
+        let font_italic_resources = format!(
+            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+            FONT_HELVETICA_OBLIQUE
+        );
+        generator.add_object(font_italic_resources);
+
+        let font_bold_italic_resources = format!(
+            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+            FONT_HELVETICA_BOLD_OBLIQUE
+        );
+        generator.add_object(font_bold_italic_resources);
+
+        let font_courier_resources = format!(
+            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+            FONT_COURIER
+        );
+        generator.add_object(font_courier_resources);
 
         let page_dict = format!(
             "<< /Type /Page\n\
              /Parent {} 0 R\n\
              /MediaBox [0 0 {} {}]\n\
              /Contents {} 0 R\n\
-             /Resources << /Font << /F1 {} 0 R >> >>\n\
+             /Resources << /Font << \
+                 /{} {} 0 R \
+                 /{} {} 0 R \
+                 /{} {} 0 R \
+                 /{} {} 0 R \
+                 /{} {} 0 R \
+             >> >>\n\
              >>\n",
-            pages_obj_id, layout.width, layout.height, content_id, font_id
+            pages_obj_id,
+            layout.width,
+            layout.height,
+            content_id,
+            FONT_HELVETICA, first_font_id,
+            FONT_HELVETICA_BOLD, first_font_id + 1,
+            FONT_HELVETICA_OBLIQUE, first_font_id + 2,
+            FONT_HELVETICA_BOLD_OBLIQUE, first_font_id + 3,
+            FONT_COURIER, first_font_id + 4
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
-
-        let font_dict = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            font
-        );
-        generator.add_object(font_dict);
     }
 
     let kids: Vec<String> = page_ids.iter().map(|id| format!("{} 0 R", id)).collect();
@@ -590,6 +1375,134 @@ fn assemble_pdf(filename: &str, page_streams: &[Vec<u8>], font: &str, layout: &P
     let mut file = File::create(filename)?;
     file.write_all(&pdf_data)?;
     Ok(())
+}
+
+/// Convert LaTeX-like math notation to readable text for PDF rendering.
+/// Since Type1 fonts don't support full LaTeX glyph rendering, we convert
+/// common math commands to their text/symbol equivalents.
+fn render_math_text(expr: &str) -> String {
+    let mut s = expr.to_string();
+
+    // Greek letters
+    let greek = [
+        ("\\alpha", "\u{03B1}"), ("\\beta", "\u{03B2}"), ("\\gamma", "\u{03B3}"),
+        ("\\delta", "\u{03B4}"), ("\\epsilon", "\u{03B5}"), ("\\zeta", "\u{03B6}"),
+        ("\\eta", "\u{03B7}"), ("\\theta", "\u{03B8}"), ("\\iota", "\u{03B9}"),
+        ("\\kappa", "\u{03BA}"), ("\\lambda", "\u{03BB}"), ("\\mu", "\u{03BC}"),
+        ("\\nu", "\u{03BD}"), ("\\xi", "\u{03BE}"), ("\\pi", "\u{03C0}"),
+        ("\\rho", "\u{03C1}"), ("\\sigma", "\u{03C3}"), ("\\tau", "\u{03C4}"),
+        ("\\upsilon", "\u{03C5}"), ("\\phi", "\u{03C6}"), ("\\chi", "\u{03C7}"),
+        ("\\psi", "\u{03C8}"), ("\\omega", "\u{03C9}"),
+        ("\\Alpha", "A"), ("\\Beta", "B"), ("\\Gamma", "\u{0393}"),
+        ("\\Delta", "\u{0394}"), ("\\Theta", "\u{0398}"), ("\\Lambda", "\u{039B}"),
+        ("\\Xi", "\u{039E}"), ("\\Pi", "\u{03A0}"), ("\\Sigma", "\u{03A3}"),
+        ("\\Phi", "\u{03A6}"), ("\\Psi", "\u{03A8}"), ("\\Omega", "\u{03A9}"),
+    ];
+
+    // Math operators and symbols
+    let operators = [
+        ("\\infty", "inf"), ("\\infinity", "inf"),
+        ("\\pm", "+/-"), ("\\mp", "-/+"),
+        ("\\times", "x"), ("\\cdot", "."),
+        ("\\div", "/"), ("\\neq", "!="), ("\\ne", "!="),
+        ("\\leq", "<="), ("\\le", "<="),
+        ("\\geq", ">="), ("\\ge", ">="),
+        ("\\approx", "~="), ("\\sim", "~"),
+        ("\\equiv", "==="), ("\\propto", "~"),
+        ("\\rightarrow", "->"), ("\\leftarrow", "<-"),
+        ("\\Rightarrow", "=>"), ("\\Leftarrow", "<="),
+        ("\\leftrightarrow", "<->"),
+        ("\\forall", "for all"), ("\\exists", "there exists"),
+        ("\\in", "in"), ("\\notin", "not in"),
+        ("\\subset", "c="), ("\\supset", "=c"),
+        ("\\cup", "U"), ("\\cap", "n"),
+        ("\\emptyset", "{}"),
+        ("\\nabla", "nabla"), ("\\partial", "d"),
+        ("\\ldots", "..."), ("\\cdots", "..."), ("\\dots", "..."),
+        ("\\quad", "  "), ("\\qquad", "    "),
+        ("\\,", " "), ("\\;", " "), ("\\!", ""),
+        ("\\left", ""), ("\\right", ""),
+        ("\\big", ""), ("\\Big", ""), ("\\bigg", ""), ("\\Bigg", ""),
+    ];
+
+    // Apply Greek letter replacements (longer patterns first to avoid partial matches)
+    for (cmd, replacement) in &greek {
+        s = s.replace(cmd, replacement);
+    }
+
+    // Apply operator replacements
+    for (cmd, replacement) in &operators {
+        s = s.replace(cmd, replacement);
+    }
+
+    // Handle \frac{a}{b} -> (a)/(b)
+    let frac_re = regex::Regex::new(r"\\frac\{([^}]*)\}\{([^}]*)\}").unwrap();
+    while frac_re.is_match(&s) {
+        s = frac_re.replace_all(&s, "($1)/($2)").to_string();
+    }
+
+    // Handle \sqrt{x} -> sqrt(x)
+    let sqrt_re = regex::Regex::new(r"\\sqrt\{([^}]*)\}").unwrap();
+    s = sqrt_re.replace_all(&s, "sqrt($1)").to_string();
+
+    // Handle \sqrt[n]{x} -> n-root(x)
+    let nroot_re = regex::Regex::new(r"\\sqrt\[([^\]]*)\]\{([^}]*)\}").unwrap();
+    s = nroot_re.replace_all(&s, "$1-root($2)").to_string();
+
+    // Handle \sum, \prod, \int with optional limits
+    let sum_re = regex::Regex::new(r"\\sum_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
+    s = sum_re.replace_all(&s, "SUM($1 to $2)").to_string();
+    s = s.replace("\\sum", "SUM");
+
+    let prod_re = regex::Regex::new(r"\\prod_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
+    s = prod_re.replace_all(&s, "PROD($1 to $2)").to_string();
+    s = s.replace("\\prod", "PROD");
+
+    let int_re = regex::Regex::new(r"\\int_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
+    s = int_re.replace_all(&s, "INT($1 to $2)").to_string();
+    s = s.replace("\\int", "INT");
+
+    let lim_re = regex::Regex::new(r"\\lim_\{([^}]*)\}").unwrap();
+    s = lim_re.replace_all(&s, "lim($1)").to_string();
+    s = s.replace("\\lim", "lim");
+
+    // Handle superscript ^{x} -> ^(x) and subscript _{x} -> _(x)
+    let sup_re = regex::Regex::new(r"\^\{([^}]*)\}").unwrap();
+    s = sup_re.replace_all(&s, "^($1)").to_string();
+
+    let sub_re = regex::Regex::new(r"_\{([^}]*)\}").unwrap();
+    s = sub_re.replace_all(&s, "_($1)").to_string();
+
+    // Handle \text{...} -> ...
+    let text_re = regex::Regex::new(r"\\text\{([^}]*)\}").unwrap();
+    s = text_re.replace_all(&s, "$1").to_string();
+
+    // Handle \mathbf{...}, \mathrm{...}, \mathit{...} -> content
+    let mathfmt_re = regex::Regex::new(r"\\math[a-z]+\{([^}]*)\}").unwrap();
+    s = mathfmt_re.replace_all(&s, "$1").to_string();
+
+    // Handle \hat{x}, \bar{x}, \vec{x}, \tilde{x}
+    let hat_re = regex::Regex::new(r"\\hat\{([^}]*)\}").unwrap();
+    s = hat_re.replace_all(&s, "$1^").to_string();
+    let bar_re = regex::Regex::new(r"\\bar\{([^}]*)\}").unwrap();
+    s = bar_re.replace_all(&s, "$1_bar").to_string();
+    let vec_re = regex::Regex::new(r"\\vec\{([^}]*)\}").unwrap();
+    s = vec_re.replace_all(&s, "vec($1)").to_string();
+
+    // Handle \log, \ln, \sin, \cos, \tan, \exp
+    for func in &["log", "ln", "sin", "cos", "tan", "exp", "min", "max", "det", "dim"] {
+        let cmd = format!("\\{}", func);
+        s = s.replace(&cmd, func);
+    }
+
+    // Strip remaining braces
+    s = s.replace('{', "").replace('}', "");
+
+    // Clean up multiple spaces
+    let multi_space = regex::Regex::new(r"  +").unwrap();
+    s = multi_space.replace_all(&s, " ").to_string();
+
+    s.trim().to_string()
 }
 
 fn escape_pdf_string(text: &str) -> String {
@@ -829,6 +1742,15 @@ pub fn element_to_structure(element: &Element) -> StructureElement {
             StructureElement::new(StructureType::P)
                 .with_actual_text(text.clone())
         }
+        Element::RichParagraph { segments } => {
+            let text = segments.iter().map(|s| match s {
+                TextSegment::Plain(t) | TextSegment::Bold(t) | TextSegment::Italic(t) | TextSegment::BoldItalic(t) => t.clone(),
+                TextSegment::Code(c) => format!("`{}`", c),
+                TextSegment::Link { text, url } => format!("{} ({})", text, url),
+            }).collect::<Vec<_>>().join("");
+            StructureElement::new(StructureType::P)
+                .with_actual_text(text)
+        }
         Element::UnorderedListItem { text, .. } | Element::OrderedListItem { text, .. } | Element::TaskListItem { text, .. } => {
             StructureElement::new(StructureType::LI)
                 .with_actual_text(text.clone())
@@ -871,6 +1793,14 @@ pub fn element_to_structure(element: &Element) -> StructureElement {
         Element::StyledText { text, .. } => {
             StructureElement::new(StructureType::Span)
                 .with_actual_text(text.clone())
+        }
+        Element::MathBlock { expression } => {
+            StructureElement::new(StructureType::Formula)
+                .with_actual_text(expression.clone())
+        }
+        Element::MathInline { expression } => {
+            StructureElement::new(StructureType::Formula)
+                .with_actual_text(expression.clone())
         }
         Element::PageBreak => {
             StructureElement::new(StructureType::NonStruct)

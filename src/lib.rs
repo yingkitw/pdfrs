@@ -44,6 +44,10 @@
 //! - [`image`]: Image loading, parsing, and PDF embedding
 //! - [`compression`]: Data compression utilities
 //! - [`security`]: PDF security, encryption, and permission management
+//! - [`builder`]: Fluent builder API for ergonomic PDF creation
+//! - [`streaming`]: Memory-efficient streaming PDF generation for large documents
+//! - [`parallel`]: High-performance parallel PDF operations using Rayon
+//! - [`optimization`]: PDF optimization profiles for different use cases (web, print, archive, ebook)
 //!
 //! ## Examples
 //!
@@ -85,15 +89,58 @@
 //!     0.3,
 //! ).expect("Failed to add watermark");
 //! ```
+//!
+//! ### Parallel PDF Operations
+//!
+//! ```rust,no_run
+//! use pdf_rs::parallel;
+//!
+//! // Merge multiple PDFs in parallel (loads inputs concurrently)
+//! parallel::merge_pdfs_parallel(
+//!     &["file1.pdf", "file2.pdf", "file3.pdf"],
+//!     "merged.pdf",
+//! ).expect("Failed to merge");
+//!
+//! // Extract text from multiple PDFs in parallel
+//! let results = parallel::extract_text_parallel(&["doc1.pdf", "doc2.pdf"])
+//!     .expect("Failed to extract text");
+//! for (path, text) in results {
+//!     println!("{}: {} characters", path, text.len());
+//! }
+//! ```
+//!
+//! ### PDF Optimization Profiles
+//!
+//! ```rust
+//! use pdf_rs::optimization::{OptimizationProfile, OptimizedPdfGenerator};
+//!
+//! // Create a web-optimized PDF (smallest file size)
+//! let _pdf_gen = OptimizedPdfGenerator::new(OptimizationProfile::web());
+//!
+//! // Or create a print-optimized PDF (highest quality)
+//! let _pdf_gen = OptimizedPdfGenerator::new(OptimizationProfile::print());
+//!
+//! // Or create a custom optimization profile
+//! use pdf_rs::optimization::{OptimizationSettings, CompressionLevel};
+//! let settings = OptimizationSettings::new()
+//!     .with_compression(CompressionLevel::High)
+//!     .with_image_dpi(200);
+//! let _pdf_gen = OptimizedPdfGenerator::new(OptimizationProfile::custom(settings));
+//! ```
 
+pub mod builder;
 pub mod compression;
 pub mod elements;
 pub mod image;
 pub mod markdown;
+pub mod optimization;
+pub mod parallel;
 pub mod pdf;
 pub mod pdf_generator;
 pub mod pdf_ops;
 pub mod security;
+pub mod streaming;
+pub mod table_renderer;
 
 #[cfg(test)]
 mod tests {

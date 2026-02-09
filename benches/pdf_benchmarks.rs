@@ -3,7 +3,8 @@
 // Run benchmarks with: cargo bench
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use pdf_rs::{pdf, pdf_ops, pdf_generator, elements};
+use pdf_rs::{pdf, pdf_ops, pdf_generator, elements, builder, optimization, parallel};
+use std::collections::HashMap;
 
 /// Benchmark markdown parsing
 fn bench_markdown_parsing(c: &mut Criterion) {
@@ -142,6 +143,176 @@ fn bench_pdf_scalability(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark Builder API vs direct API
+fn bench_builder_api(c: &mut Criterion) {
+    let mut group = c.benchmark_group("builder_api");
+
+    // Direct API benchmark
+    group.bench_function("direct_api", |b| {
+        b.iter(|| {
+            let elements = vec![
+                elements::Element::Heading { text: "Title".to_string(), level: 1 },
+                elements::Element::Paragraph { text: "Content".to_string() },
+            ];
+            pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, pdf_generator::PageLayout::portrait())
+        })
+    });
+
+    // Builder API benchmark
+    group.bench_function("builder_api", |b| {
+        b.iter(|| {
+            builder::PdfBuilder::new()
+                .add_heading("Title", 1)
+                .add_paragraph("Content")
+                .build_bytes()
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark parallel vs sequential PDF generation
+fn bench_parallel_generation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parallel_generation");
+
+    // Create test markdown content
+    let inputs: HashMap<String, String> = (0..10)
+        .map(|i| (format!("doc{}.md", i), format!("# Document {}\n\nContent {}", i, i)))
+        .collect();
+
+    group.bench_function("sequential", |b| {
+        b.iter(|| {
+            let mut results = HashMap::new();
+            for (filename, markdown) in &inputs {
+                let elements = elements::parse_markdown(markdown);
+                let pdf_bytes = pdf_generator::generate_pdf_bytes(
+                    &elements,
+                    "Helvetica",
+                    12.0,
+                    pdf_generator::PageLayout::portrait(),
+                ).unwrap();
+                results.insert(filename.clone(), pdf_bytes);
+            }
+            black_box(results)
+        })
+    });
+
+    group.bench_function("parallel", |b| {
+        b.iter(|| {
+            let generator = parallel::ParallelPdfGenerator::new();
+            black_box(generator.generate_markdown_pdfs_parallel(&inputs))
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark streaming PDF generation
+fn bench_streaming_generation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("streaming_generation");
+
+    let large_elements: Vec<elements::Element> = (0..100)
+        .map(|i| elements::Element::Heading {
+            text: format!("Section {}", i),
+            level: 2,
+        })
+        .chain((0..100).map(|i| elements::Element::Paragraph {
+            text: format!("Content for section {}", i),
+        }))
+        .collect();
+
+    group.bench_function("streaming_small", |b| {
+        b.iter(|| {
+            let small_elements: Vec<_> = large_elements.iter().take(10).cloned().collect();
+            let mut generator = pdf_rs::streaming::StreamingPdfGenerator::new(
+                "/tmp/bench_stream_small.pdf",
+                pdf_generator::PageLayout::portrait(),
+            ).unwrap();
+            for elem in &small_elements {
+                let _ = generator.add_element(elem.clone());
+            }
+            black_box(generator.finish())
+        })
+    });
+
+    group.bench_function("streaming_large", |b| {
+        b.iter(|| {
+            let mut generator = pdf_rs::streaming::StreamingPdfGenerator::new(
+                "/tmp/bench_stream_large.pdf",
+                pdf_generator::PageLayout::portrait(),
+            ).unwrap();
+            for elem in &large_elements {
+                let _ = generator.add_element(elem.clone());
+            }
+            black_box(generator.finish())
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark optimization profiles
+fn bench_optimization_profiles(c: &mut Criterion) {
+    let mut group = c.benchmark_group("optimization_profiles");
+
+    let elements = vec![
+        elements::Element::Heading { text: "Test".to_string(), level: 1 },
+        elements::Element::Paragraph { text: "Content".to_string() },
+    ];
+
+    for profile in [
+        optimization::OptimizationProfile::Web,
+        optimization::OptimizationProfile::Print,
+        optimization::OptimizationProfile::Archive,
+        optimization::OptimizationProfile::Ebook,
+    ].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("generate", format!("{:?}", profile)),
+            profile,
+            |b, profile| {
+                b.iter(|| {
+                    let generator = optimization::OptimizedPdfGenerator::new(*profile);
+                    black_box(generator.generate_bytes(&elements))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark merge operations
+fn bench_merge_operations(c: &mut Criterion) {
+    let mut group = c.benchmark_group("merge_operations");
+
+    // Create test PDFs first
+    let pdf_paths: Vec<String> = (0..5).map(|i| {
+        let path = format!("/tmp/bench_merge_{}.pdf", i);
+        let elements = vec![
+            elements::Element::Heading { text: format!("PDF {}", i), level: 1 },
+            elements::Element::Paragraph { text: format!("Content {}", i) },
+        ];
+        let _ = pdf_generator::create_pdf_from_elements_with_layout(
+            &path,
+            &elements,
+            "Helvetica",
+            12.0,
+            pdf_generator::PageLayout::portrait(),
+        );
+        path
+    }).collect();
+
+    let pdf_paths_str: Vec<&str> = pdf_paths.iter().map(|s| s.as_str()).collect();
+
+    group.bench_function("merge_5_pdfs", |b| {
+        b.iter(|| {
+            pdf_ops::merge_pdfs(black_box(&pdf_paths_str), black_box("/tmp/bench_merge_output.pdf"))
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_markdown_parsing,
@@ -150,7 +321,12 @@ criterion_group!(
     bench_metadata_operations,
     bench_image_operations,
     bench_compression,
-    bench_pdf_scalability
+    bench_pdf_scalability,
+    bench_builder_api,
+    bench_parallel_generation,
+    bench_streaming_generation,
+    bench_optimization_profiles,
+    bench_merge_operations
 );
 
 criterion_main!(benches);

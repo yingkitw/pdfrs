@@ -1,85 +1,153 @@
 %PDF-1.4
 %����
 1 0 obj
-<< /Length 2101 >>
+<< /Length 2842 >>
 stream
 BT
-/F1 12 Tf
-/F1 24 Tf
+/Helvetica 12 Tf
+/Helvetica-Bold 24 Tf
+/Helvetica-Bold 24 Tf
 1 0 0 1 78 712 Tm
 (Quarterly Engineering Report - Q4 2025) Tj
-/F1 19.2 Tf
+/Helvetica 12 Tf
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
 1 0 0 1 72 660 Tm
 (Executive Summary) Tj
-/F1 12 Tf
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+/Helvetica 12 Tf
 1 0 0 1 72 620.8 Tm
-(This report covers the critical milestones achieved during Q4 2025. Our team delivered significant improvements across all product lines, with a focus on performance optimization and system reliability.) Tj
-/F1 12 Tf
+(This report covers the ) Tj
+/Helvetica-Bold 12 Tf
+/Helvetica-Bold 12 Tf
+1 0 0 1 72 604.8 Tm
+(critical milestones) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
 1 0 0 1 72 588.8 Tm
-(---) Tj
-/F1 19.2 Tf
-1 0 0 1 72 548.8 Tm
+(achieved during Q4 2025. Our team delivered *significant improvements* across) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 572.8 Tm
+(all product lines, with a focus on) Tj
+/Helvetica-Bold 12 Tf
+/Helvetica-Bold 12 Tf
+1 0 0 1 72 556.8 Tm
+(performance optimization) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 540.8 Tm
+( and ) Tj
+/Courier 10.799999 Tf
+0.5 0.5 0.5 rg
+/Helvetica 10.799999 Tf
+1 0 0 1 72 524.8 Tm
+(system reliability) Tj
+0 0 0 rg
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 510 Tm
+(.) Tj
+ET
+0.5 0.5 0.5 RG
+1 w
+72 478 m 540 478 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 446 Tm
 (1. Project Metrics Overview) Tj
-/F1 12 Tf
-1 0 0 1 72 509.59998 Tm
-(Metric  Q3 2025  Q4 2025  Change) Tj
-/F1 12 Tf
-1 0 0 1 72 493.59998 Tm
-(--------  ---------  ---------  --------) Tj
-/F1 12 Tf
-1 0 0 1 72 477.59998 Tm
-(Uptime  99.2%  99.8%  +0.6%) Tj
-/F1 12 Tf
-1 0 0 1 72 461.59998 Tm
-(Response Time \(ms\)  245  128  -47.8%) Tj
-/F1 12 Tf
-1 0 0 1 72 445.59998 Tm
-(Active Users  12,500  18,300  +46.4%) Tj
-/F1 12 Tf
-1 0 0 1 72 429.59998 Tm
-(Bug Reports  87  34  -60.9%) Tj
-/F1 12 Tf
-1 0 0 1 72 413.59998 Tm
-(Test Coverage  72%  91%  +19%) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 381.59998 Tm
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1.5 w
+72 390.8 m 364 390.8 l S
+72 193.99998 m 364 193.99998 l S
+72 390.8 m 72 193.99998 l S
+364 390.8 m 364 193.99998 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 358 m 364 358 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 325.2 m 364 325.2 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 292.40002 m 364 292.40002 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 259.60004 m 364 259.60004 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 226.80003 m 364 226.80003 l S
+0.75 0.75 0.75 RG
+0.75 w
+196 390.8 m 196 193.99998 l S
+0.75 0.75 0.75 RG
+0.75 w
+254 390.8 m 254 193.99998 l S
+0.75 0.75 0.75 RG
+0.75 w
+312 390.8 m 312 193.99998 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 377.06665 Tm
+(Metric) Tj
+1 0 0 1 204 377.06665 Tm
+(Q3 2025) Tj
+1 0 0 1 262 377.06665 Tm
+(Q4 2025) Tj
+1 0 0 1 320 377.06665 Tm
+(Change) Tj
+1 0 0 1 80 344.26666 Tm
+(Uptime) Tj
+1 0 0 1 204 344.26666 Tm
+(99.2%) Tj
+1 0 0 1 262 344.26666 Tm
+(99.8%) Tj
+1 0 0 1 320 344.26666 Tm
+(+0.6%) Tj
+1 0 0 1 80 311.46667 Tm
+(Response Time \(ms\)) Tj
+1 0 0 1 204 311.46667 Tm
+(245) Tj
+1 0 0 1 262 311.46667 Tm
+(128) Tj
+1 0 0 1 320 311.46667 Tm
+(-47.8%) Tj
+1 0 0 1 80 278.6667 Tm
+(Active Users) Tj
+1 0 0 1 204 278.6667 Tm
+(12,500) Tj
+1 0 0 1 262 278.6667 Tm
+(18,300) Tj
+1 0 0 1 320 278.6667 Tm
+(+46.4%) Tj
+1 0 0 1 80 245.86671 Tm
+(Bug Reports) Tj
+1 0 0 1 204 245.86671 Tm
+(87) Tj
+1 0 0 1 262 245.86671 Tm
+(34) Tj
+1 0 0 1 320 245.86671 Tm
+(-60.9%) Tj
+1 0 0 1 80 213.06671 Tm
+(Test Coverage) Tj
+1 0 0 1 204 213.06671 Tm
+(72%) Tj
+1 0 0 1 262 213.06671 Tm
+(91%) Tj
+1 0 0 1 320 213.06671 Tm
+(+19%) Tj
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 161.99998 Tm
 (Performance Breakdown by Service) Tj
-/F1 12 Tf
-1 0 0 1 72 345.99997 Tm
-(Service  Latency P50  Latency P99  Error Rate) Tj
-/F1 12 Tf
-1 0 0 1 72 329.99997 Tm
-(---------  -------------  -------------  ------------) Tj
-/F1 12 Tf
-1 0 0 1 72 313.99997 Tm
-(Auth API  12ms  45ms  0.01%) Tj
-/F1 12 Tf
-1 0 0 1 72 297.99997 Tm
-(Data Pipeline  230ms  890ms  0.12%) Tj
-/F1 12 Tf
-1 0 0 1 72 281.99997 Tm
-(Search Engine  45ms  210ms  0.03%) Tj
-/F1 12 Tf
-1 0 0 1 72 265.99997 Tm
-(Notification  8ms  32ms  0.00%) Tj
-/F1 19.2 Tf
-1 0 0 1 72 233.99997 Tm
-(2. Architecture Changes) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 186.79997 Tm
-(2.1 Microservice Migration) Tj
-/F1 12 Tf
-1 0 0 1 72 151.19998 Tm
-(We completed the migration from monolith to microservices:) Tj
-/F1 12 Tf
-1 0 0 1 72 127.19998 Tm
-(• Auth Service: Handles authentication and authorization) Tj
-/F1 12 Tf
-1 0 0 1 72 111.19998 Tm
-(• User Service: Manages user profiles and preferences) Tj
-/F1 12 Tf
-1 0 0 1 72 95.19998 Tm
-(• Data Service: Processes and stores application data) Tj
+/Helvetica 12 Tf
 ET
 BT
 /F1 9 Tf
@@ -90,123 +158,214 @@ ET
 endstream
 endobj
 2 0 obj
-<< /Type /Page
-/Parent 16 0 R
-/MediaBox [0 0 612 792]
-/Contents 1 0 R
-/Resources << /Font << /F1 3 0 R >> >>
->>
-endobj
-3 0 obj
 << /Type /Font
 /Subtype /Type1
 /BaseFont /Helvetica
 >>
 endobj
+3 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
 4 0 obj
-<< /Length 2558 >>
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+5 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+6 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+7 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 1 0 R
+/Resources << /Font << /Helvetica 2 0 R /Helvetica-Bold 3 0 R /Helvetica-Oblique 4 0 R /Helvetica-BoldOblique 5 0 R /Courier 6 0 R >> >>
+>>
+endobj
+8 0 obj
+<< /Length 3509 >>
 stream
 BT
-/F1 12 Tf
-/F1 12 Tf
-1 0 0 1 72 720 Tm
-(• Notification Service: Manages email, SMS, and push notifications) Tj
-/F1 12 Tf
-1 0 0 1 72 704 Tm
-(• Analytics Service: Real-time event processing and reporting) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 672 Tm
-(2.2 Infrastructure Updates) Tj
-/F1 12 Tf
-1 0 0 1 72 636.4 Tm
-(1. Migrated to Kubernetes 1.28) Tj
-/F1 12 Tf
-1 0 0 1 72 620.4 Tm
-(2. Implemented service mesh with Istio) Tj
-/F1 12 Tf
-1 0 0 1 72 604.4 Tm
-(3. Deployed distributed tracing with OpenTelemetry) Tj
-/F1 12 Tf
-1 0 0 1 72 588.4 Tm
-(4. Set up automated canary deployments) Tj
-/F1 12 Tf
-1 0 0 1 72 572.4 Tm
-(  1. Blue-green deployment for critical services) Tj
-/F1 12 Tf
-1 0 0 1 72 556.4 Tm
-(  2. Rolling updates for non-critical services) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 524.4 Tm
-(2.3 Database Architecture) Tj
-0.5 0.5 0.5 rg
-/F1 10.200001 Tf
-1 0 0 1 72 480.80002 Tm
-(-- New sharding strategy for user data) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 466.6 Tm
-(CREATE TABLE users_shard_0 \() Tj
-/F1 10.200001 Tf
-1 0 0 1 72 452.4 Tm
-(    id BIGINT PRIMARY KEY,) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 438.19998 Tm
-(    username VARCHAR\(255\) NOT NULL,) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 423.99997 Tm
-(    email VARCHAR\(255\) UNIQUE,) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 409.79996 Tm
-(    created_at TIMESTAMP DEFAULT NOW\(\),) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 395.59995 Tm
-(    shard_key INT GENERATED ALWAYS AS \(id % 16\) STORED) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 381.39993 Tm
-(\);) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 367.19992 Tm
-() Tj
-/F1 10.200001 Tf
-1 0 0 1 72 352.9999 Tm
-(-- Index optimization) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 338.7999 Tm
-(CREATE INDEX idx_users_email ON users_shard_0\(email\);) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 324.59988 Tm
-(CREATE INDEX idx_users_created ON users_shard_0\(created_at DESC\);) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1.5 w
+72 704 m 406 704 l S
+72 540 m 406 540 l S
+72 704 m 72 540 l S
+406 704 m 406 540 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 671.2 m 406 671.2 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 638.4 m 406 638.4 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 605.60004 m 406 605.60004 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 572.80005 m 406 572.80005 l S
+0.75 0.75 0.75 RG
+0.75 w
+166 704 m 166 540 l S
+0.75 0.75 0.75 RG
+0.75 w
+248 704 m 248 540 l S
+0.75 0.75 0.75 RG
+0.75 w
+330 704 m 330 540 l S
+BT
+/Helvetica 12 Tf
 0 0 0 rg
-/F1 19.2 Tf
-1 0 0 1 72 286.39987 Tm
-(3. Code Quality Improvements) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 239.19986 Tm
-(3.1 Rust Backend Refactoring) Tj
-0.5 0.5 0.5 rg
-/F1 10.200001 Tf
-1 0 0 1 72 195.59985 Tm
-(use std::sync::Arc;) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 181.39986 Tm
-(use tokio::sync::RwLock;) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 167.19986 Tm
-() Tj
-/F1 10.200001 Tf
-1 0 0 1 72 152.99986 Tm
-(#[derive\(Clone\)]) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 138.79987 Tm
-(pub struct AppState {) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 124.59987 Tm
-(    db: Arc<RwLock<DatabasePool>>,) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 110.39987 Tm
-(    cache: Arc<RwLock<CacheLayer>>,) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 96.199875 Tm
-(    config: Arc<AppConfig>,) Tj
+1 0 0 1 80 690.26666 Tm
+(Service) Tj
+1 0 0 1 174 690.26666 Tm
+(Latency P50) Tj
+1 0 0 1 256 690.26666 Tm
+(Latency P99) Tj
+1 0 0 1 338 690.26666 Tm
+(Error Rate) Tj
+1 0 0 1 80 657.4667 Tm
+(Auth API) Tj
+1 0 0 1 174 657.4667 Tm
+(12ms) Tj
+1 0 0 1 256 657.4667 Tm
+(45ms) Tj
+1 0 0 1 338 657.4667 Tm
+(0.01%) Tj
+1 0 0 1 80 624.6667 Tm
+(Data Pipeline) Tj
+1 0 0 1 174 624.6667 Tm
+(230ms) Tj
+1 0 0 1 256 624.6667 Tm
+(890ms) Tj
+1 0 0 1 338 624.6667 Tm
+(0.12%) Tj
+1 0 0 1 80 591.8667 Tm
+(Search Engine) Tj
+1 0 0 1 174 591.8667 Tm
+(45ms) Tj
+1 0 0 1 256 591.8667 Tm
+(210ms) Tj
+1 0 0 1 338 591.8667 Tm
+(0.03%) Tj
+1 0 0 1 80 559.0667 Tm
+(Notification) Tj
+1 0 0 1 174 559.0667 Tm
+(8ms) Tj
+1 0 0 1 256 559.0667 Tm
+(32ms) Tj
+1 0 0 1 338 559.0667 Tm
+(0.00%) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 508 Tm
+(2. Architecture Changes) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 460.8 Tm
+(2.1 Microservice Migration) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 425.19998 Tm
+(We completed the migration from monolith to microservices:) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 401.19998 Tm
+(• Auth Service: Handles authentication and authorization) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 385.19998 Tm
+(• User Service: Manages user profiles and preferences) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 369.19998 Tm
+(• Data Service: Processes and stores application data) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 353.19998 Tm
+(• Notification Service: Manages email, SMS, and push notifications) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 337.19998 Tm
+(• Analytics Service: Real-time event processing and reporting) Tj
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 305.19998 Tm
+(2.2 Infrastructure Updates) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 269.59998 Tm
+(1. Migrated to Kubernetes 1.28) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 253.59998 Tm
+(2. Implemented service mesh with Istio) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 237.59998 Tm
+(3. Deployed distributed tracing with OpenTelemetry) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 221.59998 Tm
+(4. Set up automated canary deployments) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 205.59998 Tm
+(  1. Blue-green deployment for critical services) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 189.59998 Tm
+(  2. Rolling updates for non-critical services) Tj
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 157.59998 Tm
+(2.3 Database Architecture) Tj
+/Helvetica 12 Tf
+ET
+0.95 0.95 0.95 rg
+64 83.79997 484 30.2 re f
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 83.79997 m 548 83.79997 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 113.99997 m 548 113.99997 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 83.79997 m 64 113.99997 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+548 83.79997 m 548 113.99997 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+/Courier 10.200001 Tf
+0 0 0 rg
+1 0 0 1 72 105.99997 Tm
+(-- New sharding strategy for user data) Tj
+/Helvetica 12 Tf
 ET
 BT
 /F1 9 Tf
@@ -216,136 +375,322 @@ ET
 
 endstream
 endobj
-5 0 obj
-<< /Type /Page
-/Parent 16 0 R
-/MediaBox [0 0 612 792]
-/Contents 4 0 R
-/Resources << /Font << /F1 6 0 R >> >>
->>
-endobj
-6 0 obj
+9 0 obj
 << /Type /Font
 /Subtype /Type1
 /BaseFont /Helvetica
 >>
 endobj
-7 0 obj
-<< /Length 2803 >>
+10 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+11 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+12 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+13 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+14 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 8 0 R
+/Resources << /Font << /Helvetica 9 0 R /Helvetica-Bold 10 0 R /Helvetica-Oblique 11 0 R /Helvetica-BoldOblique 12 0 R /Courier 13 0 R >> >>
+>>
+endobj
+15 0 obj
+<< /Length 5034 >>
 stream
 BT
-/F1 12 Tf
-/F1 10.200001 Tf
-1 0 0 1 72 720 Tm
-(}) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 705.8 Tm
+/Helvetica 12 Tf
+ET
+0.95 0.95 0.95 rg
+64 547.8 484 172.20001 re f
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 547.8 m 548 547.8 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 720 m 548 720 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 547.8 m 64 720 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+548 547.8 m 548 720 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+/Courier 10.200001 Tf
+0 0 0 rg
+1 0 0 1 72 712 Tm
+(CREATE TABLE users_shard_0 \() Tj
+0 0 0 rg
+1 0 0 1 72 697.8 Tm
+(    id BIGINT PRIMARY KEY,) Tj
+0 0 0 rg
+1 0 0 1 72 683.6 Tm
+(    username VARCHAR\() Tj
+0.15 0.15 0.8 rg
+1 0 0 1 200.52002 683.6 Tm
+(255) Tj
+0 0 0 rg
+1 0 0 1 218.88002 683.6 Tm
+(\) NOT NULL,) Tj
+0 0 0 rg
+1 0 0 1 72 669.39996 Tm
+(    email VARCHAR\() Tj
+0.15 0.15 0.8 rg
+1 0 0 1 182.16002 669.39996 Tm
+(255) Tj
+0 0 0 rg
+1 0 0 1 200.52002 669.39996 Tm
+(\) UNIQUE,) Tj
+0 0 0 rg
+1 0 0 1 72 655.19995 Tm
+(    created_at TIMESTAMP DEFAULT NOW\(\),) Tj
+0 0 0 rg
+1 0 0 1 72 640.99994 Tm
+(    shard_key INT GENERATED ALWAYS AS \(id % ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 341.28003 640.99994 Tm
+(16) Tj
+0 0 0 rg
+1 0 0 1 353.52002 640.99994 Tm
+(\) STORED) Tj
+0 0 0 rg
+1 0 0 1 72 626.7999 Tm
+(\);) Tj
+0.15 0.15 0.15 rg
+1 0 0 1 72 612.5999 Tm
 () Tj
-/F1 10.200001 Tf
-1 0 0 1 72 691.6 Tm
-(impl AppState {) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 677.39996 Tm
-(    pub async fn new\(config: AppConfig\) -> anyhow::Result<Self> {) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 663.19995 Tm
-(        let db = DatabasePool::connect\(&config.database_url\).await?;) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 648.99994 Tm
-(        let cache = CacheLayer::new\(&config.cache_url\).await?;) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 634.7999 Tm
-(        Ok\(Self {) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 620.5999 Tm
+0 0 0 rg
+1 0 0 1 72 598.3999 Tm
+(-- Index optimization) Tj
+0 0 0 rg
+1 0 0 1 72 584.1999 Tm
+(CREATE INDEX idx_users_email ON users_shard_0\(email\);) Tj
+0 0 0 rg
+1 0 0 1 72 569.9999 Tm
+(CREATE INDEX idx_users_created ON users_shard_0\(created_at DESC\);) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 523.79987 Tm
+(3. Code Quality Improvements) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 476.59985 Tm
+(3.1 Rust Backend Refactoring) Tj
+/Helvetica 12 Tf
+ET
+0.95 0.95 0.95 rg
+64 118.799835 484 314.2 re f
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 118.799835 m 548 118.799835 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 432.99985 m 548 432.99985 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 118.799835 m 64 432.99985 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+548 118.799835 m 548 432.99985 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+/Courier 10.200001 Tf
+0.53 0.07 0.24 rg
+1 0 0 1 72 424.99985 Tm
+(use) Tj
+0 0 0 rg
+1 0 0 1 90.36 424.99985 Tm
+( std::sync::Arc;) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 72 410.79984 Tm
+(use) Tj
+0 0 0 rg
+1 0 0 1 90.36 410.79984 Tm
+( tokio::sync::RwLock;) Tj
+0.15 0.15 0.15 rg
+1 0 0 1 72 396.59982 Tm
+() Tj
+0.4 0.4 0.4 rg
+1 0 0 1 72 382.3998 Tm
+(#[derive\(Clone\)]) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 72 368.1998 Tm
+(pub) Tj
+0 0 0 rg
+1 0 0 1 90.36 368.1998 Tm
+( ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 96.48 368.1998 Tm
+(struct) Tj
+0 0 0 rg
+1 0 0 1 133.20001 368.1998 Tm
+( AppState {) Tj
+0 0 0 rg
+1 0 0 1 72 353.9998 Tm
+(    db: Arc<RwLock<DatabasePool>>,) Tj
+0 0 0 rg
+1 0 0 1 72 339.79977 Tm
+(    cache: Arc<RwLock<CacheLayer>>,) Tj
+0 0 0 rg
+1 0 0 1 72 325.59976 Tm
+(    config: Arc<AppConfig>,) Tj
+0 0 0 rg
+1 0 0 1 72 311.39975 Tm
+(}) Tj
+0.15 0.15 0.15 rg
+1 0 0 1 72 297.19974 Tm
+() Tj
+0.53 0.07 0.24 rg
+1 0 0 1 72 282.99973 Tm
+(impl) Tj
+0 0 0 rg
+1 0 0 1 96.48 282.99973 Tm
+( AppState {) Tj
+0 0 0 rg
+1 0 0 1 72 268.7997 Tm
+(    ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 96.48 268.7997 Tm
+(pub) Tj
+0 0 0 rg
+1 0 0 1 114.840004 268.7997 Tm
+( ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 120.96001 268.7997 Tm
+(async) Tj
+0 0 0 rg
+1 0 0 1 151.56001 268.7997 Tm
+( ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 157.68001 268.7997 Tm
+(fn) Tj
+0 0 0 rg
+1 0 0 1 169.92001 268.7997 Tm
+( new\(config: AppConfig\) -> anyhow::Result<) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 426.96005 268.7997 Tm
+(Self) Tj
+0 0 0 rg
+1 0 0 1 451.44006 268.7997 Tm
+(> {) Tj
+0 0 0 rg
+1 0 0 1 72 254.59972 Tm
+(        ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 120.96001 254.59972 Tm
+(let) Tj
+0 0 0 rg
+1 0 0 1 139.32 254.59972 Tm
+( db = DatabasePool::connect\(&config.database_url\).) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 445.32004 254.59972 Tm
+(await) Tj
+0 0 0 rg
+1 0 0 1 475.92004 254.59972 Tm
+(?;) Tj
+0 0 0 rg
+1 0 0 1 72 240.39972 Tm
+(        ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 120.96001 240.39972 Tm
+(let) Tj
+0 0 0 rg
+1 0 0 1 139.32 240.39972 Tm
+( cache = CacheLayer::new\(&config.cache_url\).) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 408.60004 240.39972 Tm
+(await) Tj
+0 0 0 rg
+1 0 0 1 439.20004 240.39972 Tm
+(?;) Tj
+0 0 0 rg
+1 0 0 1 72 226.19972 Tm
+(        Ok\() Tj
+0.53 0.07 0.24 rg
+1 0 0 1 139.32 226.19972 Tm
+(Self) Tj
+0 0 0 rg
+1 0 0 1 163.80002 226.19972 Tm
+( {) Tj
+0 0 0 rg
+1 0 0 1 72 211.99973 Tm
 (            db: Arc::new\(RwLock::new\(db\)\),) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 606.3999 Tm
+0 0 0 rg
+1 0 0 1 72 197.79973 Tm
 (            cache: Arc::new\(RwLock::new\(cache\)\),) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 592.1999 Tm
+0 0 0 rg
+1 0 0 1 72 183.59973 Tm
 (            config: Arc::new\(config\),) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 577.9999 Tm
+0 0 0 rg
+1 0 0 1 72 169.39973 Tm
 (        }\)) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 563.79987 Tm
+0 0 0 rg
+1 0 0 1 72 155.19974 Tm
 (    }) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 549.59985 Tm
+0 0 0 rg
+1 0 0 1 72 140.99974 Tm
 (}) Tj
-0 0 0 rg
-/F1 15.599999 Tf
-1 0 0 1 72 511.39984 Tm
+/Helvetica 12 Tf
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 94.79974 Tm
 (3.2 Python Data Pipeline) Tj
-0.5 0.5 0.5 rg
-/F1 10.200001 Tf
-1 0 0 1 72 467.79984 Tm
-(from dataclasses import dataclass) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 453.59982 Tm
-(from typing import List, Optional) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 439.3998 Tm
-(import asyncio) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 425.1998 Tm
-() Tj
-/F1 10.200001 Tf
-1 0 0 1 72 410.9998 Tm
-(@dataclass) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 396.79977 Tm
-(class PipelineConfig:) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 382.59976 Tm
-(    batch_size: int = 1000) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 368.39975 Tm
-(    max_retries: int = 3) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 354.19974 Tm
-(    timeout_seconds: float = 30.0) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 339.99973 Tm
-() Tj
-/F1 10.200001 Tf
-1 0 0 1 72 325.7997 Tm
-(async def process_batch\(items: List[dict], config: PipelineConfig\) -> dict:) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 311.5997 Tm
-(    results = {"processed": 0, "failed": 0, "skipped": 0}) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 297.3997 Tm
-(    for item in items:) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 283.19968 Tm
-(        try:) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 268.99966 Tm
-(            await transform_and_load\(item\)) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 254.79967 Tm
-(            results["processed"] += 1) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 240.59967 Tm
-(        except Exception as e:) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 226.39967 Tm
-(            results["failed"] += 1) Tj
-/F1 10.200001 Tf
-1 0 0 1 72 212.19968 Tm
-(    return results) Tj
-0 0 0 rg
-/F1 19.2 Tf
-1 0 0 1 72 173.99968 Tm
-(4. Team Accomplishments) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 126.79968 Tm
-(Engineering Team) Tj
-/F1 12 Tf
-1 0 0 1 72 91.199684 Tm
-(• Alice Chen: Led the Kubernetes migration, reducing deployment time by 75%) Tj
+/Helvetica 12 Tf
 ET
 BT
 /F1 9 Tf
@@ -355,109 +700,317 @@ ET
 
 endstream
 endobj
-8 0 obj
-<< /Type /Page
-/Parent 16 0 R
-/MediaBox [0 0 612 792]
-/Contents 7 0 R
-/Resources << /Font << /F1 9 0 R >> >>
->>
-endobj
-9 0 obj
+16 0 obj
 << /Type /Font
 /Subtype /Type1
 /BaseFont /Helvetica
 >>
 endobj
-10 0 obj
-<< /Length 2466 >>
+17 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+18 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+19 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+20 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+21 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 15 0 R
+/Resources << /Font << /Helvetica 16 0 R /Helvetica-Bold 17 0 R /Helvetica-Oblique 18 0 R /Helvetica-BoldOblique 19 0 R /Courier 20 0 R >> >>
+>>
+endobj
+22 0 obj
+<< /Length 5272 >>
 stream
 BT
-/F1 12 Tf
-/F1 12 Tf
-1 0 0 1 72 720 Tm
-(• Bob Martinez: Implemented distributed caching, improving response times by 48%) Tj
-/F1 12 Tf
-1 0 0 1 72 704 Tm
-(• Charlie Kim: Redesigned the data pipeline, handling 3x more throughput) Tj
-/F1 12 Tf
+/Helvetica 12 Tf
+ET
+0.95 0.95 0.95 rg
+64 410.19998 484 285.80002 re f
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 410.19998 m 548 410.19998 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 696 m 548 696 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+64 410.19998 m 64 696 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.75 0.75 0.75 RG
+0.5 w
+548 410.19998 m 548 696 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+/Courier 10.200001 Tf
+0.53 0.07 0.24 rg
 1 0 0 1 72 688 Tm
+(from) Tj
+0 0 0 rg
+1 0 0 1 96.48 688 Tm
+( dataclasses ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 176.04001 688 Tm
+(import) Tj
+0 0 0 rg
+1 0 0 1 212.76001 688 Tm
+( dataclass) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 72 673.8 Tm
+(from) Tj
+0 0 0 rg
+1 0 0 1 96.48 673.8 Tm
+( typing ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 145.44 673.8 Tm
+(import) Tj
+0 0 0 rg
+1 0 0 1 182.16 673.8 Tm
+( List, Optional) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 72 659.6 Tm
+(import) Tj
+0 0 0 rg
+1 0 0 1 108.72 659.6 Tm
+( asyncio) Tj
+0.15 0.15 0.15 rg
+1 0 0 1 72 645.39996 Tm
+() Tj
+0 0 0 rg
+1 0 0 1 72 631.19995 Tm
+(@dataclass) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 72 616.99994 Tm
+(class) Tj
+0 0 0 rg
+1 0 0 1 102.600006 616.99994 Tm
+( PipelineConfig:) Tj
+0 0 0 rg
+1 0 0 1 72 602.7999 Tm
+(    batch_size: int = ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 206.64001 602.7999 Tm
+(1000) Tj
+0 0 0 rg
+1 0 0 1 72 588.5999 Tm
+(    max_retries: int = ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 212.76003 588.5999 Tm
+(3) Tj
+0 0 0 rg
+1 0 0 1 72 574.3999 Tm
+(    timeout_seconds: float = ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 249.48003 574.3999 Tm
+(30.0) Tj
+0.15 0.15 0.15 rg
+1 0 0 1 72 560.1999 Tm
+() Tj
+0 0 0 rg
+1 0 0 1 72 545.9999 Tm
+(async ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 108.72 545.9999 Tm
+(def) Tj
+0 0 0 rg
+1 0 0 1 127.08 545.9999 Tm
+( process_batch\(items: List[dict], config: PipelineConfig\) -> dict:) Tj
+0 0 0 rg
+1 0 0 1 72 531.79987 Tm
+(    results = {) Tj
+0.15 0.49 0.07 rg
+1 0 0 1 163.80002 531.79987 Tm
+("processed") Tj
+0 0 0 rg
+1 0 0 1 231.12003 531.79987 Tm
+(: ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 243.36003 531.79987 Tm
+(0) Tj
+0 0 0 rg
+1 0 0 1 249.48003 531.79987 Tm
+(, ) Tj
+0.15 0.49 0.07 rg
+1 0 0 1 261.72003 531.79987 Tm
+("failed") Tj
+0 0 0 rg
+1 0 0 1 310.68005 531.79987 Tm
+(: ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 322.92004 531.79987 Tm
+(0) Tj
+0 0 0 rg
+1 0 0 1 329.04004 531.79987 Tm
+(, ) Tj
+0.15 0.49 0.07 rg
+1 0 0 1 341.28003 531.79987 Tm
+("skipped") Tj
+0 0 0 rg
+1 0 0 1 396.36005 531.79987 Tm
+(: ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 408.60004 531.79987 Tm
+(0) Tj
+0 0 0 rg
+1 0 0 1 414.72003 531.79987 Tm
+(}) Tj
+0 0 0 rg
+1 0 0 1 72 517.59985 Tm
+(    ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 96.48 517.59985 Tm
+(for) Tj
+0 0 0 rg
+1 0 0 1 114.840004 517.59985 Tm
+( item ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 151.56001 517.59985 Tm
+(in) Tj
+0 0 0 rg
+1 0 0 1 163.80002 517.59985 Tm
+( items:) Tj
+0 0 0 rg
+1 0 0 1 72 503.39984 Tm
+(        ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 120.96001 503.39984 Tm
+(try) Tj
+0 0 0 rg
+1 0 0 1 139.32 503.39984 Tm
+(:) Tj
+0 0 0 rg
+1 0 0 1 72 489.19983 Tm
+(            await transform_and_load\(item\)) Tj
+0 0 0 rg
+1 0 0 1 72 474.99982 Tm
+(            results[) Tj
+0.15 0.49 0.07 rg
+1 0 0 1 194.40002 474.99982 Tm
+("processed") Tj
+0 0 0 rg
+1 0 0 1 261.72003 474.99982 Tm
+(] += ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 292.32004 474.99982 Tm
+(1) Tj
+0 0 0 rg
+1 0 0 1 72 460.7998 Tm
+(        ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 120.96001 460.7998 Tm
+(except) Tj
+0 0 0 rg
+1 0 0 1 157.68001 460.7998 Tm
+( Exception ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 225.00002 460.7998 Tm
+(as) Tj
+0 0 0 rg
+1 0 0 1 237.24002 460.7998 Tm
+( e:) Tj
+0 0 0 rg
+1 0 0 1 72 446.5998 Tm
+(            results[) Tj
+0.15 0.49 0.07 rg
+1 0 0 1 194.40002 446.5998 Tm
+("failed") Tj
+0 0 0 rg
+1 0 0 1 243.36003 446.5998 Tm
+(] += ) Tj
+0.15 0.15 0.8 rg
+1 0 0 1 273.96002 446.5998 Tm
+(1) Tj
+0 0 0 rg
+1 0 0 1 72 432.39978 Tm
+(    ) Tj
+0.53 0.07 0.24 rg
+1 0 0 1 96.48 432.39978 Tm
+(return) Tj
+0 0 0 rg
+1 0 0 1 133.20001 432.39978 Tm
+( results) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 386.19977 Tm
+(4. Team Accomplishments) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 338.99976 Tm
+(Engineering Team) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 303.39975 Tm
+(• Alice Chen: Led the Kubernetes migration, reducing deployment time by 75%) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 287.39975 Tm
+(• Bob Martinez: Implemented distributed caching, improving response times by) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 271.39975 Tm
+(48%) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 255.39975 Tm
+(• Charlie Kim: Redesigned the data pipeline, handling 3x more throughput) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 239.39975 Tm
 (• Diana Patel: Built the new monitoring dashboard with real-time alerting) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 656 Tm
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 207.39975 Tm
 (Key Deliverables) Tj
-/F1 12 Tf
-1 0 0 1 72 620.4 Tm
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 171.79974 Tm
 (1. Zero-downtime deployment pipeline) Tj
-/F1 12 Tf
-1 0 0 1 72 604.4 Tm
+/Helvetica 12 Tf
+1 0 0 1 72 155.79974 Tm
 (2. Automated security scanning in CI/CD) Tj
-/F1 12 Tf
-1 0 0 1 72 588.4 Tm
+/Helvetica 12 Tf
+1 0 0 1 72 139.79974 Tm
 (3. Real-time anomaly detection system) Tj
-/F1 12 Tf
-1 0 0 1 72 572.4 Tm
+/Helvetica 12 Tf
+1 0 0 1 72 123.79974 Tm
 (4. Self-healing infrastructure with auto-scaling) Tj
-/F1 12 Tf
-1 0 0 1 72 556.4 Tm
+/Helvetica 12 Tf
+1 0 0 1 72 107.79974 Tm
 (5. Comprehensive API documentation portal) Tj
-/F1 19.2 Tf
-1 0 0 1 72 524.4 Tm
-(5. Challenges and Lessons Learned) Tj
-/F1 12 Tf
-1 0 0 1 72 485.2 Tm
-(The migration presented several challenges:) Tj
-/F1 12 Tf
-1 0 0 1 72 461.2 Tm
-(• Memory leaks in the connection pooling layer required careful profiling with valgrind and heaptrack) Tj
-/F1 12 Tf
-1 0 0 1 72 445.2 Tm
-(• Race conditions in the distributed lock mechanism needed thorough testing with chaos engineering) Tj
-/F1 12 Tf
-1 0 0 1 72 429.2 Tm
-(• Schema migrations across 16 database shards required careful coordination) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 397.2 Tm
-(Risk Mitigation Strategies) Tj
-/F1 12 Tf
-1 0 0 1 72 361.6 Tm
-(Risk  Probability  Impact  Mitigation) Tj
-/F1 12 Tf
-1 0 0 1 72 345.6 Tm
-(------  -------------  --------  ------------) Tj
-/F1 12 Tf
-1 0 0 1 72 329.6 Tm
-(Data loss during migration  Low  Critical  Multi-region backups) Tj
-/F1 12 Tf
-1 0 0 1 72 313.6 Tm
-(Service degradation  Medium  High  Circuit breakers) Tj
-/F1 12 Tf
-1 0 0 1 72 297.6 Tm
-(Security vulnerability  Low  Critical  Automated scanning) Tj
-/F1 12 Tf
-1 0 0 1 72 281.6 Tm
-(Team burnout  Medium  Medium  Sprint planning) Tj
-/F1 19.2 Tf
-1 0 0 1 72 249.6 Tm
-(6. Next Quarter Goals) Tj
-/F1 15.599999 Tf
-1 0 0 1 72 202.40001 Tm
-(Q1 2026 Priorities) Tj
-/F1 12 Tf
-1 0 0 1 72 166.80002 Tm
-([ ] Complete GraphQL API migration) Tj
-/F1 12 Tf
-1 0 0 1 72 150.80002 Tm
-([ ] Implement end-to-end encryption) Tj
-/F1 12 Tf
-1 0 0 1 72 134.80002 Tm
-([ ] Launch self-service analytics portal) Tj
-/F1 12 Tf
-1 0 0 1 72 118.80002 Tm
-([ ] Achieve 99.95% uptime SLA) Tj
-/F1 12 Tf
-1 0 0 1 72 102.80002 Tm
-([ ] Reduce P99 latency below 200ms for all services) Tj
+/Helvetica-Bold 19.2 Tf
 ET
 BT
 /F1 9 Tf
@@ -467,52 +1020,177 @@ ET
 
 endstream
 endobj
-11 0 obj
-<< /Type /Page
-/Parent 16 0 R
-/MediaBox [0 0 612 792]
-/Contents 10 0 R
-/Resources << /Font << /F1 12 0 R >> >>
->>
-endobj
-12 0 obj
+23 0 obj
 << /Type /Font
 /Subtype /Type1
 /BaseFont /Helvetica
 >>
 endobj
-13 0 obj
-<< /Length 697 >>
+24 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+25 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+26 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+27 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+28 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 22 0 R
+/Resources << /Font << /Helvetica 23 0 R /Helvetica-Bold 24 0 R /Helvetica-Oblique 25 0 R /Helvetica-BoldOblique 26 0 R /Courier 27 0 R >> >>
+>>
+endobj
+29 0 obj
+<< /Length 2976 >>
 stream
 BT
-/F1 12 Tf
-/F1 15.599999 Tf
-1 0 0 1 72 712 Tm
+/Helvetica 12 Tf
+/Helvetica 19.2 Tf
+1 0 0 1 72 720 Tm
+(5. Challenges and Lessons Learned) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 680.8 Tm
+(The migration presented several challenges:) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 656.8 Tm
+(• Memory leaks in the connection pooling layer required careful profiling) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 640.8 Tm
+(with valgrind and heaptrack) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 624.8 Tm
+(• Race conditions in the distributed lock mechanism needed thorough testing) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 608.8 Tm
+(with chaos engineering) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 592.8 Tm
+(• Schema migrations across 16 database shards required careful coordination) Tj
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 560.8 Tm
+(Risk Mitigation Strategies) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1.5 w
+72 509.2 m 526 509.2 l S
+72 345.2 m 526 345.2 l S
+72 509.2 m 72 345.2 l S
+526 509.2 m 526 345.2 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 476.40002 m 526 476.40002 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 443.60004 m 526 443.60004 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 410.80005 m 526 410.80005 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 378.00006 m 526 378.00006 l S
+0.75 0.75 0.75 RG
+0.75 w
+244 509.2 m 244 345.2 l S
+0.75 0.75 0.75 RG
+0.75 w
+326 509.2 m 326 345.2 l S
+0.75 0.75 0.75 RG
+0.75 w
+390 509.2 m 390 345.2 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 495.46667 Tm
+(Risk) Tj
+1 0 0 1 252 495.46667 Tm
+(Probability) Tj
+1 0 0 1 334 495.46667 Tm
+(Impact) Tj
+1 0 0 1 398 495.46667 Tm
+(Mitigation) Tj
+1 0 0 1 80 462.6667 Tm
+(Data loss during migration) Tj
+1 0 0 1 252 462.6667 Tm
+(Low) Tj
+1 0 0 1 334 462.6667 Tm
+(Critical) Tj
+1 0 0 1 398 462.6667 Tm
+(Multi-region backups) Tj
+1 0 0 1 80 429.8667 Tm
+(Service degradation) Tj
+1 0 0 1 252 429.8667 Tm
+(Medium) Tj
+1 0 0 1 334 429.8667 Tm
+(High) Tj
+1 0 0 1 398 429.8667 Tm
+(Circuit breakers) Tj
+1 0 0 1 80 397.0667 Tm
+(Security vulnerability) Tj
+1 0 0 1 252 397.0667 Tm
+(Low) Tj
+1 0 0 1 334 397.0667 Tm
+(Critical) Tj
+1 0 0 1 398 397.0667 Tm
+(Automated scanning) Tj
+1 0 0 1 80 364.26672 Tm
+(Team burnout) Tj
+1 0 0 1 252 364.26672 Tm
+(Medium) Tj
+1 0 0 1 334 364.26672 Tm
+(Medium) Tj
+1 0 0 1 398 364.26672 Tm
+(Sprint planning) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 313.2 Tm
+(6. Next Quarter Goals) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 266 Tm
+(Q1 2026 Priorities) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 230.4 Tm
+([ ] Complete GraphQL API migration) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 214.4 Tm
+([ ] Implement end-to-end encryption) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 198.4 Tm
+([ ] Launch self-service analytics portal) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 182.4 Tm
+([ ] Achieve 99.95% uptime SLA) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 166.4 Tm
+([ ] Reduce P99 latency below 200ms for all services) Tj
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 134.4 Tm
 (Budget Allocation) Tj
-/F1 12 Tf
-1 0 0 1 72 676.4 Tm
-(Category  Budget  Spent  Remaining) Tj
-/F1 12 Tf
-1 0 0 1 72 660.4 Tm
-(----------  --------  -------  -----------) Tj
-/F1 12 Tf
-1 0 0 1 72 644.4 Tm
-(Infrastructure  $120,000  $98,500  $21,500) Tj
-/F1 12 Tf
-1 0 0 1 72 628.4 Tm
-(Tooling  $45,000  $38,200  $6,800) Tj
-/F1 12 Tf
-1 0 0 1 72 612.4 Tm
-(Training  $20,000  $12,000  $8,000) Tj
-/F1 12 Tf
-1 0 0 1 72 596.4 Tm
-(Contingency  $15,000  $3,200  $11,800) Tj
-/F1 12 Tf
-1 0 0 1 72 564.4 Tm
-(---) Tj
-/F1 12 Tf
-1 0 0 1 72 532.4 Tm
-(Report generated on 2025-12-31. Confidential - Internal Use Only.) Tj
+/Helvetica 12 Tf
 ET
 BT
 /F1 9 Tf
@@ -522,56 +1200,240 @@ ET
 
 endstream
 endobj
-14 0 obj
-<< /Type /Page
-/Parent 16 0 R
-/MediaBox [0 0 612 792]
-/Contents 13 0 R
-/Resources << /Font << /F1 15 0 R >> >>
->>
-endobj
-15 0 obj
+30 0 obj
 << /Type /Font
 /Subtype /Type1
 /BaseFont /Helvetica
 >>
 endobj
-16 0 obj
-<< /Type /Pages
-/Kids [2 0 R 5 0 R 8 0 R 11 0 R 14 0 R]
-/Count 5
+31 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
 >>
 endobj
-17 0 obj
+32 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+33 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+34 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+35 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 29 0 R
+/Resources << /Font << /Helvetica 30 0 R /Helvetica-Bold 31 0 R /Helvetica-Oblique 32 0 R /Helvetica-BoldOblique 33 0 R /Courier 34 0 R >> >>
+>>
+endobj
+36 0 obj
+<< /Length 1483 >>
+stream
+BT
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1.5 w
+72 704 m 364 704 l S
+72 540 m 364 540 l S
+72 704 m 72 540 l S
+364 704 m 364 540 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 671.2 m 364 671.2 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 638.4 m 364 638.4 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 605.60004 m 364 605.60004 l S
+0.75 0.75 0.75 RG
+0.75 w
+72 572.80005 m 364 572.80005 l S
+0.75 0.75 0.75 RG
+0.75 w
+172 704 m 172 540 l S
+0.75 0.75 0.75 RG
+0.75 w
+236 704 m 236 540 l S
+0.75 0.75 0.75 RG
+0.75 w
+294 704 m 294 540 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 690.26666 Tm
+(Category) Tj
+1 0 0 1 180 690.26666 Tm
+(Budget) Tj
+1 0 0 1 244 690.26666 Tm
+(Spent) Tj
+1 0 0 1 302 690.26666 Tm
+(Remaining) Tj
+1 0 0 1 80 657.4667 Tm
+(Infrastructure) Tj
+1 0 0 1 180 657.4667 Tm
+($120,000) Tj
+1 0 0 1 244 657.4667 Tm
+($98,500) Tj
+1 0 0 1 302 657.4667 Tm
+($21,500) Tj
+1 0 0 1 80 624.6667 Tm
+(Tooling) Tj
+1 0 0 1 180 624.6667 Tm
+($45,000) Tj
+1 0 0 1 244 624.6667 Tm
+($38,200) Tj
+1 0 0 1 302 624.6667 Tm
+($6,800) Tj
+1 0 0 1 80 591.8667 Tm
+(Training) Tj
+1 0 0 1 180 591.8667 Tm
+($20,000) Tj
+1 0 0 1 244 591.8667 Tm
+($12,000) Tj
+1 0 0 1 302 591.8667 Tm
+($8,000) Tj
+1 0 0 1 80 559.0667 Tm
+(Contingency) Tj
+1 0 0 1 180 559.0667 Tm
+($15,000) Tj
+1 0 0 1 244 559.0667 Tm
+($3,200) Tj
+1 0 0 1 302 559.0667 Tm
+($11,800) Tj
+ET
+0.5 0.5 0.5 RG
+1 w
+72 508 m 540 508 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+/Helvetica 12 Tf
+1 0 0 1 72 484 Tm
+(Report generated on 2025-12-31. Confidential - Internal Use Only.) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 6) Tj
+ET
+
+endstream
+endobj
+37 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+38 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+39 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+40 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+41 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+42 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 36 0 R
+/Resources << /Font << /Helvetica 37 0 R /Helvetica-Bold 38 0 R /Helvetica-Oblique 39 0 R /Helvetica-BoldOblique 40 0 R /Courier 41 0 R >> >>
+>>
+endobj
+43 0 obj
+<< /Type /Pages
+/Kids [7 0 R 14 0 R 21 0 R 28 0 R 35 0 R 42 0 R]
+/Count 6
+>>
+endobj
+44 0 obj
 << /Type /Catalog
-/Pages 16 0 R
+/Pages 43 0 R
 >>
 endobj
 xref
-0 18
+0 45
 0000000000 65535 f 
 0000000015 00000 n 
-0000002168 00000 n 
-0000002295 00000 n 
-0000002365 00000 n 
-0000004975 00000 n 
-0000005102 00000 n 
-0000005172 00000 n 
-0000008027 00000 n 
-0000008154 00000 n 
-0000008224 00000 n 
-0000010743 00000 n 
-0000010873 00000 n 
-0000010944 00000 n 
-0000011693 00000 n 
-0000011823 00000 n 
-0000011894 00000 n 
-0000011978 00000 n 
+0000002909 00000 n 
+0000002979 00000 n 
+0000003054 00000 n 
+0000003132 00000 n 
+0000003214 00000 n 
+0000003282 00000 n 
+0000003507 00000 n 
+0000007068 00000 n 
+0000007138 00000 n 
+0000007214 00000 n 
+0000007293 00000 n 
+0000007376 00000 n 
+0000007445 00000 n 
+0000007675 00000 n 
+0000012762 00000 n 
+0000012833 00000 n 
+0000012909 00000 n 
+0000012988 00000 n 
+0000013071 00000 n 
+0000013140 00000 n 
+0000013372 00000 n 
+0000018697 00000 n 
+0000018768 00000 n 
+0000018844 00000 n 
+0000018923 00000 n 
+0000019006 00000 n 
+0000019075 00000 n 
+0000019307 00000 n 
+0000022336 00000 n 
+0000022407 00000 n 
+0000022483 00000 n 
+0000022562 00000 n 
+0000022645 00000 n 
+0000022714 00000 n 
+0000022946 00000 n 
+0000024482 00000 n 
+0000024553 00000 n 
+0000024629 00000 n 
+0000024708 00000 n 
+0000024791 00000 n 
+0000024860 00000 n 
+0000025092 00000 n 
+0000025185 00000 n 
 trailer
 <<
-/Size 18
-/Root 17 0 R
+/Size 45
+/Root 44 0 R
 >>
 startxref
-12029
+25236
 %%EOF

@@ -192,25 +192,30 @@ impl PdfDocument {
                 let content = String::from_utf8_lossy(&processed_data);
 
                 let mut tracker = TextPositionTracker::new();
+                let mut first_item_on_line = true;
 
                 // Process content stream line by line to track positioning
                 for line in content.lines() {
                     let line = line.trim();
 
-                    // Check for Td/TD positioning
+                    // Check for Td/TD positioning BEFORE extracting text on this line
                     if let Some(caps) = td_re.captures(line) {
                         if let Ok(y) = caps[2].parse::<f32>() {
                             if tracker.moved_to_new_line(y) && !text.ends_with('\n') {
                                 // Y changed significantly — likely a new line
+                                text.push('\n');
+                                first_item_on_line = true;
                             }
                         }
                     }
 
-                    // Check for Tm text matrix
+                    // Check for Tm text matrix BEFORE extracting text on this line
                     if let Some(caps) = tm_re.captures(line) {
                         if let Ok(y) = caps[2].parse::<f32>() {
                             if tracker.moved_to_new_line(y) && !text.ends_with('\n') {
                                 // Y changed significantly
+                                text.push('\n');
+                                first_item_on_line = true;
                             }
                         }
                     }
@@ -219,8 +224,11 @@ impl PdfDocument {
                     for caps in tj_re.captures_iter(line) {
                         let extracted = &caps[1];
                         let unescaped = unescape_pdf_string(extracted);
+                        if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                            text.push(' ');
+                        }
                         text.push_str(&unescaped);
-                        text.push('\n');
+                        first_item_on_line = false;
                     }
 
                     // Extract [...] TJ arrays
@@ -229,10 +237,18 @@ impl PdfDocument {
                         for str_caps in tj_str_re.captures_iter(array_content) {
                             let extracted = &str_caps[1];
                             let unescaped = unescape_pdf_string(extracted);
+                            if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                                text.push(' ');
+                            }
                             text.push_str(&unescaped);
+                            first_item_on_line = false;
                         }
-                        text.push('\n');
                     }
+                }
+
+                // Add newline at the end of each page's content
+                if !text.ends_with('\n') && !text.is_empty() {
+                    text.push('\n');
                 }
             }
         }
@@ -840,7 +856,7 @@ mod tests {
         assert!(content.contains("Roundtrip Title"), "Title not found in PDF");
         assert!(content.contains("roundtrip content"), "Paragraph not found in PDF");
         assert!(content.contains("Item one"), "List item not found in PDF");
-        assert!(content.contains("fn main"), "Code block not found in PDF");
+        assert!(content.contains("fn") && content.contains("main"), "Code block not found in PDF");
         assert!(content.contains("quote"), "Blockquote not found in PDF");
         assert!(content.contains("Example"), "Link text not found in PDF");
         assert!(content.contains("example.com"), "Link URL not found in PDF");
@@ -891,7 +907,7 @@ mod tests {
         let expected_strings = vec![
             "H1 Title", "H2 Subtitle", "H3 Section",
             "Normal paragraph", "Bullet item", "Numbered item",
-            "Done task", "Todo task", "print", "let x = 42",
+            "Done task", "Todo task", "print", "let", "x = 42",
             "Name", "Age", "Wise words", "Rust", "A language",
             "See reference", "Google", "google.com",
             "Photo", "photo.jpg", "Bold text", "After page break",

@@ -1,4 +1,4 @@
-use crate::elements::{self, Element};
+use crate::elements::{self, Element, TextSegment};
 use anyhow::Result;
 use std::fs::File;
 use std::io::Read;
@@ -20,6 +20,28 @@ fn elements_to_text(elements: &[Element]) -> String {
             }
             Element::Paragraph { text: t } => {
                 text.push_str(t);
+                text.push('\n');
+            }
+            Element::RichParagraph { segments } => {
+                for segment in segments {
+                    match segment {
+                        TextSegment::Plain(t) | TextSegment::Bold(t) | TextSegment::Italic(t) | TextSegment::BoldItalic(t) => {
+                            text.push_str(t);
+                        }
+                        TextSegment::Code(c) => {
+                            text.push('`');
+                            text.push_str(c);
+                            text.push('`');
+                        }
+                        TextSegment::Link { text: t, url } => {
+                            text.push('[');
+                            text.push_str(t);
+                            text.push_str("](");
+                            text.push_str(url);
+                            text.push_str(")");
+                        }
+                    }
+                }
                 text.push('\n');
             }
             Element::UnorderedListItem { text: t, .. } => {
@@ -91,6 +113,16 @@ fn elements_to_text(elements: &[Element]) -> String {
             Element::StyledText { text: t, .. } => {
                 text.push_str(t);
                 text.push('\n');
+            }
+            Element::MathBlock { expression } => {
+                text.push_str("$$\n");
+                text.push_str(expression);
+                text.push_str("\n$$\n");
+            }
+            Element::MathInline { expression } => {
+                text.push('$');
+                text.push_str(expression);
+                text.push_str("$\n");
             }
             Element::PageBreak => {
                 text.push_str("\n---\n");

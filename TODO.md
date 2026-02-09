@@ -39,7 +39,9 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `full_features.md` — all 17 element types (10KB, 6 pages)
   - [x] `technical_report_complex.md` — dense tables, multi-language code, nested lists (23KB, 6+ pages)
   - [x] `api_reference_complex.md` — definitions, footnotes, code examples, feature matrix (28KB, 8+ pages)
+  - [x] `math_and_formulas.md` — LaTeX math blocks/inline, code blocks, tables, formulas (27KB, 14 pages)
 - [x] Library API integration tests (generate_pdf_bytes + validate_pdf_bytes, portrait + landscape batch)
+- [x] Math parsing library API test (MathBlock + MathInline element detection + PDF generation)
 
 ---
 
@@ -79,10 +81,14 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Text justification and alignment (H1 centered, TextAlign enum)
   - [x] Page numbering
   - [x] Header font size hierarchy (H1-H6)
-  - [x] Code block reduced font size
+  - [x] Code block reduced font size with background, border, and page-break support
   - [x] Horizontal rule rendering
   - [x] Watermarks — `watermark` CLI command (diagonal text, configurable opacity/size)
   - [x] Page orientation (landscape/portrait) with --landscape CLI flag
+  - [x] Math/formula rendering (MathBlock with blue background + accent border, MathInline italic)
+  - [x] LaTeX-to-text math conversion (Greek letters, operators, fractions, integrals, sums, limits)
+  - [x] Fixed font object ID references in PDF assembly
+  - [x] Fixed table rendering crash with ragged row column counts
 
 ### 🟢 Medium
 
@@ -102,6 +108,102 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [ ] Faster PDF parsing
   - [ ] Streaming processing for large files
   - [ ] Parallel processing where applicable
+
+---
+
+## Phase 3.5: Advanced Features (Surpassing Ghostscript)
+
+### 🔴 Critical (Competitive Advantages)
+
+#### FR12: Streaming & Incremental Processing
+- [ ] **FR12.1**: Streaming PDF generation trait
+  ```rust
+  pub trait StreamingPdfGenerator {
+      fn generate_streaming(&mut self, elements: &[Element]) -> Stream<Page>;
+  }
+  ```
+- [ ] **FR12.2**: Page-by-page lazy loading
+  ```rust
+  pub fn render_page_range(&mut self, elements: &[Element], range: Range<usize>) -> Result<Vec<Page>>;
+  ```
+- [ ] **FR12.3**: Incremental PDF writing (write pages as generated)
+  ```rust
+  pub fn create_pdf_streaming(filename: &str, elements: &[Element]) -> Result<()>;
+  ```
+- [ ] **FR12.4**: Lazy PDF document (load pages on-demand)
+  ```rust
+  pub struct LazyPdfDocument { /* ... */ }
+  ```
+
+#### FR13: Performance & Parallelism
+- [ ] **FR13.1**: Add `rayon` dependency for parallelism
+- [ ] **FR13.2**: Parallel page rendering with `par_iter()`
+- [ ] **FR13.3**: Parallel PDF merging (load inputs concurrently)
+- [ ] **FR13.4**: SIMD text width calculations
+- [ ] **FR13.5**: Async PDF API for web servers (`tokio`)
+
+#### FR15: Developer Experience
+- [ ] **FR15.1**: Builder API with fluent interface
+  ```rust
+  PdfBuilder::new().with_layout(PageLayout::landscape()).build()?;
+  ```
+- [ ] **FR15.2**: Property-based testing with `proptest`
+- [ ] **FR15.3**: Diff/patch support for version control
+- [ ] **FR15.4**: Hot-reload during development
+- [ ] **FR15.5**: Interactive REPL for PDF manipulation
+
+#### FR18: Intelligent Optimization
+- [ ] **FR18.1**: Smart content-aware compression
+- [ ] **FR18.2**: Font subsetting to reduce file size
+- [ ] **FR18.3**: Object deduplication across pages
+- [ ] **FR18.4**: Optimization profiles (web, print, archive, ebook)
+
+### 🟡 High Impact
+
+#### FR14: Smart Content Analysis
+- [ ] **FR14.1**: Structure detection (headings, sections, tables)
+- [ ] **FR14.2**: Table extraction to CSV/Excel formats
+- [ ] **FR14.3**: Form field detection and filling
+- [ ] **FR14.4**: Content-aware image compression
+- [ ] **FR14.5**: PDF/A validation and conversion
+
+#### FR16: WebAssembly Support
+- [ ] **FR16.1**: Add `wasm-bindgen` and `wasm-pack`
+- [ ] **FR16.2**: WASM-compatible API
+  ```rust
+  #[wasm_bindgen]
+  pub fn render_markdown_to_pdf(md: &str) -> Result<Vec<u8>, JsValue>;
+  ```
+- [ ] **FR16.3**: JavaScript bindings and npm package
+- [ ] **FR16.4**: Canvas-based PDF viewer in browser
+
+### 🟢 Medium
+
+#### FR17: Advanced Format Support
+- [ ] **FR17.1**: PDF 2.0 specification features
+- [ ] **FR17.2**: PDF/A-3 and PDF/UA (accessibility)
+- [ ] **FR17.3**: Embedded file attachments
+- [ ] **FR17.4**: PDF portfolios and collections
+- [ ] **FR17.5**: 3D annotations (U3D)
+
+#### FR19: Security
+- [ ] **FR19.1**: Malformed PDF sanitization
+- [ ] **FR19.2**: JavaScript action sandbox
+- [ ] **FR19.3**: Digital signature creation/verification
+- [ ] **FR19.4**: Certificate management
+
+---
+
+## Quick Wins (This Session)
+
+### High Impact, Low Complexity
+1. ✅ **Table border rendering** (COMPLETED)
+2. ✅ **Code block text visibility** (COMPLETED)
+3. ✅ **Text wrapping** (COMPLETED)
+4. ⏳ **FR12.3**: Streaming PDF write
+5. ⏳ **FR13.3**: Parallel PDF merge
+6. ⏳ **FR15.1**: Builder API
+7. ⏳ **FR18.4**: Optimization profiles
 
 ---
 
@@ -159,7 +261,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `generate_pdf_bytes()` — in-memory PDF generation without filesystem
   - [x] `validate_pdf()` / `validate_pdf_bytes()` — structural PDF validation
   - [x] `PdfValidation` result struct (errors, warnings, page_count, object_count)
-  - [x] Rich `Element` enum with 17 variants for document modeling
+  - [x] Rich `Element` enum with 19 variants for document modeling (including MathBlock, MathInline)
   - [ ] Rust API documentation (rustdoc with examples)
   - [ ] Example usage patterns (examples/ directory)
 
@@ -187,7 +289,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 ### 🔴 Critical
 
-- [x] Comprehensive test suite (258 tests: 115 lib + 112 bin + 20 integration + 11 bench)
+- [x] Comprehensive test suite (272 tests: 126 lib + 112 bin + 22 integration + 12 doc-tests)
   - [x] Unit tests for all modules (pdf, pdf_generator, pdf_ops, elements, markdown, image, compression)
   - [x] Integration tests for workflows (roundtrip, merge, split, rotate, watermark, reorder, metadata)
   - [x] Round-trip validation tests (generate → validate → parse → verify all element types)

@@ -1,0 +1,254 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Length 3289 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica-Bold 24 Tf
+/Helvetica-Bold 24 Tf
+1 0 0 1 192 712 Tm
+(Test Table Document) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 668 Tm
+(This is a test document with tables.) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 636 Tm
+(Simple Table) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1 w
+72 596.8 m 222 596.8 l S
+72 468.8 m 222 468.8 l S
+72 596.8 m 72 468.8 l S
+222 596.8 m 222 468.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 564.8 m 222 564.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 532.8 m 222 532.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 500.8 m 222 500.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+130 596.8 m 130 468.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+164 596.8 m 164 468.8 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 586.1333 Tm
+(Name) Tj
+1 0 0 1 138 586.1333 Tm
+(Age) Tj
+1 0 0 1 172 586.1333 Tm
+(City) Tj
+1 0 0 1 80 554.1333 Tm
+(Alice) Tj
+1 0 0 1 138 554.1333 Tm
+(30) Tj
+1 0 0 1 172 554.1333 Tm
+(NYC) Tj
+1 0 0 1 80 522.1333 Tm
+(Bob) Tj
+1 0 0 1 138 522.1333 Tm
+(25) Tj
+1 0 0 1 172 522.1333 Tm
+(LA) Tj
+1 0 0 1 80 490.13333 Tm
+(Charlie) Tj
+1 0 0 1 138 490.13333 Tm
+(35) Tj
+1 0 0 1 172 490.13333 Tm
+(Chicago) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 452.8 Tm
+(Table with Long Content) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1 w
+72 413.59998 m 540 413.59998 l S
+72 285.59998 m 540 285.59998 l S
+72 413.59998 m 72 285.59998 l S
+540 413.59998 m 540 285.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 381.59998 m 540 381.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 333.59998 m 540 333.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+142.04082 413.59998 m 142.04082 285.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+264.61224 413.59998 m 264.61224 285.59998 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 402.93332 Tm
+(Column 1) Tj
+1 0 0 1 150.04082 402.93332 Tm
+(Column 2) Tj
+1 0 0 1 272.61224 402.93332 Tm
+(Column 3) Tj
+1 0 0 1 80 362.93332 Tm
+(Short) Tj
+1 0 0 1 150.04082 368.26663 Tm
+(Medium length) Tj
+1 0 0 1 150.04082 352.26663 Tm
+(text here) Tj
+1 0 0 1 272.61224 368.26663 Tm
+(This is a much longer text that should wrap) Tj
+1 0 0 1 272.61224 352.26663 Tm
+(in the cell) Tj
+1 0 0 1 80 320.26663 Tm
+(Data) Tj
+1 0 0 1 80 304.26663 Tm
+(point 2) Tj
+1 0 0 1 150.04082 320.26663 Tm
+(Another medium) Tj
+1 0 0 1 150.04082 304.26663 Tm
+(text) Tj
+1 0 0 1 272.61224 314.93332 Tm
+(More content to test wrapping functionality) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 269.59998 Tm
+(Complex Alignment Table) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1 w
+72 230.39998 m 354 230.39998 l S
+72 102.39998 m 354 102.39998 l S
+72 230.39998 m 72 102.39998 l S
+354 230.39998 m 354 102.39998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 198.39998 m 354 198.39998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 166.39998 m 354 166.39998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 134.39998 m 354 134.39998 l S
+0.7 0.7 0.7 RG
+0.5 w
+160 230.39998 m 160 102.39998 l S
+0.7 0.7 0.7 RG
+0.5 w
+260 230.39998 m 260 102.39998 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 219.7333 Tm
+(Left) Tj
+1 0 0 1 168 219.7333 Tm
+(Center) Tj
+1 0 0 1 268 219.7333 Tm
+(Right) Tj
+1 0 0 1 80 187.7333 Tm
+(L1) Tj
+1 0 0 1 168 187.7333 Tm
+(C1) Tj
+1 0 0 1 268 187.7333 Tm
+(R1) Tj
+1 0 0 1 80 155.7333 Tm
+(Left aligned) Tj
+1 0 0 1 168 155.7333 Tm
+(Center aligned) Tj
+1 0 0 1 268 155.7333 Tm
+(Right aligned) Tj
+1 0 0 1 80 123.733315 Tm
+(L3) Tj
+1 0 0 1 168 123.733315 Tm
+(C3) Tj
+1 0 0 1 268 123.733315 Tm
+(R3) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 1) Tj
+ET
+
+endstream
+endobj
+2 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+3 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+4 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+5 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+6 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+7 0 obj
+<< /Type /Page
+/Parent 8 0 R
+/MediaBox [0 0 612 792]
+/Contents 1 0 R
+/Resources << /Font << /Helvetica 2 0 R /Helvetica-Bold 3 0 R /Helvetica-Oblique 4 0 R /Helvetica-BoldOblique 5 0 R /Courier 6 0 R >> >>
+>>
+endobj
+8 0 obj
+<< /Type /Pages
+/Kids [7 0 R]
+/Count 1
+>>
+endobj
+9 0 obj
+<< /Type /Catalog
+/Pages 8 0 R
+>>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000003356 00000 n 
+0000003426 00000 n 
+0000003501 00000 n 
+0000003579 00000 n 
+0000003661 00000 n 
+0000003729 00000 n 
+0000003953 00000 n 
+0000004010 00000 n 
+trailer
+<<
+/Size 10
+/Root 9 0 R
+>>
+startxref
+4059
+%%EOF

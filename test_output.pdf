@@ -1,0 +1,944 @@
+%PDF-1.4
+%����
+1 0 obj
+<< /Length 2210 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica-Bold 24 Tf
+/Helvetica-Bold 24 Tf
+1 0 0 1 138 712 Tm
+(PDF-RS Full Feature Showcase) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 668 Tm
+(This document exercises every supported element type in the pdf-rs library.) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 636 Tm
+(Text Formatting) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 596.8 Tm
+(Regular paragraph with plain text content that spans multiple words.) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 572.8 Tm
+(This paragraph contains bold text, italic text, and bold italic together. It) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 556.8 Tm
+(also has inline code and strikethrough text.) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 524.8 Tm
+(Lists) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 477.59998 Tm
+(Unordered Lists) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 441.99997 Tm
+(• First item at depth zero) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 425.99997 Tm
+(• Second item at depth zero) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 409.99997 Tm
+(  • Nested item at depth one) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 393.99997 Tm
+(  • Another nested item) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 377.99997 Tm
+(    • Deep nested item at depth two) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 361.99997 Tm
+(• Back to depth zero) Tj
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 329.99997 Tm
+(Ordered Lists) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 294.39996 Tm
+(1. First numbered item) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 278.39996 Tm
+(2. Second numbered item) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 262.39996 Tm
+(3. Third numbered item) Tj
+/Helvetica-Bold 15.599999 Tf
+/Helvetica-Bold 15.599999 Tf
+1 0 0 1 72 230.39996 Tm
+(Task Lists) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 194.79996 Tm
+([x] Completed task one) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 178.79996 Tm
+([x] Completed task two) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 162.79996 Tm
+([ ] Pending task three) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 146.79996 Tm
+([ ] Pending task four) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 114.79996 Tm
+(Code Blocks) Tj
+/Helvetica 12 Tf
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 1) Tj
+ET
+
+endstream
+endobj
+2 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+3 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+4 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+5 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+6 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+7 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 1 0 R
+/Resources << /Font << /Helvetica 3 0 R /Helvetica-Bold 4 0 R /Helvetica-Oblique 5 0 R /Helvetica-BoldOblique 6 0 R /Courier 7 0 R >> >>
+>>
+endobj
+8 0 obj
+<< /Length 3341 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 720 Tm
+(Here is a Rust code example:) Tj
+ET
+0.97 0.97 0.97 rg
+64 487.4 484 200.6 re f
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.6 0.6 0.6 RG
+1 w
+64 487.4 m 548 487.4 l S
+64 688 m 548 688 l S
+64 487.4 m 64 688 l S
+548 487.4 m 548 688 l S
+BT
+/Courier 10.200001 Tf
+0 0 0 rg
+1 0 0 1 72 688 Tm
+(fn fibonacci\(n: u64\) -> u64 {) Tj
+1 0 0 1 72 673.8 Tm
+(    match n {) Tj
+1 0 0 1 72 659.6 Tm
+(        0 => 0,) Tj
+1 0 0 1 72 645.39996 Tm
+(        1 => 1,) Tj
+1 0 0 1 72 631.19995 Tm
+(        _ => fibonacci\(n - 1\) + fibonacci\(n - 2\),) Tj
+1 0 0 1 72 616.99994 Tm
+(    }) Tj
+1 0 0 1 72 602.7999 Tm
+(}) Tj
+1 0 0 1 72 588.5999 Tm
+() Tj
+1 0 0 1 72 574.3999 Tm
+(fn main\(\) {) Tj
+1 0 0 1 72 560.1999 Tm
+(    for i in 0..10 {) Tj
+1 0 0 1 72 545.9999 Tm
+(        println!\("fib\({}\) = {}", i, fibonacci\(i\)\);) Tj
+1 0 0 1 72 531.79987 Tm
+(    }) Tj
+1 0 0 1 72 517.59985 Tm
+(}) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 487.39984 Tm
+(And a Python example:) Tj
+ET
+0.97 0.97 0.97 rg
+64 297.39984 484 158 re f
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.6 0.6 0.6 RG
+1 w
+64 297.39984 m 548 297.39984 l S
+64 455.39984 m 548 455.39984 l S
+64 297.39984 m 64 455.39984 l S
+548 297.39984 m 548 455.39984 l S
+BT
+/Courier 10.200001 Tf
+0 0 0 rg
+1 0 0 1 72 455.39984 Tm
+(def quicksort\(arr\):) Tj
+1 0 0 1 72 441.19983 Tm
+(    if len\(arr\) <= 1:) Tj
+1 0 0 1 72 426.99982 Tm
+(        return arr) Tj
+1 0 0 1 72 412.7998 Tm
+(    pivot = arr[len\(arr\) // 2]) Tj
+1 0 0 1 72 398.5998 Tm
+(    left = [x for x in arr if x < pivot]) Tj
+1 0 0 1 72 384.39978 Tm
+(    middle = [x for x in arr if x == pivot]) Tj
+1 0 0 1 72 370.19977 Tm
+(    right = [x for x in arr if x > pivot]) Tj
+1 0 0 1 72 355.99976 Tm
+(    return quicksort\(left\) + middle + quicksort\(right\)) Tj
+1 0 0 1 72 341.79974 Tm
+() Tj
+1 0 0 1 72 327.59973 Tm
+(print\(quicksort\([3, 6, 8, 10, 1, 2, 1]\)\)) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 289.39972 Tm
+(Tables) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1 w
+72 250.1997 m 246 250.1997 l S
+72 218.1997 m 246 218.1997 l S
+72 250.1997 m 72 218.1997 l S
+246 250.1997 m 246 218.1997 l S
+0.7 0.7 0.7 RG
+0.5 w
+130 250.1997 m 130 218.1997 l S
+0.7 0.7 0.7 RG
+0.5 w
+182 250.1997 m 182 218.1997 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 239.53304 Tm
+(Feature) Tj
+1 0 0 1 138 239.53304 Tm
+(Status) Tj
+1 0 0 1 190 239.53304 Tm
+(Priority) Tj
+ET
+0 0 0 RG
+1 w
+72 218.1997 m 270 218.1997 l S
+72 90.19971 m 270 90.19971 l S
+72 218.1997 m 72 90.19971 l S
+270 218.1997 m 270 90.19971 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 186.1997 m 270 186.1997 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 154.1997 m 270 154.1997 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 122.19971 m 270 122.19971 l S
+0.7 0.7 0.7 RG
+0.5 w
+178 218.1997 m 178 90.19971 l S
+0.7 0.7 0.7 RG
+0.5 w
+218 218.1997 m 218 90.19971 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 207.53304 Tm
+(PDF Generation) Tj
+1 0 0 1 186 207.53304 Tm
+(Done) Tj
+1 0 0 1 226 207.53304 Tm
+(High) Tj
+1 0 0 1 80 175.53304 Tm
+(Text Extraction) Tj
+1 0 0 1 186 175.53304 Tm
+(Done) Tj
+1 0 0 1 226 175.53304 Tm
+(High) Tj
+1 0 0 1 80 143.53304 Tm
+(Image Support) Tj
+1 0 0 1 186 143.53304 Tm
+(Done) Tj
+1 0 0 1 226 143.53304 Tm
+(Medium) Tj
+1 0 0 1 80 111.53304 Tm
+(Watermarks) Tj
+1 0 0 1 186 111.53304 Tm
+(Done) Tj
+1 0 0 1 226 111.53304 Tm
+(Low) Tj
+/Helvetica-Bold 19.2 Tf
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 2) Tj
+ET
+
+endstream
+endobj
+9 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+10 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+11 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+12 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+13 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+14 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 8 0 R
+/Resources << /Font << /Helvetica 10 0 R /Helvetica-Bold 11 0 R /Helvetica-Oblique 12 0 R /Helvetica-BoldOblique 13 0 R /Courier 14 0 R >> >>
+>>
+endobj
+15 0 obj
+<< /Length 2497 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica 19.2 Tf
+1 0 0 1 72 720 Tm
+(Blockquotes) Tj
+/Helvetica 12 Tf
+0.5 0.5 0.5 rg
+/Helvetica 12 Tf
+1 0 0 1 72 680.8 Tm
+(> This is a simple blockquote with important information.) Tj
+0 0 0 rg
+0.5 0.5 0.5 rg
+/Helvetica 12 Tf
+1 0 0 1 72 656.8 Tm
+(> First level quote) Tj
+0 0 0 rg
+0.5 0.5 0.5 rg
+/Helvetica 12 Tf
+1 0 0 1 72 640.8 Tm
+(> > Nested quote inside the first) Tj
+0 0 0 rg
+0.5 0.5 0.5 rg
+/Helvetica 12 Tf
+1 0 0 1 72 624.8 Tm
+(> > > Triple nested quote for emphasis) Tj
+0 0 0 rg
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 592.8 Tm
+(Definition Lists) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 12 Tf
+/Helvetica-Bold 12 Tf
+1 0 0 1 72 553.6 Tm
+(Rust) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 537.6 Tm
+(  A systems programming language focused on safety and performance) Tj
+/Helvetica-Bold 12 Tf
+/Helvetica-Bold 12 Tf
+1 0 0 1 72 513.6 Tm
+(PDF) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 497.59998 Tm
+(  Portable Document Format, a file format for presenting documents) Tj
+/Helvetica-Bold 12 Tf
+/Helvetica-Bold 12 Tf
+1 0 0 1 72 473.59998 Tm
+(API) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 457.59998 Tm
+(  Application Programming Interface) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 425.59998 Tm
+(Footnotes) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 386.39996 Tm
+(This document demonstrates footnote support\(1\). Multiple footnotes can be used) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 370.39996 Tm
+(throughout the text\(2\).) Tj
+/Helvetica 10.200001 Tf
+1 0 0 1 72 346.39996 Tm
+([1] This is the first footnote with detailed explanation.) Tj
+/Helvetica 10.200001 Tf
+1 0 0 1 72 332.19995 Tm
+([2] This is the second footnote referencing additional material.) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 301.99994 Tm
+(Links and Images) Tj
+/Helvetica 12 Tf
+0 0 1 rg
+/Helvetica 12 Tf
+1 0 0 1 72 262.79993 Tm
+(Visit the Rust website \(https://www.rust-lang.org\)) Tj
+0 0 0 rg
+0 0 1 rg
+/Helvetica 12 Tf
+1 0 0 1 72 238.79993 Tm
+(PDF Specification \(https://www.adobe.com/devnet/pdf/pdf_reference.html\)) Tj
+0 0 0 rg
+/Helvetica 12 Tf
+1 0 0 1 72 214.79993 Tm
+([Image: Rust Logo] \(images/rust-logo.png\)) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 190.79993 Tm
+([Image: PDF Icon] \(images/pdf-icon.svg\)) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 158.79993 Tm
+(Horizontal Rules) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 119.59993 Tm
+(Content above the rule.) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 3) Tj
+ET
+
+endstream
+endobj
+16 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+17 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+18 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+19 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+20 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+21 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 15 0 R
+/Resources << /Font << /Helvetica 17 0 R /Helvetica-Bold 18 0 R /Helvetica-Oblique 19 0 R /Helvetica-BoldOblique 20 0 R /Courier 21 0 R >> >>
+>>
+endobj
+22 0 obj
+<< /Length 492 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 720 Tm
+(---) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 688 Tm
+(Content below the rule.) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 656 Tm
+(---) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 624 Tm
+(Another section after a different rule style.) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 592 Tm
+(Page Breaks) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 552.8 Tm
+(This content appears before the page break.) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 4) Tj
+ET
+
+endstream
+endobj
+23 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+24 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+25 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+26 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+27 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+28 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 22 0 R
+/Resources << /Font << /Helvetica 24 0 R /Helvetica-Bold 25 0 R /Helvetica-Oblique 26 0 R /Helvetica-BoldOblique 27 0 R /Courier 28 0 R >> >>
+>>
+endobj
+29 0 obj
+<< /Length 3183 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 712 Tm
+(This content appears on a new page after the break.) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 680 Tm
+(Mixed Content Section) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 640.8 Tm
+(Here is a complex section combining multiple elements:) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 616.8 Tm
+(1. Step One: Initialize the project) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 600.8 Tm
+(  • Create directory structure) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 584.8 Tm
+(  • Set up dependencies) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 568.8 Tm
+(2. Step Two: Implement core features) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 552.8 Tm
+(  • PDF parsing engine) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 536.8 Tm
+(  • Content stream builder) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 520.8 Tm
+(3. Step Three: Add tests) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 504.8 Tm
+(  • Unit tests for each module) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 488.8 Tm
+(  • Integration tests for workflows) Tj
+0.5 0.5 0.5 rg
+/Helvetica 12 Tf
+1 0 0 1 72 464.8 Tm
+(> Note: Always run cargo test before committing changes.) Tj
+0 0 0 rg
+ET
+0 0 0 RG
+1 w
+72 440.8 m 234 440.8 l S
+72 408.8 m 234 408.8 l S
+72 440.8 m 72 408.8 l S
+234 440.8 m 234 408.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+124 440.8 m 124 408.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+170 440.8 m 170 408.8 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 430.13333 Tm
+(Module) Tj
+1 0 0 1 132 430.13333 Tm
+(Tests) Tj
+1 0 0 1 178 430.13333 Tm
+(Coverage) Tj
+ET
+0 0 0 RG
+1 w
+72 408.8 m 246 408.8 l S
+72 280.8 m 246 280.8 l S
+72 408.8 m 72 280.8 l S
+246 408.8 m 246 280.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 376.8 m 246 376.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 344.8 m 246 344.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 312.8 m 246 312.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+184 408.8 m 184 280.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+212 408.8 m 212 280.8 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 398.13333 Tm
+(pdf.rs) Tj
+1 0 0 1 192 398.13333 Tm
+(18) Tj
+1 0 0 1 220 398.13333 Tm
+(85%) Tj
+1 0 0 1 80 366.13333 Tm
+(elements.rs) Tj
+1 0 0 1 192 366.13333 Tm
+(22) Tj
+1 0 0 1 220 366.13333 Tm
+(92%) Tj
+1 0 0 1 80 334.13333 Tm
+(pdf_generator.rs) Tj
+1 0 0 1 192 334.13333 Tm
+(15) Tj
+1 0 0 1 220 334.13333 Tm
+(78%) Tj
+1 0 0 1 80 302.13333 Tm
+(pdf_ops.rs) Tj
+1 0 0 1 192 302.13333 Tm
+(20) Tj
+1 0 0 1 220 302.13333 Tm
+(88%) Tj
+ET
+0.97 0.97 0.97 rg
+64 206.19998 484 58.600002 re f
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+ET
+0.6 0.6 0.6 RG
+1 w
+64 206.19998 m 548 206.19998 l S
+64 264.8 m 548 264.8 l S
+64 206.19998 m 64 264.8 l S
+548 206.19998 m 548 264.8 l S
+BT
+/Courier 10.200001 Tf
+0 0 0 rg
+1 0 0 1 72 264.8 Tm
+(cargo test --all) Tj
+1 0 0 1 72 250.59999 Tm
+(cargo build --release) Tj
+1 0 0 1 72 236.4 Tm
+(./target/release/pdf-cli md-to-pdf examples/full_features.md output.pdf) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 198.2 Tm
+(Summary) Tj
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 159 Tm
+(This document has demonstrated all 17 element types supported by pdf-rs:) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 135 Tm
+([x] Heading \(H1 through H3\)) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 119 Tm
+([x] Paragraph) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 103 Tm
+([x] UnorderedListItem \(with nesting\)) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 5) Tj
+ET
+
+endstream
+endobj
+30 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+31 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+32 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+33 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+34 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+35 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 29 0 R
+/Resources << /Font << /Helvetica 31 0 R /Helvetica-Bold 32 0 R /Helvetica-Oblique 33 0 R /Helvetica-BoldOblique 34 0 R /Courier 35 0 R >> >>
+>>
+endobj
+36 0 obj
+<< /Length 969 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica 12 Tf
+1 0 0 1 72 720 Tm
+([x] OrderedListItem) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 704 Tm
+([x] TaskListItem \(checked and unchecked\)) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 688 Tm
+([x] CodeBlock \(multiple languages\)) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 672 Tm
+([x] TableRow \(with alignment\)) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 656 Tm
+([x] BlockQuote \(with nesting\)) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 640 Tm
+([x] DefinitionItem) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 624 Tm
+([x] Footnote) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 608 Tm
+([x] Link) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 592 Tm
+([x] Image) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 576 Tm
+([x] HorizontalRule) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 560 Tm
+([x] PageBreak) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 544 Tm
+([x] EmptyLine) Tj
+/Helvetica 10.200001 Tf
+1 0 0 1 72 520 Tm
+([1] First footnote definition.) Tj
+/Helvetica 10.200001 Tf
+1 0 0 1 72 505.8 Tm
+([2] Second footnote definition.) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 6) Tj
+ET
+
+endstream
+endobj
+37 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+38 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+39 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+40 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+41 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+42 0 obj
+<< /Type /Page
+/Parent 43 0 R
+/MediaBox [0 0 612 792]
+/Contents 36 0 R
+/Resources << /Font << /Helvetica 38 0 R /Helvetica-Bold 39 0 R /Helvetica-Oblique 40 0 R /Helvetica-BoldOblique 41 0 R /Courier 42 0 R >> >>
+>>
+endobj
+43 0 obj
+<< /Type /Pages
+/Kids [7 0 R 14 0 R 21 0 R 28 0 R 35 0 R 42 0 R]
+/Count 6
+>>
+endobj
+44 0 obj
+<< /Type /Catalog
+/Pages 43 0 R
+>>
+endobj
+xref
+0 45
+0000000000 65535 f 
+0000000015 00000 n 
+0000002277 00000 n 
+0000002347 00000 n 
+0000002422 00000 n 
+0000002500 00000 n 
+0000002582 00000 n 
+0000002650 00000 n 
+0000002875 00000 n 
+0000006268 00000 n 
+0000006338 00000 n 
+0000006414 00000 n 
+0000006493 00000 n 
+0000006576 00000 n 
+0000006645 00000 n 
+0000006876 00000 n 
+0000009426 00000 n 
+0000009497 00000 n 
+0000009573 00000 n 
+0000009652 00000 n 
+0000009735 00000 n 
+0000009804 00000 n 
+0000010036 00000 n 
+0000010580 00000 n 
+0000010651 00000 n 
+0000010727 00000 n 
+0000010806 00000 n 
+0000010889 00000 n 
+0000010958 00000 n 
+0000011190 00000 n 
+0000014426 00000 n 
+0000014497 00000 n 
+0000014573 00000 n 
+0000014652 00000 n 
+0000014735 00000 n 
+0000014804 00000 n 
+0000015036 00000 n 
+0000016057 00000 n 
+0000016128 00000 n 
+0000016204 00000 n 
+0000016283 00000 n 
+0000016366 00000 n 
+0000016435 00000 n 
+0000016667 00000 n 
+0000016760 00000 n 
+trailer
+<<
+/Size 45
+/Root 44 0 R
+>>
+startxref
+16811
+%%EOF

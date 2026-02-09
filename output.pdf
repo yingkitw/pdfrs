@@ -1,14 +1,16 @@
 %PDF-1.4
 %‚„œ”
 1 0 obj
-<< /Length 165 >>
+<< /Length 230 >>
 stream
 BT
-/F1 12 Tf
-/F1 24 Tf
+/Helvetica 12 Tf
+/Helvetica-Bold 24 Tf
+/Helvetica-Bold 24 Tf
 1 0 0 1 240 712 Tm
 (Hello World) Tj
-/F1 12 Tf
+/Helvetica 12 Tf
+/Helvetica 12 Tf
 1 0 0 1 72 668 Tm
 (This is a test document.) Tj
 ET
@@ -21,43 +23,71 @@ ET
 endstream
 endobj
 2 0 obj
-<< /Type /Page
-/Parent 4 0 R
-/MediaBox [0 0 612 792]
-/Contents 1 0 R
-/Resources << /Font << /F1 3 0 R >> >>
->>
-endobj
-3 0 obj
 << /Type /Font
 /Subtype /Type1
 /BaseFont /Helvetica
 >>
 endobj
+3 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
 4 0 obj
-<< /Type /Pages
-/Kids [2 0 R]
-/Count 1
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
 >>
 endobj
 5 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+6 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+7 0 obj
+<< /Type /Page
+/Parent 8 0 R
+/MediaBox [0 0 612 792]
+/Contents 1 0 R
+/Resources << /Font << /Helvetica 2 0 R /Helvetica-Bold 3 0 R /Helvetica-Oblique 4 0 R /Helvetica-BoldOblique 5 0 R /Courier 6 0 R >> >>
+>>
+endobj
+8 0 obj
+<< /Type /Pages
+/Kids [7 0 R]
+/Count 1
+>>
+endobj
+9 0 obj
 << /Type /Catalog
-/Pages 4 0 R
+/Pages 8 0 R
 >>
 endobj
 xref
-0 6
+0 10
 0000000000 65535 f 
 0000000015 00000 n 
-0000000231 00000 n 
-0000000357 00000 n 
-0000000427 00000 n 
-0000000484 00000 n 
+0000000296 00000 n 
+0000000366 00000 n 
+0000000441 00000 n 
+0000000519 00000 n 
+0000000601 00000 n 
+0000000669 00000 n 
+0000000893 00000 n 
+0000000950 00000 n 
 trailer
 <<
-/Size 6
-/Root 5 0 R
+/Size 10
+/Root 9 0 R
 >>
 startxref
-533
+999
 %%EOF

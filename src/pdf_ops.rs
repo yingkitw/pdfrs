@@ -69,6 +69,67 @@ pub fn merge_pdfs(input_files: &[&str], output_file: &str) -> Result<()> {
     Ok(())
 }
 
+/// Merge multiple already-loaded PdfDocument instances into a single output PDF.
+///
+/// This is a helper function for parallel PDF operations where documents
+/// have already been loaded concurrently. It extracts page content from each
+/// PdfDocument and combines them into a single output PDF.
+///
+/// # Arguments
+///
+/// * `documents` - Slice of already-loaded PdfDocument instances
+/// * `output_file` - Path where the merged PDF will be written
+///
+/// # Returns
+///
+/// Returns `Ok(())` if successful, or an error if merging fails.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use pdf_rs::pdf_ops;
+/// use pdf_rs::pdf::PdfDocument;
+///
+/// let doc1 = PdfDocument::load_from_file("file1.pdf")?;
+/// let doc2 = PdfDocument::load_from_file("file2.pdf")?;
+/// let docs = vec![doc1, doc2];
+///
+/// pdf_ops::merge_pdfs_sequential(&docs, "merged.pdf")?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub fn merge_pdfs_sequential(
+    documents: &[crate::pdf::PdfDocument],
+    output_file: &str,
+) -> Result<()> {
+    if documents.is_empty() {
+        return Err(anyhow!("No documents provided for merge"));
+    }
+
+    let mut all_page_streams: Vec<Vec<u8>> = Vec::new();
+
+    for doc in documents {
+        let streams = extract_page_streams(doc);
+        if streams.is_empty() {
+            eprintln!("[merge] Warning: no page streams found in document");
+        }
+        all_page_streams.extend(streams);
+    }
+
+    if all_page_streams.is_empty() {
+        return Err(anyhow!("No page content found in any document"));
+    }
+
+    let layout = crate::pdf_generator::PageLayout::portrait();
+    assemble_merged_pdf(output_file, &all_page_streams, "Helvetica", &layout)?;
+    println!(
+        "[merge] Combined {} pages from {} documents into {}",
+        all_page_streams.len(),
+        documents.len(),
+        output_file
+    );
+    Ok(())
+}
+
 /// Split a PDF by extracting a range of pages into a new PDF.
 ///
 /// Extracts pages from `start` to `end` (inclusive, 1-indexed) and creates

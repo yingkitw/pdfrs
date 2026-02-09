@@ -9,10 +9,23 @@ pub enum TableAlignment {
     Right,
 }
 
+/// Text segment with inline formatting
+#[derive(Debug, Clone, PartialEq)]
+pub enum TextSegment {
+    Plain(String),
+    Bold(String),
+    Italic(String),
+    BoldItalic(String),
+    Code(String),
+    Link { text: String, url: String },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Element {
     Heading { level: u8, text: String },
     Paragraph { text: String },
+    /// Rich paragraph with multiple styled segments
+    RichParagraph { segments: Vec<TextSegment> },
     UnorderedListItem { text: String, depth: u8 },
     OrderedListItem { number: u32, text: String, depth: u8 },
     TaskListItem { checked: bool, text: String },
@@ -25,6 +38,8 @@ pub enum Element {
     Link { text: String, url: String },
     Image { alt: String, path: String },
     StyledText { text: String, bold: bool, italic: bool },
+    MathBlock { expression: String },
+    MathInline { expression: String },
     PageBreak,
     HorizontalRule,
     EmptyLine,
@@ -83,18 +98,212 @@ pub fn strip_inline_formatting(text: &str) -> String {
     s
 }
 
+/// Parse inline markdown formatting into styled text segments
+pub fn parse_inline_formatting(text: &str) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+    let mut remaining = text.to_string();
+
+    // Links first (highest priority)
+    let link_re = regex::Regex::new(r"\[([^\]]+)\]\(([^\)]+)\)").unwrap();
+    while let Some(caps) = link_re.captures(&remaining) {
+        let full_match = caps.get(0).unwrap();
+        let before = &remaining[..full_match.start()];
+        let link_text = caps.get(1).unwrap().as_str();
+        let url = caps.get(2).unwrap().as_str();
+
+        if !before.is_empty() {
+            segments.extend(parse_formatting_no_links(before));
+        }
+
+        segments.push(TextSegment::Link {
+            text: link_text.to_string(),
+            url: url.to_string(),
+        });
+        remaining = remaining[full_match.end()..].to_string();
+    }
+
+    if !remaining.is_empty() {
+        segments.extend(parse_formatting_no_links(&remaining));
+    }
+
+    segments
+}
+
+/// Parse formatting excluding links
+fn parse_formatting_no_links(text: &str) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+    let mut remaining = text.to_string();
+
+    // Code (high priority)
+    let code_re = regex::Regex::new(r"`([^`]+)`").unwrap();
+    while let Some(caps) = code_re.captures(&remaining) {
+        let full_match = caps.get(0).unwrap();
+        let before = &remaining[..full_match.start()];
+        let code = caps.get(1).unwrap().as_str();
+
+        if !before.is_empty() {
+            segments.extend(parse_bold_italic(before));
+        }
+
+        segments.push(TextSegment::Code(code.to_string()));
+        remaining = remaining[full_match.end()..].to_string();
+    }
+
+    if !remaining.is_empty() {
+        segments.extend(parse_bold_italic(&remaining));
+    }
+
+    segments
+}
+
+/// Parse bold/italic formatting
+fn parse_bold_italic(text: &str) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+    let mut remaining = text.to_string();
+
+    loop {
+        // Bold+italic: ***text*** or ___text___ (explicit patterns)
+        let bi_stars_re = regex::Regex::new(r"\*\*\*(.+?)\*\*\*").unwrap();
+        let bi_under_re = regex::Regex::new(r"___(.+?)___").unwrap();
+        // Bold: **text** or __text__
+        let b_stars_re = regex::Regex::new(r"\*\*(.+?)\*\*").unwrap();
+        let b_under_re = regex::Regex::new(r"__(.+?)__").unwrap();
+        // Italic: *text* or _text_ (simple pattern, may have false positives but that's acceptable)
+        let i_stars_re = regex::Regex::new(r"\*([^*]+)\*").unwrap();
+        let i_under_re = regex::Regex::new(r"_([^_]+)_").unwrap();
+
+        let mut found = false;
+
+        if let Some(caps) = bi_stars_re.captures(&remaining) {
+            let full_match = caps.get(0).unwrap();
+            let before = &remaining[..full_match.start()];
+            let content = caps.get(1).unwrap().as_str();
+
+            if !before.is_empty() {
+                segments.push(TextSegment::Plain(before.to_string()));
+            }
+            segments.push(TextSegment::BoldItalic(content.to_string()));
+            remaining = remaining[full_match.end()..].to_string();
+            found = true;
+        } else if let Some(caps) = bi_under_re.captures(&remaining) {
+            let full_match = caps.get(0).unwrap();
+            let before = &remaining[..full_match.start()];
+            let content = caps.get(1).unwrap().as_str();
+
+            if !before.is_empty() {
+                segments.push(TextSegment::Plain(before.to_string()));
+            }
+            segments.push(TextSegment::BoldItalic(content.to_string()));
+            remaining = remaining[full_match.end()..].to_string();
+            found = true;
+        } else if let Some(caps) = b_stars_re.captures(&remaining) {
+            let full_match = caps.get(0).unwrap();
+            let before = &remaining[..full_match.start()];
+            let content = caps.get(1).unwrap().as_str();
+
+            if !before.is_empty() {
+                segments.push(TextSegment::Plain(before.to_string()));
+            }
+            segments.push(TextSegment::Bold(content.to_string()));
+            remaining = remaining[full_match.end()..].to_string();
+            found = true;
+        } else if let Some(caps) = b_under_re.captures(&remaining) {
+            let full_match = caps.get(0).unwrap();
+            let before = &remaining[..full_match.start()];
+            let content = caps.get(1).unwrap().as_str();
+
+            if !before.is_empty() {
+                segments.push(TextSegment::Plain(before.to_string()));
+            }
+            segments.push(TextSegment::Bold(content.to_string()));
+            remaining = remaining[full_match.end()..].to_string();
+            found = true;
+        } else if let Some(caps) = i_stars_re.captures(&remaining) {
+            let full_match = caps.get(0).unwrap();
+            let before = &remaining[..full_match.start()];
+            let content = caps.get(1).unwrap().as_str();
+
+            if !before.is_empty() {
+                segments.push(TextSegment::Plain(before.to_string()));
+            }
+            segments.push(TextSegment::Italic(content.to_string()));
+            remaining = remaining[full_match.end()..].to_string();
+            found = true;
+        } else if let Some(caps) = i_under_re.captures(&remaining) {
+            let full_match = caps.get(0).unwrap();
+            let before = &remaining[..full_match.start()];
+            let content = caps.get(1).unwrap().as_str();
+
+            if !before.is_empty() {
+                segments.push(TextSegment::Plain(before.to_string()));
+            }
+            segments.push(TextSegment::Italic(content.to_string()));
+            remaining = remaining[full_match.end()..].to_string();
+            found = true;
+        }
+
+        if !found {
+            break;
+        }
+    }
+
+    if !remaining.is_empty() {
+        segments.push(TextSegment::Plain(remaining));
+    }
+
+    segments
+}
+
+/// Check if text contains any inline markdown formatting
+pub fn has_inline_formatting(text: &str) -> bool {
+    text.contains("**") || text.contains("__") || text.contains("***") || text.contains("___") || text.contains("`") || text.contains("[")
+}
+
 /// Parse markdown text into structured elements
 pub fn parse_markdown(markdown: &str) -> Vec<Element> {
     let mut elements = Vec::new();
     let mut in_code_block = false;
     let mut code_lang = String::new();
     let mut code_buf = String::new();
+    let mut in_math_block = false;
+    let mut math_buf = String::new();
     let lines: Vec<&str> = markdown.lines().collect();
     let mut i = 0;
 
     while i < lines.len() {
         let line = lines[i];
         let trimmed = line.trim();
+
+        // Math block toggle ($$...$$)
+        if trimmed.starts_with("$$") && !in_code_block && !in_math_block {
+            // Check if it's a single-line math block: $$ expr $$
+            let rest = trimmed[2..].trim();
+            if rest.ends_with("$$") && rest.len() > 2 {
+                let expr = rest[..rest.len() - 2].trim().to_string();
+                elements.push(Element::MathBlock { expression: expr });
+                i += 1;
+                continue;
+            }
+            in_math_block = true;
+            math_buf.clear();
+            i += 1;
+            continue;
+        }
+
+        if in_math_block {
+            if trimmed == "$$" {
+                elements.push(Element::MathBlock { expression: math_buf.clone() });
+                math_buf.clear();
+                in_math_block = false;
+            } else {
+                if !math_buf.is_empty() {
+                    math_buf.push('\n');
+                }
+                math_buf.push_str(trimmed);
+            }
+            i += 1;
+            continue;
+        }
 
         // Code block toggle
         if trimmed.starts_with("```") {
@@ -274,12 +483,31 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
             }
         }
 
+        // Inline math: line that is entirely $expression$ (single dollar)
+        if trimmed.starts_with('$') && !trimmed.starts_with("$$") && trimmed.ends_with('$') && trimmed.len() > 2 {
+            let expr = trimmed[1..trimmed.len() - 1].to_string();
+            if !expr.is_empty() {
+                elements.push(Element::MathInline { expression: expr });
+                i += 1;
+                continue;
+            }
+        }
+
         // Regular paragraph — also strip footnote references [^N] -> (N)
         let footnote_ref_re = regex::Regex::new(r"\[\^([^\]]+)\]").unwrap();
         let trimmed_with_refs = footnote_ref_re.replace_all(trimmed, "($1)").to_string();
-        let text = strip_inline_formatting(&trimmed_with_refs);
-        if !text.is_empty() {
-            elements.push(Element::Paragraph { text });
+
+        // Check for inline formatting and use RichParagraph if present
+        if has_inline_formatting(&trimmed_with_refs) {
+            let segments = parse_inline_formatting(&trimmed_with_refs);
+            if !segments.is_empty() {
+                elements.push(Element::RichParagraph { segments });
+            }
+        } else {
+            let text = strip_inline_formatting(&trimmed_with_refs);
+            if !text.is_empty() {
+                elements.push(Element::Paragraph { text });
+            }
         }
         i += 1;
     }
@@ -290,6 +518,11 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
             language: code_lang,
             code: code_buf,
         });
+    }
+
+    // Close unclosed math block
+    if in_math_block && !math_buf.is_empty() {
+        elements.push(Element::MathBlock { expression: math_buf });
     }
 
     elements

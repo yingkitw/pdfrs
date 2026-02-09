@@ -416,11 +416,11 @@ fn test_full_features_roundtrip() {
         // Task lists
         "[x] Completed task one",
         "[ ] Pending task three",
-        // Code blocks
+        // Code blocks (keywords split by syntax highlighting)
         "fibonacci",
         "quicksort",
-        "fn main",
-        "def quicksort",
+        "main",
+        "def",
         // Tables
         "Feature",
         "Status",
@@ -891,4 +891,160 @@ fn test_complex_examples_library_api_batch() {
     }
 
     println!("=== PASSED: complex_examples_library_api_batch ===");
+}
+
+#[test]
+fn test_math_and_formulas_roundtrip() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    fs::create_dir_all(&out_dir).unwrap();
+
+    let md_src = format!("{}/examples/math_and_formulas.md", base);
+    let pdf_out = format!("{}/math_and_formulas.pdf", out_dir);
+    let md_out = format!("{}/math_and_formulas_rt.md", out_dir);
+
+    // Step 1: MD -> PDF
+    let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_src, &pdf_out]);
+    assert!(ok, "md-to-pdf failed for math_and_formulas");
+    let pdf_size = fs::metadata(&pdf_out).unwrap().len();
+    println!("[math] PDF size: {} bytes", pdf_size);
+    assert!(pdf_size > 15000, "PDF too small: {} bytes", pdf_size);
+
+    // Step 2: Validate PDF structure
+    let raw = fs::read(&pdf_out).unwrap();
+    let validation = pdf_rs::pdf::validate_pdf_bytes(&raw);
+    println!("[math] valid={}, pages={}, objects={}, errors={:?}",
+        validation.valid, validation.page_count, validation.object_count, validation.errors);
+    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
+    assert!(validation.page_count >= 5, "Expected >= 5 pages, got {}", validation.page_count);
+
+    // Step 3: PDF -> MD round-trip
+    let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
+    assert!(ok, "pdf-to-md failed for math_and_formulas");
+    let roundtrip = fs::read_to_string(&md_out).unwrap();
+
+    // Step 4: Verify content survival
+    let must_contain = vec![
+        // Headings
+        "Mathematical Foundations",
+        "Linear Algebra",
+        "Calculus and Optimization",
+        "Probability and Statistics",
+        "Neural Network",
+        "Information Theory",
+        "Advanced Topics",
+        // Math content (rendered form)
+        "SUM",
+        "sqrt",
+        // Code blocks
+        "GradientDescent",
+        "learning_rate",
+        "max_iterations",
+        "tolerance",
+        "svd_compress",
+        "np.linalg.svd",
+        "gradient_descent",
+        // Tables
+        "Sigmoid", "Tanh", "ReLU", "Softmax",
+        "Gradient Descent", "Backpropagation",
+        "Bayes", "Cross-Entropy", "Attention",
+        "KL Divergence", "Fourier",
+        // Definitions and terms
+        "Optimization",
+        "Transformers",
+        "Signal",
+        // Footnotes
+        "standard mathematical notation",
+        "Goodfellow",
+    ];
+
+    let mut missing = Vec::new();
+    for s in &must_contain {
+        if !roundtrip.contains(s) {
+            missing.push(*s);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "[math] Round-trip missing {} items: {:?}",
+        missing.len(), missing
+    );
+    println!("[math] All {} content checks passed", must_contain.len());
+    println!("=== PASSED: math_and_formulas_roundtrip ===");
+}
+
+#[test]
+fn test_math_parsing_library_api() {
+    // Verify math elements are parsed correctly via library API
+    let md = r#"
+# Math Test
+
+$E = mc^2$
+
+Block math:
+
+$$
+\frac{a}{b} + \sqrt{c}
+$$
+
+Multi-line block:
+
+$$
+\sum_{i=1}^{n} x_i
+\int_{0}^{\infty} e^{-x} dx
+$$
+
+Regular paragraph after math.
+"#;
+
+    let elements = pdf_rs::elements::parse_markdown(md);
+
+    // Check that MathInline and MathBlock elements are parsed
+    let math_inline_count = elements.iter().filter(|e| matches!(e, pdf_rs::elements::Element::MathInline { .. })).count();
+    let math_block_count = elements.iter().filter(|e| matches!(e, pdf_rs::elements::Element::MathBlock { .. })).count();
+
+    println!("[math_api] Parsed {} elements, {} inline math, {} block math",
+        elements.len(), math_inline_count, math_block_count);
+
+    assert!(math_inline_count >= 1, "Expected at least 1 MathInline, got {}. Elements: {:?}", math_inline_count, elements);
+    assert!(math_block_count >= 2, "Expected at least 2 MathBlock, got {}", math_block_count);
+
+    // Verify specific math content
+    let has_inline_emc2 = elements.iter().any(|e| {
+        if let pdf_rs::elements::Element::MathInline { expression } = e {
+            expression.contains("E = mc")
+        } else { false }
+    });
+    assert!(has_inline_emc2, "MathInline with E=mc^2 not found");
+
+    let has_block_frac = elements.iter().any(|e| {
+        if let pdf_rs::elements::Element::MathBlock { expression } = e {
+            expression.contains("frac")
+        } else { false }
+    });
+    assert!(has_block_frac, "MathBlock with frac not found");
+
+    let has_block_sum = elements.iter().any(|e| {
+        if let pdf_rs::elements::Element::MathBlock { expression } = e {
+            expression.contains("sum")
+        } else { false }
+    });
+    assert!(has_block_sum, "MathBlock with sum not found");
+
+    // Generate PDF and validate
+    let layout = pdf_rs::pdf_generator::PageLayout::portrait();
+    let bytes = pdf_rs::pdf_generator::generate_pdf_bytes(
+        &elements, "Helvetica", 12.0, layout,
+    ).unwrap();
+
+    let val = pdf_rs::pdf::validate_pdf_bytes(&bytes);
+    assert!(val.valid, "Math PDF validation failed: {:?}", val.errors);
+    println!("[math_api] Generated {} bytes, {} pages", bytes.len(), val.page_count);
+
+    // Check rendered math content in raw PDF
+    let content = String::from_utf8_lossy(&bytes);
+    assert!(content.contains("SUM"), "Rendered SUM not found in PDF");
+    assert!(content.contains("sqrt"), "Rendered sqrt not found in PDF");
+
+    println!("=== PASSED: math_parsing_library_api ===");
 }

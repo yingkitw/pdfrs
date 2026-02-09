@@ -1,0 +1,186 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Length 1861 >>
+stream
+BT
+/Helvetica 12 Tf
+/Helvetica-Bold 24 Tf
+/Helvetica-Bold 24 Tf
+1 0 0 1 186 712 Tm
+(Multiple Tables Test) Tj
+/Helvetica 12 Tf
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 660 Tm
+(First Table) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1 w
+72 620.8 m 152 620.8 l S
+72 524.8 m 152 524.8 l S
+72 620.8 m 72 524.8 l S
+152 620.8 m 152 524.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 588.8 m 152 588.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 556.8 m 152 556.8 l S
+0.7 0.7 0.7 RG
+0.5 w
+118 620.8 m 118 524.8 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 610.1333 Tm
+(Name) Tj
+1 0 0 1 126 610.1333 Tm
+(Age) Tj
+1 0 0 1 80 578.1333 Tm
+(Alice) Tj
+1 0 0 1 126 578.1333 Tm
+(30) Tj
+1 0 0 1 80 546.1333 Tm
+(Bob) Tj
+1 0 0 1 126 546.1333 Tm
+(25) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 516.8 Tm
+(Some text between tables.) Tj
+/Helvetica-Bold 19.2 Tf
+/Helvetica-Bold 19.2 Tf
+1 0 0 1 72 484.8 Tm
+(Second Table) Tj
+/Helvetica 12 Tf
+ET
+0 0 0 RG
+1 w
+72 445.59998 m 252 445.59998 l S
+72 317.59998 m 252 317.59998 l S
+72 445.59998 m 72 317.59998 l S
+252 445.59998 m 252 317.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 413.59998 m 252 413.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 381.59998 m 252 381.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+72 349.59998 m 252 349.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+130 445.59998 m 130 317.59998 l S
+0.7 0.7 0.7 RG
+0.5 w
+176 445.59998 m 176 317.59998 l S
+BT
+/Helvetica 12 Tf
+0 0 0 rg
+1 0 0 1 80 434.93332 Tm
+(City) Tj
+1 0 0 1 138 434.93332 Tm
+(State) Tj
+1 0 0 1 184 434.93332 Tm
+(Population) Tj
+1 0 0 1 80 402.93332 Tm
+(NYC) Tj
+1 0 0 1 138 402.93332 Tm
+(NY) Tj
+1 0 0 1 184 402.93332 Tm
+(8M) Tj
+1 0 0 1 80 370.93332 Tm
+(LA) Tj
+1 0 0 1 138 370.93332 Tm
+(CA) Tj
+1 0 0 1 184 370.93332 Tm
+(4M) Tj
+1 0 0 1 80 338.93332 Tm
+(Chicago) Tj
+1 0 0 1 138 338.93332 Tm
+(IL) Tj
+1 0 0 1 184 338.93332 Tm
+(3M) Tj
+/Helvetica 12 Tf
+1 0 0 1 72 309.59998 Tm
+(More text after second table.) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 286 36 Tm
+(Page 1) Tj
+ET
+
+endstream
+endobj
+2 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+3 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Bold
+>>
+endobj
+4 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-Oblique
+>>
+endobj
+5 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica-BoldOblique
+>>
+endobj
+6 0 obj
+<< /Type /Font
+/Subtype /Type1
+/BaseFont /Courier
+>>
+endobj
+7 0 obj
+<< /Type /Page
+/Parent 8 0 R
+/MediaBox [0 0 612 792]
+/Contents 1 0 R
+/Resources << /Font << /Helvetica 2 0 R /Helvetica-Bold 3 0 R /Helvetica-Oblique 4 0 R /Helvetica-BoldOblique 5 0 R /Courier 6 0 R >> >>
+>>
+endobj
+8 0 obj
+<< /Type /Pages
+/Kids [7 0 R]
+/Count 1
+>>
+endobj
+9 0 obj
+<< /Type /Catalog
+/Pages 8 0 R
+>>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000001928 00000 n 
+0000001998 00000 n 
+0000002073 00000 n 
+0000002151 00000 n 
+0000002233 00000 n 
+0000002301 00000 n 
+0000002525 00000 n 
+0000002582 00000 n 
+trailer
+<<
+/Size 10
+/Root 9 0 R
+>>
+startxref
+2631
+%%EOF
