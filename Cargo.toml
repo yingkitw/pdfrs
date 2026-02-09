@@ -8,6 +8,7 @@ documentation = "https://docs.rs/pdfrs"
 repository = "https://github.com/yingkitw/pdfrs"
 homepage = "https://github.com/yingkitw/pdfrs"
 license = "Apache-2.0"
+keywords = ["pdf", "markdown", "cli"]
 
 [lib]
 name = "pdfrs"
