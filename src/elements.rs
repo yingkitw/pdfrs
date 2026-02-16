@@ -17,6 +17,7 @@ pub enum TextSegment {
     Italic(String),
     BoldItalic(String),
     Code(String),
+    MathInline(String),
     Link { text: String, url: String },
 }
 
@@ -131,6 +132,33 @@ pub fn parse_inline_formatting(text: &str) -> Vec<TextSegment> {
 
 /// Parse formatting excluding links
 fn parse_formatting_no_links(text: &str) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+    let mut remaining = text.to_string();
+
+    // Inline math (higher priority than bold/italic)
+    let math_re = regex::Regex::new(r"\$([^$\n]+)\$").unwrap();
+    while let Some(caps) = math_re.captures(&remaining) {
+        let full_match = caps.get(0).unwrap();
+        let before = &remaining[..full_match.start()];
+        let math_expr = caps.get(1).unwrap().as_str();
+
+        if !before.is_empty() {
+            segments.extend(parse_code_and_bold_italic(before));
+        }
+
+        segments.push(TextSegment::MathInline(math_expr.to_string()));
+        remaining = remaining[full_match.end()..].to_string();
+    }
+
+    if !remaining.is_empty() {
+        segments.extend(parse_code_and_bold_italic(&remaining));
+    }
+
+    segments
+}
+
+/// Parse code/bold/italic formatting (no links, no math)
+fn parse_code_and_bold_italic(text: &str) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     let mut remaining = text.to_string();
 
@@ -256,7 +284,13 @@ fn parse_bold_italic(text: &str) -> Vec<TextSegment> {
 
 /// Check if text contains any inline markdown formatting
 pub fn has_inline_formatting(text: &str) -> bool {
-    text.contains("**") || text.contains("__") || text.contains("***") || text.contains("___") || text.contains("`") || text.contains("[")
+    text.contains("**")
+        || text.contains("__")
+        || text.contains("***")
+        || text.contains("___")
+        || text.contains('`')
+        || text.contains('[')
+        || (text.contains('$') && text.matches('$').count() >= 2)
 }
 
 /// Parse markdown text into structured elements
@@ -744,6 +778,25 @@ mod tests {
         assert!(types.contains(&"link"));
         assert!(types.contains(&"pagebreak"));
         assert!(types.contains(&"paragraph"));
+    }
+
+    #[test]
+    fn test_parse_inline_math_inside_paragraph() {
+        let md = "Energy formula is $E = mc^2$ in physics.";
+        let elements = parse_markdown(md);
+        assert_eq!(elements.len(), 1);
+
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::MathInline(expr) if expr == "E = mc^2")));
+            }
+            _ => panic!("Expected RichParagraph with inline math segment"),
+        }
+    }
+
+    #[test]
+    fn test_has_inline_formatting_detects_math() {
+        assert!(has_inline_formatting("A math example: $a^2 + b^2 = c^2$"));
     }
 }
 

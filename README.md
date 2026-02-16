@@ -13,6 +13,11 @@ A Rust library and CLI tool for reading, writing, and manipulating PDF files. Co
 ### PDF Generation
 - **From scratch**: Create PDFs with custom fonts and text content
 - **From Markdown**: Rich formatting (headers, lists, task lists, blockquotes, tables, code blocks, definition lists, footnotes, images, links, page breaks)
+- **Math rendering**: Supports inline `$...$` and `$$...$$` blocks with LaTeX-like symbol conversion
+- **Unicode-aware wrapping**: Better line wrapping/width estimation for CJK and emoji-heavy content
+- **Embedded Unicode font (default)**: Uses a Type0/CIDFont with embedded TrueType (`FontFile2`) and glyph-ID text encoding for correct cross-script rendering
+- **Unicode font path override**: Set `PDFRS_UNICODE_FONT_PATH=/path/to/font.ttf` to control which Unicode TTF is embedded
+- **Base-14 font compatibility mode (opt-in)**: Set `PDFRS_BASE14_NORMALIZE=1` to normalize non-ASCII glyphs for Helvetica/Courier-only PDFs (math/currency transliteration + `[U+XXXX]` fallback)
 - **Text color**: `Color` struct (RGB), code blocks in gray, links in blue
 - **Text alignment**: H1 centered, configurable `TextAlign` enum
 - **Page orientation**: Landscape/portrait with `--landscape` CLI flag
@@ -210,7 +215,7 @@ This tool is built with a modular architecture:
 - **Compression** (`src/compression.rs`): PDF stream compression (deflate)
 - **Security** (`src/security.rs`): Password protection, permissions
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed module documentation.
 
 ## Testing
 
@@ -235,7 +240,7 @@ cargo test
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details.
+Contributions are welcome! Please read our [Contributing Guidelines](docs/CONTRIBUTING.md) for details.
 
 ## License
 

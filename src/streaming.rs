@@ -176,6 +176,11 @@ impl StreamingPdfGenerator {
                     self.set_font("Courier", code_size);
                     self.write_text(code)?;
                 }
+                TextSegment::MathInline(expr) => {
+                    self.set_font("Helvetica-Oblique", self.base_font_size);
+                    self.write_text(expr)?;
+                    self.set_font("Helvetica", self.base_font_size);
+                }
                 TextSegment::Link { text, url } => {
                     self.set_font("Helvetica", self.base_font_size);
                     self.write_text(&format!("{} ({})", text, url))?;

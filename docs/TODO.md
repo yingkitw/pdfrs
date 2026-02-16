@@ -87,14 +87,22 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Page orientation (landscape/portrait) with --landscape CLI flag
   - [x] Math/formula rendering (MathBlock with blue background + accent border, MathInline italic)
   - [x] LaTeX-to-text math conversion (Greek letters, operators, fractions, integrals, sums, limits)
+  - [x] Inline math parsing inside rich paragraphs (`$...$` in standard paragraph lines)
+  - [x] Unicode-aware text width estimation and wrapping (CJK/emoji-aware)
+  - [x] UTF-16BE-safe text emission used consistently in line/code/math rendering paths
+  - [x] Base-14 font compatibility fallback for unicode/math visibility (transliteration + `[U+XXXX]` marker)
+  - [x] Regression tests for inline math detection in formatting parser
   - [x] Fixed font object ID references in PDF assembly
   - [x] Fixed table rendering crash with ragged row column counts
 
 ### 🟢 Medium
 
-- [ ] Font improvements
-  - [ ] Embedded font support
-  - [ ] TrueType font handling
+- [x] Font improvements
+  - [x] Embedded font support
+  - [x] TrueType font handling
+  - [x] Unicode Type0/CIDFont resource generation with embedded FontFile2
+  - [x] Glyph-ID CID text encoding for embedded Unicode font (fix garbled CJK/Greek/math rendering)
+  - [x] Configurable unicode font path via `PDFRS_UNICODE_FONT_PATH`
   - [x] Font size variations within document (headers, code blocks)
   - [x] Text color support — `Color` struct (RGB), code blocks in gray
 

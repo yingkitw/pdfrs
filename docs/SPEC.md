@@ -35,6 +35,7 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR3.7**: Blockquote support with nesting (`>`, `>>`, `>>>`)
 - **FR3.8**: Definition lists (`term` / `: definition`)
 - **FR3.9**: Table alignment parsing (`:---`, `:---:`, `---:`)
+- **FR3.10**: Inline math parsing inside regular paragraphs (`$...$` in mixed text lines)
 
 #### FR4: Image Support
 
@@ -59,6 +60,10 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR6.4**: Horizontal rule rendering
 - **FR6.5**: Configurable page layout (portrait/landscape)
 - **FR6.6**: Structured element pipeline (Markdown → Elements → PDF)
+- **FR6.7**: Unicode-aware line wrapping and width estimation (ASCII/CJK/emoji-aware)
+- **FR6.8**: Unicode-safe text emission for non-ASCII text in line/code/math rendering (UTF-16BE for Base-14 path; glyph-ID CID encoding for embedded Type0/CIDFont path)
+- **FR6.9**: Embed Unicode-capable TrueType font as Type0/CIDFont (`FontFile2`) for cross-viewer glyph reliability
+- **FR6.10**: Allow unicode font override via `PDFRS_UNICODE_FONT_PATH`
 
 #### FR7: PDF Manipulation
 

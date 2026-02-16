@@ -1,8 +1,12 @@
 use crate::elements::{Element, TextSegment};
 use crate::table_renderer::{PdfTableHelper, TableStyle};
 use anyhow::Result;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 use syntect::parsing::{SyntaxSet, SyntaxReference};
 
 // Lazy static syntax set and theme
@@ -320,6 +324,78 @@ fn line_height(font_size: f32) -> f32 {
     font_size + 4.0
 }
 
+fn is_wide_unicode(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x1100..=0x115F
+            | 0x2329..=0x232A
+            | 0x2E80..=0xA4CF
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE10..=0xFE19
+            | 0xFE30..=0xFE6F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x1F300..=0x1FAFF
+    )
+}
+
+fn estimated_text_width(text: &str, font_size: f32, monospace: bool) -> f32 {
+    let base = if monospace { 0.6 } else { 0.5 };
+    let units: f32 = text
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii() {
+                1.0
+            } else if is_wide_unicode(ch) {
+                2.0
+            } else {
+                1.3
+            }
+        })
+        .sum();
+    units * font_size * base
+}
+
+fn split_long_word_for_wrap(word: &str, max_units: usize) -> Vec<String> {
+    if max_units == 0 {
+        return vec![word.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_units = 0usize;
+
+    for ch in word.chars() {
+        let ch_units = if ch.is_ascii() {
+            1usize
+        } else if is_wide_unicode(ch) {
+            2usize
+        } else {
+            1usize
+        };
+
+        if !current.is_empty() && current_units + ch_units > max_units {
+            chunks.push(current);
+            current = String::new();
+            current_units = 0;
+        }
+
+        current.push(ch);
+        current_units += ch_units;
+    }
+
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
+    if chunks.is_empty() {
+        vec![word.to_string()]
+    } else {
+        chunks
+    }
+}
+
 // --- Low-level PDF object model ---
 
 pub struct PdfGenerator {
@@ -466,6 +542,7 @@ struct ContentStreamBuilder {
     current_font: String,  // Font name (e.g., "Helvetica", "Helvetica-Bold")
     current_font_bold: bool,
     current_font_italic: bool,
+    unicode_font_encoder: Option<UnicodeFontEncoder>,
 }
 
 // Font name constants
@@ -476,7 +553,12 @@ const FONT_HELVETICA_BOLD_OBLIQUE: &str = "Helvetica-BoldOblique";
 const FONT_COURIER: &str = "Courier";  // Monospace for code
 
 impl ContentStreamBuilder {
-    fn new(base_font_size: f32, show_page_numbers: bool, layout: PageLayout) -> Self {
+    fn new(
+        base_font_size: f32,
+        show_page_numbers: bool,
+        layout: PageLayout,
+        unicode_font_encoder: Option<UnicodeFontEncoder>,
+    ) -> Self {
         let mut b = ContentStreamBuilder {
             pages: Vec::new(),
             current: Vec::new(),
@@ -491,6 +573,7 @@ impl ContentStreamBuilder {
             current_font: FONT_HELVETICA.to_string(),
             current_font_bold: false,
             current_font_italic: false,
+            unicode_font_encoder,
         };
         b.begin_page();
         b
@@ -721,7 +804,7 @@ impl ContentStreamBuilder {
                         format!("1 0 0 1 {} {} Tm\n", x, y).as_bytes()
                     );
                     self.current.extend_from_slice(
-                        format!("({}) Tj\n", PdfTableHelper::escape_pdf_string_static(line)).as_bytes()
+                        format!("{} Tj\n", self.encode_text_for_current_font(line)).as_bytes()
                     );
                 }
 
@@ -735,41 +818,47 @@ impl ContentStreamBuilder {
 
     /// Approximate text width for wrapping calculations
     fn estimate_text_width(&self, text: &str, font_size: f32) -> f32 {
-        // Rough approximation: average character width is 0.5 * font_size
-        // For monospace (Courier), it's closer to 0.6 * font_size
-        let multiplier = if self.current_font == FONT_COURIER { 0.6 } else { 0.5 };
-        text.len() as f32 * font_size * multiplier
+        estimated_text_width(text, font_size, self.current_font == FONT_COURIER)
     }
 
     /// Emit wrapped text that fits within the content width
     fn emit_wrapped_text(&mut self, text: &str, font_size: f32) {
         let max_width = self.layout.content_width();
         let approx_char_width = font_size * 0.5;
-        let max_chars = (max_width / approx_char_width).floor() as usize;
+        let max_chars = (max_width / approx_char_width).floor().max(1.0) as usize;
 
-        if text.len() <= max_chars {
+        if text.chars().count() <= max_chars {
             self.emit_line(text, font_size);
             return;
         }
 
-        // Simple word wrapping
-        let words: Vec<&str> = text.split_whitespace().collect();
+        let words: Vec<String> = text
+            .split_whitespace()
+            .flat_map(|word| {
+                if word.chars().count() > max_chars {
+                    split_long_word_for_wrap(word, max_chars)
+                } else {
+                    vec![word.to_string()]
+                }
+            })
+            .collect();
+
         let mut current_line = String::new();
 
         for word in words {
             let test_line = if current_line.is_empty() {
-                word.to_string()
+                word.clone()
             } else {
                 format!("{} {}", current_line, word)
             };
 
-            if test_line.len() <= max_chars {
+            if self.estimate_text_width(&test_line, font_size) <= max_width {
                 current_line = test_line;
             } else {
                 if !current_line.is_empty() {
                     self.emit_line(&current_line, font_size);
                 }
-                current_line = word.to_string();
+                current_line = word;
             }
         }
 
@@ -779,11 +868,10 @@ impl ContentStreamBuilder {
     }
 
     fn set_color(&mut self, color: Color) {
-        if self.current_color != color {
-            self.current_color = color;
-            self.current
-                .extend_from_slice(format!("{} {} {} rg\n", color.r, color.g, color.b).as_bytes());
-        }
+        self.current_color = color;
+        self.current.extend_from_slice(
+            format!("{} {} {} rg\n", color.r, color.g, color.b).as_bytes(),
+        );
     }
 
     fn reset_color(&mut self) {
@@ -794,32 +882,41 @@ impl ContentStreamBuilder {
         self.y - extra < self.layout.margin_bottom
     }
 
-    fn new_page(&mut self) {
-        self.end_text_block();
-        self.pages.push(self.current.clone());
-        self.page_number += 1;
-        self.begin_page();
-    }
-
     fn end_text_block(&mut self) {
         self.current.extend_from_slice(b"ET\n");
-        if self.show_page_numbers {
-            self.write_page_number();
-        }
     }
 
-    fn write_page_number(&mut self) {
+    fn add_page_number(&mut self) {
         let label = format!("Page {}", self.page_number);
-        let x = self.layout.width / 2.0 - 20.0;
+        let x = self.layout.margin_left + self.layout.content_width() / 2.0 - 20.0;
         let y = self.layout.margin_bottom / 2.0;
+        let encoded_label = if let Some(encoder) = &self.unicode_font_encoder {
+            if use_base14_normalization() {
+                encode_pdf_text(&label)
+            } else {
+                encoder.encode_text_as_glyph_ids(&label)
+            }
+        } else {
+            encode_pdf_text(&label)
+        };
         self.current.extend_from_slice(b"BT\n");
         self.current
-            .extend_from_slice(format!("/F1 9 Tf\n").as_bytes());
+            .extend_from_slice(format!("/{} 9 Tf\n", FONT_HELVETICA).as_bytes());
         self.current
             .extend_from_slice(format!("1 0 0 1 {} {} Tm\n", x, y).as_bytes());
         self.current
-            .extend_from_slice(format!("({}) Tj\n", escape_pdf_string(&label)).as_bytes());
+            .extend_from_slice(format!("{} Tj\n", encoded_label).as_bytes());
         self.current.extend_from_slice(b"ET\n");
+    }
+
+    fn new_page(&mut self) {
+        self.end_text_block();
+        if self.show_page_numbers {
+            self.add_page_number();
+        }
+        self.pages.push(std::mem::take(&mut self.current));
+        self.page_number += 1;
+        self.begin_page();
     }
 
     fn emit_line(&mut self, text: &str, font_size: f32) {
@@ -832,33 +929,40 @@ impl ContentStreamBuilder {
             self.new_page();
         }
         self.set_font(font_size);
-        let escaped = escape_pdf_string(text);
 
         let x = match align {
             TextAlign::Left => self.layout.margin_left,
             TextAlign::Center => {
-                // Approximate: 0.5 * char_count * font_size * 0.5
-                let approx_width = text.len() as f32 * font_size * 0.5;
+                let approx_width = self.estimate_text_width(text, font_size);
                 self.layout.margin_left + (self.layout.content_width() - approx_width) / 2.0
             }
             TextAlign::Right => {
-                // Approximate: 0.5 * char_count * font_size * 0.5
-                let approx_width = text.len() as f32 * font_size * 0.5;
+                let approx_width = self.estimate_text_width(text, font_size);
                 self.layout.margin_left + self.layout.content_width() - approx_width
             }
-            TextAlign::Justify => {
-                // Justify is similar to left for positioning, but would adjust word spacing
-                // For simplicity, we treat it like left for now
-                self.layout.margin_left
-            }
+            TextAlign::Justify => self.layout.margin_left,
         };
 
-        // Use Tm (text matrix) for absolute positioning — Td is relative and compounds
         self.current
             .extend_from_slice(format!("1 0 0 1 {} {} Tm\n", x, self.y).as_bytes());
         self.current
-            .extend_from_slice(format!("({}) Tj\n", escaped).as_bytes());
+            .extend_from_slice(format!("{} Tj\n", self.encode_text_for_current_font(text)).as_bytes());
         self.y -= lh;
+    }
+
+    fn encode_text_for_current_font(&self, text: &str) -> String {
+        if text.is_ascii() {
+            return encode_pdf_text(text);
+        }
+
+        if self.current_font == FONT_HELVETICA {
+            if let Some(encoder) = &self.unicode_font_encoder {
+                if !use_base14_normalization() {
+                    return encoder.encode_text_as_glyph_ids(text);
+                }
+            }
+        }
+        encode_pdf_text(text)
     }
 
     fn emit_colored_line(&mut self, text: &str, font_size: f32, color: Color) {
@@ -950,11 +1054,26 @@ pub fn create_pdf_from_elements_with_layout(
     base_font_size: f32,
     layout: PageLayout,
 ) -> Result<()> {
+    let unicode_font_support = prepare_unicode_font_support();
+    let unicode_font_encoder = unicode_font_support
+        .as_ref()
+        .map(|(_, encoder)| encoder.clone());
     let show_page_numbers = true;
-    let mut builder = ContentStreamBuilder::new(base_font_size, show_page_numbers, layout);
+    let mut builder = ContentStreamBuilder::new(
+        base_font_size,
+        show_page_numbers,
+        layout,
+        unicode_font_encoder,
+    );
     render_elements_to_builder(&mut builder, elements, base_font_size);
     let page_streams = builder.finish();
-    assemble_pdf(filename, &page_streams, font, &layout)?;
+    assemble_pdf(
+        filename,
+        &page_streams,
+        font,
+        &layout,
+        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+    )?;
     Ok(())
 }
 
@@ -998,44 +1117,37 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                 builder.emit_wrapped_text(text, base_font_size);
             }
             Element::RichParagraph { segments } => {
-                // Render each styled segment
+                // Keep one callflow for better line wrapping across mixed inline segments
+                // (plain/bold/italic/code/link/inline-math in the same paragraph).
+                let mut combined = String::new();
                 for segment in segments {
                     match segment {
-                        TextSegment::Plain(text) => {
-                            builder.set_font_with_style(base_font_size, false, false);
-                            builder.emit_wrapped_text(text, base_font_size);
-                        }
-                        TextSegment::Bold(text) => {
-                            builder.set_font_with_style(base_font_size, true, false);
-                            builder.emit_wrapped_text(text, base_font_size);
-                        }
-                        TextSegment::Italic(text) => {
-                            builder.set_font_with_style(base_font_size, false, true);
-                            builder.emit_wrapped_text(text, base_font_size);
-                        }
-                        TextSegment::BoldItalic(text) => {
-                            builder.set_font_with_style(base_font_size, true, true);
-                            builder.emit_wrapped_text(text, base_font_size);
-                        }
+                        TextSegment::Plain(text)
+                        | TextSegment::Bold(text)
+                        | TextSegment::Italic(text)
+                        | TextSegment::BoldItalic(text) => combined.push_str(text),
                         TextSegment::Code(code) => {
-                            let code_size = base_font_size * 0.9;
-                            builder.set_monospace_font(code_size);
-                            builder.set_color(Color::gray());
-                            builder.emit_wrapped_text(code, code_size);
-                            builder.set_color(Color::black());
-                            builder.set_font_with_style(base_font_size, false, false);
+                            combined.push('`');
+                            combined.push_str(code);
+                            combined.push('`');
+                        }
+                        TextSegment::MathInline(expr) => {
+                            combined.push_str(&render_math_text(expr));
                         }
                         TextSegment::Link { text, url } => {
-                            builder.set_color(Color::blue());
-                            builder.emit_wrapped_text(&format!("{} ({})", text, url), base_font_size);
-                            builder.set_color(Color::black());
+                            combined.push_str(text);
+                            combined.push_str(" (");
+                            combined.push_str(url);
+                            combined.push(')');
                         }
                     }
                 }
+                builder.set_font_with_style(base_font_size, false, false);
+                builder.emit_wrapped_text(&combined, base_font_size);
             }
             Element::UnorderedListItem { text, depth } => {
                 let indent = "  ".repeat(*depth as usize);
-                let line = format!("{}• {}", indent, text);
+                let line = format!("{}- {}", indent, text);
                 builder.emit_wrapped_text(&line, base_font_size);
             }
             Element::OrderedListItem { number, text, depth } => {
@@ -1090,7 +1202,6 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                     builder.set_monospace_font(code_size);
 
                     // Emit code lines with per-line syntax highlighting
-                    let char_width = code_size * 0.6; // Courier is monospace
                     for code_line in chunk {
                         let line_tokens = highlight_code(code_line, language);
 
@@ -1103,7 +1214,7 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                                 format!("1 0 0 1 {} {} Tm\n", builder.layout.margin_left, builder.y).as_bytes()
                             );
                             builder.current.extend_from_slice(
-                                format!("({}) Tj\n", escape_pdf_string(code_line)).as_bytes()
+                                format!("{} Tj\n", builder.encode_text_for_current_font(code_line)).as_bytes()
                             );
                         } else {
                             // Render each token with its color
@@ -1117,9 +1228,9 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                                     format!("1 0 0 1 {} {} Tm\n", x_offset, builder.y).as_bytes()
                                 );
                                 builder.current.extend_from_slice(
-                                    format!("({}) Tj\n", escape_pdf_string(&token.text)).as_bytes()
+                                    format!("{} Tj\n", builder.encode_text_for_current_font(&token.text)).as_bytes()
                                 );
-                                x_offset += token.text.len() as f32 * char_width;
+                                x_offset += estimated_text_width(&token.text, code_size, true);
                             }
                         }
                         builder.y -= line_h;
@@ -1218,7 +1329,7 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                         format!("1 0 0 1 {} {} Tm\n", builder.layout.margin_left + 4.0, builder.y).as_bytes()
                     );
                     builder.current.extend_from_slice(
-                        format!("({}) Tj\n", escape_pdf_string(&rendered)).as_bytes()
+                        format!("{} Tj\n", builder.encode_text_for_current_font(&rendered)).as_bytes()
                     );
                     builder.y -= line_h;
                 }
@@ -1254,6 +1365,147 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct FontResourceIds {
+    helvetica: u32,
+    helvetica_bold: u32,
+    helvetica_oblique: u32,
+    helvetica_bold_oblique: u32,
+    courier: u32,
+}
+
+fn resolve_unicode_ttf_path() -> Option<String> {
+    if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH") {
+        if !path.trim().is_empty() && Path::new(&path).exists() {
+            return Some(path);
+        }
+    }
+
+    // macOS-first defaults (current project target environment).
+    let candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+    ];
+
+    candidates
+        .iter()
+        .find(|p| Path::new(p).exists())
+        .map(|p| (*p).to_string())
+}
+
+fn load_unicode_font_bytes() -> Option<Vec<u8>> {
+    let path = resolve_unicode_ttf_path()?;
+    fs::read(path).ok()
+}
+
+#[derive(Debug, Clone)]
+struct UnicodeFontEncoder {
+    font_bytes: Vec<u8>,
+    fallback_gid: u16,
+    glyph_cache: RefCell<HashMap<char, u16>>,
+}
+
+impl UnicodeFontEncoder {
+    fn from_font_bytes(font_bytes: Vec<u8>) -> Option<Self> {
+        let face = ttf_parser::Face::parse(&font_bytes, 0).ok()?;
+        let fallback_gid = face.glyph_index('?').map(|g| g.0).unwrap_or(0);
+        Some(Self {
+            font_bytes,
+            fallback_gid,
+            glyph_cache: RefCell::new(HashMap::new()),
+        })
+    }
+
+    fn glyph_id_for_char(&self, ch: char) -> u16 {
+        if let Some(gid) = self.glyph_cache.borrow().get(&ch).copied() {
+            return gid;
+        }
+
+        let gid = ttf_parser::Face::parse(&self.font_bytes, 0)
+            .ok()
+            .and_then(|face| face.glyph_index(ch).map(|g| g.0))
+            .unwrap_or(self.fallback_gid);
+
+        self.glyph_cache.borrow_mut().insert(ch, gid);
+        gid
+    }
+
+    fn encode_text_as_glyph_ids(&self, text: &str) -> String {
+        let mut bytes = Vec::with_capacity(text.chars().count() * 2);
+        for ch in text.chars() {
+            let gid = self.glyph_id_for_char(ch);
+            bytes.push((gid >> 8) as u8);
+            bytes.push((gid & 0xFF) as u8);
+        }
+
+        let hex: String = bytes.iter().map(|b| format!("{:02X}", b)).collect();
+        format!("<{}>", hex)
+    }
+}
+
+fn prepare_unicode_font_support() -> Option<(Vec<u8>, UnicodeFontEncoder)> {
+    let bytes = load_unicode_font_bytes()?;
+    let encoder = UnicodeFontEncoder::from_font_bytes(bytes.clone())?;
+    Some((bytes, encoder))
+}
+
+fn add_shared_font_resources(generator: &mut PdfGenerator, unicode_font_bytes: Option<&[u8]>) -> FontResourceIds {
+    let helvetica_id = if let Some(bytes) = unicode_font_bytes {
+        let font_file_id = generator.add_stream_object(
+            format!("<< /Length {} >>\n", bytes.len()),
+            bytes.to_vec(),
+        );
+
+        let descriptor_id = generator.add_object(format!(
+            "<< /Type /FontDescriptor\n/FontName /UnicodeTT\n/Flags 4\n/FontBBox [0 -200 1000 900]\n/ItalicAngle 0\n/Ascent 800\n/Descent -200\n/CapHeight 700\n/StemV 80\n/MissingWidth 1000\n/FontFile2 {} 0 R\n>>\n",
+            font_file_id
+        ));
+
+        let cid_font_id = generator.add_object(format!(
+            "<< /Type /Font\n/Subtype /CIDFontType2\n/BaseFont /UnicodeTT\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>\n/FontDescriptor {} 0 R\n/DW 1000\n/CIDToGIDMap /Identity\n>>\n",
+            descriptor_id
+        ));
+
+        generator.add_object(format!(
+            "<< /Type /Font\n/Subtype /Type0\n/BaseFont /UnicodeTT\n/Encoding /Identity-H\n/DescendantFonts [{} 0 R]\n>>\n",
+            cid_font_id
+        ))
+    } else {
+        generator.add_object(format!(
+            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+            FONT_HELVETICA
+        ))
+    };
+
+    let helvetica_bold_id = generator.add_object(format!(
+        "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+        FONT_HELVETICA_BOLD
+    ));
+
+    let helvetica_oblique_id = generator.add_object(format!(
+        "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+        FONT_HELVETICA_OBLIQUE
+    ));
+
+    let helvetica_bold_oblique_id = generator.add_object(format!(
+        "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+        FONT_HELVETICA_BOLD_OBLIQUE
+    ));
+
+    let courier_id = generator.add_object(format!(
+        "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+        FONT_COURIER
+    ));
+
+    FontResourceIds {
+        helvetica: helvetica_id,
+        helvetica_bold: helvetica_bold_id,
+        helvetica_oblique: helvetica_oblique_id,
+        helvetica_bold_oblique: helvetica_bold_oblique_id,
+        courier: courier_id,
+    }
+}
+
 /// Generate PDF bytes from elements (library API — no filesystem access needed)
 pub fn generate_pdf_bytes(
     elements: &[Element],
@@ -1261,63 +1513,50 @@ pub fn generate_pdf_bytes(
     base_font_size: f32,
     layout: PageLayout,
 ) -> Result<Vec<u8>> {
+    let unicode_font_support = prepare_unicode_font_support();
+    let unicode_font_encoder = unicode_font_support
+        .as_ref()
+        .map(|(_, encoder)| encoder.clone());
     let show_page_numbers = true;
-    let mut builder = ContentStreamBuilder::new(base_font_size, show_page_numbers, layout);
+    let mut builder = ContentStreamBuilder::new(
+        base_font_size,
+        show_page_numbers,
+        layout,
+        unicode_font_encoder,
+    );
     render_elements_to_builder(&mut builder, elements, base_font_size);
     let page_streams = builder.finish();
-    Ok(assemble_pdf_bytes(&page_streams, font, &layout))
+    Ok(assemble_pdf_bytes(
+        &page_streams,
+        font,
+        &layout,
+        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+    ))
 }
 
 /// Assemble final PDF bytes from per-page content streams
-fn assemble_pdf_bytes(page_streams: &[Vec<u8>], _font: &str, layout: &PageLayout) -> Vec<u8> {
+fn assemble_pdf_bytes(
+    page_streams: &[Vec<u8>],
+    _font: &str,
+    layout: &PageLayout,
+    unicode_font_bytes: Option<&[u8]>,
+) -> Vec<u8> {
     let mut generator = PdfGenerator::new();
+
+    let font_ids = add_shared_font_resources(&mut generator, unicode_font_bytes);
 
     let mut page_ids = Vec::new();
 
-    // We need to know the pages object ID ahead of time.
-    // Layout: for each page: content_stream_obj, page_obj, fonts_obj (5 fonts)
-    // Then: pages_obj, catalog_obj
-    let fonts_per_page = 5; // Helvetica, Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique, Courier
-    let pages_obj_id = (page_streams.len() as u32) * (2 + fonts_per_page) + 1;
+    // Objects now are: shared font objects first, then each page contributes
+    // [content_stream, page_dict], then pages object and catalog object.
+    let per_page_objects = 2u32;
+    let pages_obj_id = generator.next_id + per_page_objects * page_streams.len() as u32;
 
     for page_stream in page_streams {
         let content_id = generator.add_stream_object(
             format!("<< /Length {} >>\n", page_stream.len()),
             page_stream.clone(),
         );
-
-        // Font IDs come right after content stream object
-        let first_font_id = content_id + 1;
-
-        let font_resources = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            FONT_HELVETICA
-        );
-        generator.add_object(font_resources);
-
-        let font_bold_resources = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            FONT_HELVETICA_BOLD
-        );
-        generator.add_object(font_bold_resources);
-
-        let font_italic_resources = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            FONT_HELVETICA_OBLIQUE
-        );
-        generator.add_object(font_italic_resources);
-
-        let font_bold_italic_resources = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            FONT_HELVETICA_BOLD_OBLIQUE
-        );
-        generator.add_object(font_bold_italic_resources);
-
-        let font_courier_resources = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            FONT_COURIER
-        );
-        generator.add_object(font_courier_resources);
 
         let page_dict = format!(
             "<< /Type /Page\n\
@@ -1336,11 +1575,11 @@ fn assemble_pdf_bytes(page_streams: &[Vec<u8>], _font: &str, layout: &PageLayout
             layout.width,
             layout.height,
             content_id,
-            FONT_HELVETICA, first_font_id,
-            FONT_HELVETICA_BOLD, first_font_id + 1,
-            FONT_HELVETICA_OBLIQUE, first_font_id + 2,
-            FONT_HELVETICA_BOLD_OBLIQUE, first_font_id + 3,
-            FONT_COURIER, first_font_id + 4
+            FONT_HELVETICA, font_ids.helvetica,
+            FONT_HELVETICA_BOLD, font_ids.helvetica_bold,
+            FONT_HELVETICA_OBLIQUE, font_ids.helvetica_oblique,
+            FONT_HELVETICA_BOLD_OBLIQUE, font_ids.helvetica_bold_oblique,
+            FONT_COURIER, font_ids.courier,
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
@@ -1370,8 +1609,14 @@ fn assemble_pdf_bytes(page_streams: &[Vec<u8>], _font: &str, layout: &PageLayout
 }
 
 /// Assemble final PDF from per-page content streams and write to file
-fn assemble_pdf(filename: &str, page_streams: &[Vec<u8>], font: &str, layout: &PageLayout) -> Result<()> {
-    let pdf_data = assemble_pdf_bytes(page_streams, font, layout);
+fn assemble_pdf(
+    filename: &str,
+    page_streams: &[Vec<u8>],
+    font: &str,
+    layout: &PageLayout,
+    unicode_font_bytes: Option<&[u8]>,
+) -> Result<()> {
+    let pdf_data = assemble_pdf_bytes(page_streams, font, layout, unicode_font_bytes);
     let mut file = File::create(filename)?;
     file.write_all(&pdf_data)?;
     Ok(())
@@ -1401,23 +1646,23 @@ fn render_math_text(expr: &str) -> String {
 
     // Math operators and symbols
     let operators = [
-        ("\\infty", "inf"), ("\\infinity", "inf"),
-        ("\\pm", "+/-"), ("\\mp", "-/+"),
-        ("\\times", "x"), ("\\cdot", "."),
-        ("\\div", "/"), ("\\neq", "!="), ("\\ne", "!="),
-        ("\\leq", "<="), ("\\le", "<="),
-        ("\\geq", ">="), ("\\ge", ">="),
-        ("\\approx", "~="), ("\\sim", "~"),
-        ("\\equiv", "==="), ("\\propto", "~"),
-        ("\\rightarrow", "->"), ("\\leftarrow", "<-"),
-        ("\\Rightarrow", "=>"), ("\\Leftarrow", "<="),
-        ("\\leftrightarrow", "<->"),
-        ("\\forall", "for all"), ("\\exists", "there exists"),
-        ("\\in", "in"), ("\\notin", "not in"),
-        ("\\subset", "c="), ("\\supset", "=c"),
-        ("\\cup", "U"), ("\\cap", "n"),
-        ("\\emptyset", "{}"),
-        ("\\nabla", "nabla"), ("\\partial", "d"),
+        ("\\infty", "∞"), ("\\infinity", "∞"),
+        ("\\pm", "±"), ("\\mp", "∓"),
+        ("\\times", "×"), ("\\cdot", "·"),
+        ("\\div", "÷"), ("\\neq", "≠"), ("\\ne", "≠"),
+        ("\\leq", "≤"), ("\\le", "≤"),
+        ("\\geq", "≥"), ("\\ge", "≥"),
+        ("\\approx", "≈"), ("\\sim", "∼"),
+        ("\\equiv", "≡"), ("\\propto", "∝"),
+        ("\\rightarrow", "→"), ("\\leftarrow", "←"),
+        ("\\Rightarrow", "⇒"), ("\\Leftarrow", "⇐"),
+        ("\\leftrightarrow", "↔"),
+        ("\\forall", "∀"), ("\\exists", "∃"),
+        ("\\in", "∈"), ("\\notin", "∉"),
+        ("\\subset", "⊂"), ("\\supset", "⊃"),
+        ("\\cup", "∪"), ("\\cap", "∩"),
+        ("\\emptyset", "∅"),
+        ("\\nabla", "∇"), ("\\partial", "∂"),
         ("\\ldots", "..."), ("\\cdots", "..."), ("\\dots", "..."),
         ("\\quad", "  "), ("\\qquad", "    "),
         ("\\,", " "), ("\\;", " "), ("\\!", ""),
@@ -1451,16 +1696,16 @@ fn render_math_text(expr: &str) -> String {
 
     // Handle \sum, \prod, \int with optional limits
     let sum_re = regex::Regex::new(r"\\sum_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = sum_re.replace_all(&s, "SUM($1 to $2)").to_string();
-    s = s.replace("\\sum", "SUM");
+    s = sum_re.replace_all(&s, "∑[$1→$2]").to_string();
+    s = s.replace("\\sum", "∑");
 
     let prod_re = regex::Regex::new(r"\\prod_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = prod_re.replace_all(&s, "PROD($1 to $2)").to_string();
-    s = s.replace("\\prod", "PROD");
+    s = prod_re.replace_all(&s, "∏[$1→$2]").to_string();
+    s = s.replace("\\prod", "∏");
 
     let int_re = regex::Regex::new(r"\\int_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = int_re.replace_all(&s, "INT($1 to $2)").to_string();
-    s = s.replace("\\int", "INT");
+    s = int_re.replace_all(&s, "∫[$1→$2]").to_string();
+    s = s.replace("\\int", "∫");
 
     let lim_re = regex::Regex::new(r"\\lim_\{([^}]*)\}").unwrap();
     s = lim_re.replace_all(&s, "lim($1)").to_string();
@@ -1505,6 +1750,7 @@ fn render_math_text(expr: &str) -> String {
     s.trim().to_string()
 }
 
+/// Escape a PDF string literal (for ASCII-only text)
 fn escape_pdf_string(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('(', "\\(")
@@ -1512,6 +1758,158 @@ fn escape_pdf_string(text: &str) -> String {
         .replace('\r', "\\r")
         .replace('\n', "\\n")
         .replace('\t', "\\t")
+}
+
+/// Normalize text for Base-14 fonts (Helvetica/Courier family).
+///
+/// This is a compatibility fallback mode that can be enabled when a viewer
+/// cannot render UTF-16 text with Base-14 fonts.
+fn normalize_for_base14_font(text: &str) -> String {
+    let mut out = String::new();
+
+    for ch in text.chars() {
+        match ch {
+            // Fast path
+            c if c.is_ascii() => out.push(c),
+
+            // Math operators / relations
+            '∞' => out.push_str("infinity"),
+            '∑' => out.push_str("sum"),
+            '∏' => out.push_str("prod"),
+            '∫' => out.push_str("int"),
+            '∂' => out.push_str("partial"),
+            '∇' => out.push_str("nabla"),
+            '√' => out.push_str("sqrt"),
+            '≈' => out.push_str("~="),
+            '≠' => out.push_str("!="),
+            '≤' => out.push_str("<="),
+            '≥' => out.push_str(">="),
+            '±' => out.push_str("+/-"),
+            '×' => out.push('*'),
+            '÷' => out.push('/'),
+            '∈' => out.push_str(" in "),
+            '∉' => out.push_str(" not-in "),
+            '∩' => out.push_str(" cap "),
+            '∪' => out.push_str(" cup "),
+            '∀' => out.push_str("forall"),
+            '∃' => out.push_str("exists"),
+
+            // Greek letters commonly produced by render_math_text
+            'α' => out.push_str("alpha"),
+            'β' => out.push_str("beta"),
+            'γ' => out.push_str("gamma"),
+            'δ' => out.push_str("delta"),
+            'ε' => out.push_str("epsilon"),
+            'θ' => out.push_str("theta"),
+            'λ' => out.push_str("lambda"),
+            'μ' => out.push_str("mu"),
+            'π' => out.push_str("pi"),
+            'σ' => out.push_str("sigma"),
+            'φ' => out.push_str("phi"),
+            'ω' => out.push_str("omega"),
+            'Γ' => out.push_str("Gamma"),
+            'Δ' => out.push_str("Delta"),
+            'Θ' => out.push_str("Theta"),
+            'Λ' => out.push_str("Lambda"),
+            'Π' => out.push_str("Pi"),
+            'Σ' => out.push_str("Sigma"),
+            'Φ' => out.push_str("Phi"),
+            'Ω' => out.push_str("Omega"),
+
+            // Currency
+            '€' => out.push_str("EUR"),
+            '£' => out.push_str("GBP"),
+            '¥' => out.push_str("JPY"),
+            '₹' => out.push_str("INR"),
+            '₽' => out.push_str("RUB"),
+            '₩' => out.push_str("KRW"),
+            '₿' => out.push_str("BTC"),
+
+            // Arrows
+            '←' => out.push_str("<-"),
+            '→' => out.push_str("->"),
+            '↔' => out.push_str("<->"),
+            '⇐' => out.push_str("<="),
+            '⇒' => out.push_str("=>"),
+            '⇔' => out.push_str("<=>"),
+
+            // Superscripts / subscripts seen in examples
+            '²' => out.push_str("^2"),
+            '³' => out.push_str("^3"),
+            '₀' => out.push_str("_0"),
+            '₁' => out.push_str("_1"),
+            '₂' => out.push_str("_2"),
+            '₃' => out.push_str("_3"),
+            '₄' => out.push_str("_4"),
+            '₅' => out.push_str("_5"),
+            '₆' => out.push_str("_6"),
+            '₇' => out.push_str("_7"),
+            '₈' => out.push_str("_8"),
+            '₉' => out.push_str("_9"),
+
+            // Fallback: keep visibility instead of rendering blank glyphs
+            other => out.push_str(&format!("[U+{:04X}]", other as u32)),
+        }
+    }
+
+    out
+}
+
+fn use_base14_normalization() -> bool {
+    std::env::var("PDFRS_BASE14_NORMALIZE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Encode text for PDF - uses UTF-16BE hex encoding for unicode, literal string for ASCII
+fn encode_pdf_text(text: &str) -> String {
+    let normalized = if use_base14_normalization() {
+        normalize_for_base14_font(text)
+    } else {
+        text.to_string()
+    };
+
+    // Check if text contains any non-ASCII characters
+    let has_unicode = normalized.chars().any(|c| !c.is_ascii());
+
+    if !has_unicode {
+        // Pure ASCII - use literal string format
+        format!("({})", escape_pdf_string(&normalized))
+    } else {
+        // Contains unicode - use UTF-16BE hex encoding with BOM
+        let mut utf16be_bytes = Vec::new();
+
+        // Add BOM (Big Endian)
+        utf16be_bytes.push(0xFE);
+        utf16be_bytes.push(0xFF);
+
+        // Encode each character as UTF-16BE
+        for c in normalized.chars() {
+            let mut code = c as u32;
+            if code < 0x10000 {
+                // BMP character - single UTF-16 code unit
+                utf16be_bytes.push((code >> 8) as u8);
+                utf16be_bytes.push((code & 0xFF) as u8);
+            } else {
+                // Surrogate pair for characters beyond BMP
+                code -= 0x10000;
+                let high_surrogate = 0xD800 + ((code >> 10) & 0x3FF);
+                let low_surrogate = 0xDC00 + (code & 0x3FF);
+                utf16be_bytes.push((high_surrogate >> 8) as u8);
+                utf16be_bytes.push((high_surrogate & 0xFF) as u8);
+                utf16be_bytes.push((low_surrogate >> 8) as u8);
+                utf16be_bytes.push((low_surrogate & 0xFF) as u8);
+            }
+        }
+
+        // Format as hex string
+        let hex_string: String = utf16be_bytes
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect();
+
+        format!("<{}>", hex_string)
+    }
 }
 
 // --- Accessibility / Tagged PDF support ---
@@ -1746,6 +2144,7 @@ pub fn element_to_structure(element: &Element) -> StructureElement {
             let text = segments.iter().map(|s| match s {
                 TextSegment::Plain(t) | TextSegment::Bold(t) | TextSegment::Italic(t) | TextSegment::BoldItalic(t) => t.clone(),
                 TextSegment::Code(c) => format!("`{}`", c),
+                TextSegment::MathInline(expr) => render_math_text(expr),
                 TextSegment::Link { text, url } => format!("{} ({})", text, url),
             }).collect::<Vec<_>>().join("");
             StructureElement::new(StructureType::P)
@@ -1885,5 +2284,54 @@ mod accessibility_tests {
 
         assert_eq!(struct_elem.struct_type, StructureType::Code);
         assert_eq!(struct_elem.actual_text, Some("fn main() {}".to_string()));
+    }
+
+    #[test]
+    fn test_render_math_text_uses_unicode_symbols() {
+        let rendered = render_math_text(r"\sum_{i=1}^{n} i \leq n^2 \approx \infty");
+        assert!(rendered.contains('∑'));
+        assert!(rendered.contains('≤'));
+        assert!(rendered.contains('≈'));
+        assert!(rendered.contains('∞'));
+    }
+
+    #[test]
+    fn test_estimated_text_width_unicode_is_wider_than_ascii() {
+        let ascii = estimated_text_width("Hello", 12.0, false);
+        let cjk = estimated_text_width("你好你好", 12.0, false);
+        assert!(cjk > ascii);
+    }
+
+    #[test]
+    fn test_embeds_unicode_type0_font_when_available() {
+        if prepare_unicode_font_support().is_none() {
+            // Environment without a Unicode TTF candidate; skip.
+            return;
+        }
+
+        let elements = vec![
+            Element::Paragraph { text: "Unicode: 你好 Γεια 😀 ∑".into() },
+        ];
+        let bytes = generate_pdf_bytes(&elements, "Helvetica", 12.0, PageLayout::portrait()).unwrap();
+        let raw = String::from_utf8_lossy(&bytes);
+
+        assert!(raw.contains("/Subtype /Type0"), "Expected Type0 font for unicode text");
+        assert!(raw.contains("/Subtype /CIDFontType2"), "Expected CIDFontType2 descendant font");
+        assert!(raw.contains("/FontFile2"), "Expected embedded FontFile2 object");
+    }
+
+    #[test]
+    fn test_unicode_font_encoder_emits_glyph_ids_not_utf16() {
+        let Some((bytes, encoder)) = prepare_unicode_font_support() else {
+            return;
+        };
+        let face = ttf_parser::Face::parse(&bytes, 0).unwrap();
+        let gid = face.glyph_index('你').unwrap().0;
+
+        let encoded = encoder.encode_text_as_glyph_ids("你");
+        let expected = format!("<{:04X}>", gid);
+
+        assert_eq!(encoded, expected);
+        assert_ne!(encoded, "<4F60>", "must not use unicode code point as CID directly");
     }
 }

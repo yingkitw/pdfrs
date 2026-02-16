@@ -138,12 +138,12 @@ fn test_roundtrip_mixed_content() {
 
 #[test]
 fn test_roundtrip_existing_test_md() {
-    roundtrip_test("test.md", "test_md");
+    roundtrip_test("tests/fixtures/test.md", "test_md");
 }
 
 #[test]
 fn test_roundtrip_existing_roundtrip_md() {
-    roundtrip_test("roundtrip_test.md", "roundtrip_test_md");
+    roundtrip_test("tests/fixtures/roundtrip_test.md", "roundtrip_test_md");
 }
 
 #[test]
@@ -186,8 +186,8 @@ fn test_merge_pdfs() {
     let out_dir = format!("{}/target/test_output", base);
     fs::create_dir_all(&out_dir).unwrap();
 
-    let md_a = format!("{}/test.md", base);
-    let md_b = format!("{}/roundtrip_test.md", base);
+    let md_a = format!("{}/tests/fixtures/test.md", base);
+    let md_b = format!("{}/tests/fixtures/roundtrip_test.md", base);
     let pdf_a = format!("{}/merge_a.pdf", out_dir);
     let pdf_b = format!("{}/merge_b.pdf", out_dir);
     let merged = format!("{}/merged_test.pdf", out_dir);
@@ -251,7 +251,7 @@ fn test_metadata_pdf() {
     let out_dir = format!("{}/target/test_output", base);
     fs::create_dir_all(&out_dir).unwrap();
 
-    let md_src = format!("{}/test.md", base);
+    let md_src = format!("{}/tests/fixtures/test.md", base);
     let pdf_out = format!("{}/meta_test.pdf", out_dir);
 
     let (_, _, ok) = run_pdf_cli(&[
@@ -279,7 +279,7 @@ fn test_rotate_pdf() {
     let out_dir = format!("{}/target/test_output", base);
     fs::create_dir_all(&out_dir).unwrap();
 
-    let md_src = format!("{}/test.md", base);
+    let md_src = format!("{}/tests/fixtures/test.md", base);
     let pdf_src = format!("{}/rotate_source.pdf", out_dir);
     let pdf_rotated = format!("{}/rotated_90.pdf", out_dir);
 
@@ -313,7 +313,7 @@ fn test_watermark_pdf() {
     let out_dir = format!("{}/target/test_output", base);
     fs::create_dir_all(&out_dir).unwrap();
 
-    let md_src = format!("{}/test.md", base);
+    let md_src = format!("{}/tests/fixtures/test.md", base);
     let pdf_src = format!("{}/watermark_source.pdf", out_dir);
     let pdf_wm = format!("{}/watermarked.pdf", out_dir);
 
@@ -339,8 +339,8 @@ fn test_reorder_pdf() {
     fs::create_dir_all(&out_dir).unwrap();
 
     // Use the merged PDF which has multiple pages
-    let md_a = format!("{}/test.md", base);
-    let md_b = format!("{}/roundtrip_test.md", base);
+    let md_a = format!("{}/tests/fixtures/test.md", base);
+    let md_b = format!("{}/tests/fixtures/roundtrip_test.md", base);
     let pdf_a = format!("{}/reorder_a.pdf", out_dir);
     let pdf_b = format!("{}/reorder_b.pdf", out_dir);
     let merged = format!("{}/reorder_merged.pdf", out_dir);
@@ -935,8 +935,8 @@ fn test_math_and_formulas_roundtrip() {
         "Neural Network",
         "Information Theory",
         "Advanced Topics",
-        // Math content (rendered form)
-        "SUM",
+        // Math content (rendered form - unicode symbol or Base-14 fallback text)
+        "sum",
         "sqrt",
         // Code blocks
         "GradientDescent",
@@ -1045,7 +1045,11 @@ Regular paragraph after math.
 
     // Check rendered math content in raw PDF
     let content = String::from_utf8_lossy(&bytes);
-    assert!(content.contains("SUM"), "Rendered SUM not found in PDF");
+    // Check for sum rendering in either unicode or Base-14 fallback form.
+    assert!(
+        content.contains("2211") || content.contains("∑") || content.contains("sum"),
+        "Rendered sum symbol/text not found in PDF"
+    );
     assert!(content.contains("sqrt"), "Rendered sqrt not found in PDF");
 
     println!("=== PASSED: math_parsing_library_api ===");

@@ -172,10 +172,14 @@ impl PdfDocument {
         let mut text = String::new();
         // Matches (text) Tj — single string show
         let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
+        // Matches <hex> Tj — hex string show
+        let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
         // Matches [...] TJ — array show (strings + kerning numbers)
         let tj_array_re = regex::Regex::new(r"\[((?:[^\]]*?))\]\s*TJ").unwrap();
         // Matches string elements inside a TJ array
         let tj_str_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)").unwrap();
+        // Matches hex string elements inside a TJ array
+        let tj_hex_str_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>").unwrap();
         // Matches Td/TD positioning operators: <x> <y> Td
         let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
         // Matches Tm text matrix: a b c d e f Tm (f = y position)
@@ -231,9 +235,22 @@ impl PdfDocument {
                         first_item_on_line = false;
                     }
 
+                    // Extract <hex> Tj
+                    for caps in tj_hex_re.captures_iter(line) {
+                        let hex_str = caps[1].replace(char::is_whitespace, "");
+                        let decoded = decode_pdf_hex_string(&hex_str);
+                        if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                            text.push(' ');
+                        }
+                        text.push_str(&decoded);
+                        first_item_on_line = false;
+                    }
+
                     // Extract [...] TJ arrays
                     for caps in tj_array_re.captures_iter(line) {
                         let array_content = &caps[1];
+                        
+                        // Extract regular strings
                         for str_caps in tj_str_re.captures_iter(array_content) {
                             let extracted = &str_caps[1];
                             let unescaped = unescape_pdf_string(extracted);
@@ -241,6 +258,17 @@ impl PdfDocument {
                                 text.push(' ');
                             }
                             text.push_str(&unescaped);
+                            first_item_on_line = false;
+                        }
+                        
+                        // Extract hex strings
+                        for hex_caps in tj_hex_str_re.captures_iter(array_content) {
+                            let hex_str = hex_caps[1].replace(char::is_whitespace, "");
+                            let decoded = decode_pdf_hex_string(&hex_str);
+                            if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                                text.push(' ');
+                            }
+                            text.push_str(&decoded);
                             first_item_on_line = false;
                         }
                     }
@@ -616,7 +644,8 @@ pub fn extract_text(filename: &str) -> Result<String> {
 
 pub fn unescape_pdf_string(s: &str) -> String {
     let mut result = String::new();
-    let mut chars = s.chars();
+    let mut chars = s.chars().peekable();
+    
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
@@ -626,26 +655,32 @@ pub fn unescape_pdf_string(s: &str) -> String {
                 Some('\\') => result.push('\\'),
                 Some('(') => result.push('('),
                 Some(')') => result.push(')'),
+                Some('b') => result.push('\u{0008}'),
+                Some('f') => result.push('\u{000C}'),
                 Some(d) if d.is_ascii_digit() => {
-                    // Octal escape: \NNN (1-3 digits)
                     let mut octal = String::new();
                     octal.push(d);
-                    // Peek at next chars for more octal digits
                     for _ in 0..2 {
-                        // We can't peek with chars iterator, so we handle
-                        // this simply: only first digit captured here.
-                        // Full octal would need a peekable iterator.
-                        break;
+                        if let Some(&next) = chars.peek() {
+                            if next.is_ascii_digit() && next >= '0' && next <= '7' {
+                                octal.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
                     }
                     if let Ok(code) = u8::from_str_radix(&octal, 8) {
-                        result.push(code as char);
+                        if code > 0 {
+                            result.push(code as char);
+                        }
                     } else {
                         result.push('\\');
                         result.push(d);
                     }
                 }
                 Some(other) => {
-                    result.push('\\');
                     result.push(other);
                 }
                 None => result.push('\\'),
@@ -654,6 +689,59 @@ pub fn unescape_pdf_string(s: &str) -> String {
             result.push(c);
         }
     }
+    result
+}
+
+pub fn decode_pdf_hex_string(s: &str) -> String {
+    let hex_str: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut bytes = Vec::new();
+    
+    for i in (0..hex_str.len()).step_by(2) {
+        if i + 1 < hex_str.len() {
+            let byte_str = &hex_str[i..i + 2];
+            if let Ok(byte) = u8::from_str_radix(byte_str, 16) {
+                bytes.push(byte);
+            }
+        } else if i < hex_str.len() {
+            let byte_str = &hex_str[i..i + 1];
+            if let Ok(byte) = u8::from_str_radix(&format!("{}0", byte_str), 16) {
+                bytes.push(byte);
+            }
+        }
+    }
+    
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        decode_utf16be(&bytes[2..])
+    } else {
+        String::from_utf8_lossy(&bytes).to_string()
+    }
+}
+
+fn decode_utf16be(bytes: &[u8]) -> String {
+    let mut result = String::new();
+    let mut i = 0;
+    
+    while i + 1 < bytes.len() {
+        let high = (bytes[i] as u16) << 8 | (bytes[i + 1] as u16);
+        i += 2;
+        
+        if (0xD800..=0xDBFF).contains(&high) && i + 1 < bytes.len() {
+            let low = (bytes[i] as u16) << 8 | (bytes[i + 1] as u16);
+            if (0xDC00..=0xDFFF).contains(&low) {
+                i += 2;
+                let codepoint = 0x10000u32 + ((high as u32 - 0xD800) << 10) + (low as u32 - 0xDC00);
+                if let Some(ch) = char::from_u32(codepoint) {
+                    result.push(ch);
+                }
+                continue;
+            }
+        }
+        
+        if let Some(ch) = char::from_u32(high as u32) {
+            result.push(ch);
+        }
+    }
+    
     result
 }
 
@@ -668,6 +756,47 @@ mod tests {
         assert_eq!(unescape_pdf_string(r"a\(b\)c"), "a(b)c");
         assert_eq!(unescape_pdf_string(r"back\\slash"), "back\\slash");
         assert_eq!(unescape_pdf_string(r"tab\there"), "tab\there");
+        assert_eq!(unescape_pdf_string(r"form\ffeed"), "form\u{000C}feed");
+        assert_eq!(unescape_pdf_string(r"back\bspace"), "back\u{0008}space");
+    }
+
+    #[test]
+    fn test_unescape_octal_sequences() {
+        assert_eq!(unescape_pdf_string(r"\101"), "A");
+        assert_eq!(unescape_pdf_string(r"\101\102\103"), "ABC");
+        assert_eq!(unescape_pdf_string(r"\60"), "0");
+        assert_eq!(unescape_pdf_string(r"\141\142\143"), "abc");
+        assert_eq!(unescape_pdf_string(r"Hello\40World"), "Hello World");
+    }
+
+    #[test]
+    fn test_decode_hex_string_basic() {
+        assert_eq!(decode_pdf_hex_string("48656C6C6F"), "Hello");
+        assert_eq!(decode_pdf_hex_string("576F726C64"), "World");
+        assert_eq!(decode_pdf_hex_string("414243"), "ABC");
+        assert_eq!(decode_pdf_hex_string("48 65 6C 6C 6F"), "Hello");
+    }
+
+    #[test]
+    fn test_decode_hex_string_utf16be() {
+        assert_eq!(decode_pdf_hex_string("FEFF00480065006C006C006F"), "Hello");
+        assert_eq!(decode_pdf_hex_string("FEFF4F60597D"), "你好");
+        assert_eq!(decode_pdf_hex_string("FEFF0041004200430044"), "ABCD");
+    }
+
+    #[test]
+    fn test_decode_hex_string_unicode_symbols() {
+        assert_eq!(decode_pdf_hex_string("FEFF03B103B203B3"), "αβγ");
+        assert_eq!(decode_pdf_hex_string("FEFF221E2211222B"), "∞∑∫");
+    }
+
+    #[test]
+    fn test_decode_utf16be_surrogate_pairs() {
+        let bytes = vec![0xD8, 0x3D, 0xDE, 0x00];
+        assert_eq!(decode_utf16be(&bytes), "😀");
+        
+        let bytes2 = vec![0xD8, 0x3D, 0xDE, 0x01];
+        assert_eq!(decode_utf16be(&bytes2), "😁");
     }
 
     #[test]

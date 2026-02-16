@@ -320,19 +320,53 @@ pub fn create_pdf_elements_with_metadata(
 /// Each stream that looks like a content stream (contains text operators) becomes one "page".
 fn extract_page_streams(doc: &crate::pdf::PdfDocument) -> Vec<Vec<u8>> {
     let mut streams = Vec::new();
+
+    // Prefer structural extraction: traverse /Type /Page dictionaries and follow /Contents refs.
+    let mut page_ids: Vec<u32> = doc
+        .objects
+        .iter()
+        .filter_map(|(id, obj)| {
+            if let crate::pdf::PdfObject::Dictionary(dict) = obj {
+                if let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(kind))) = dict.get("Type") {
+                    if kind == "/Page" {
+                        return Some(*id);
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+    page_ids.sort_unstable();
+
+    for page_id in page_ids {
+        if let Some(crate::pdf::PdfObject::Dictionary(dict)) = doc.objects.get(&page_id) {
+            if let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(contents_id_raw))) = dict.get("Contents") {
+                if let Ok(contents_id) = contents_id_raw.parse::<u32>() {
+                    if let Some(crate::pdf::PdfObject::Stream { data, .. }) = doc.objects.get(&contents_id) {
+                        streams.push(decompress_if_needed(data));
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback for malformed/simple PDFs where /Page dictionaries are not parsed as expected.
+    if !streams.is_empty() {
+        return streams;
+    }
+
     let mut sorted_ids: Vec<&u32> = doc.objects.keys().collect();
     sorted_ids.sort();
-
     for id in sorted_ids {
         if let crate::pdf::PdfObject::Stream { data, .. } = &doc.objects[id] {
             let decompressed = decompress_if_needed(data);
             let content = String::from_utf8_lossy(&decompressed);
-            // Heuristic: content streams contain text operators like Tj, TJ, BT, ET
             if content.contains("Tj") || content.contains("TJ") || content.contains("BT") {
                 streams.push(decompressed);
             }
         }
     }
+
     streams
 }
 

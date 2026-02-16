@@ -33,6 +33,11 @@ fn elements_to_text(elements: &[Element]) -> String {
                             text.push_str(c);
                             text.push('`');
                         }
+                        TextSegment::MathInline(expr) => {
+                            text.push('$');
+                            text.push_str(expr);
+                            text.push('$');
+                        }
                         TextSegment::Link { text: t, url } => {
                             text.push('[');
                             text.push_str(t);
