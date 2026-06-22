@@ -64,6 +64,7 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR6.8**: Unicode-safe text emission for non-ASCII text in line/code/math rendering (UTF-16BE for Base-14 path; glyph-ID CID encoding for embedded Type0/CIDFont path)
 - **FR6.9**: Embed Unicode-capable TrueType font as Type0/CIDFont (`FontFile2`) for cross-viewer glyph reliability
 - **FR6.10**: Allow unicode font override via `PDFRS_UNICODE_FONT_PATH`
+- **FR6.11**: Ensure math rendering paths (including italic math styling) use glyph-safe Unicode encoding when embedded Type0/CIDFont mode is active
 
 #### FR7: PDF Manipulation
 

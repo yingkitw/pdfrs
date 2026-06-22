@@ -138,11 +138,14 @@ impl StreamingPdfGenerator {
             _ => self.base_font_size,
         };
 
-        // Use bold font
-        self.font_state.name = format!("Helvetica-Bold");
+        // Use bold font with heading size
+        let prev_size = self.font_state.size;
+        self.font_state.size = size;
+        self.font_state.name = "Helvetica-Bold".to_string();
         self.write_text("")?;
         self.write_text(text)?;
         self.font_state.name = "Helvetica".to_string();
+        self.font_state.size = prev_size;
         Ok(())
     }
 
@@ -156,33 +159,33 @@ impl StreamingPdfGenerator {
         for segment in segments {
             match segment {
                 TextSegment::Plain(text) => {
-                    self.set_font("Helvetica", self.base_font_size);
+                    let _ = self.set_font("Helvetica", self.base_font_size);
                     self.write_text(text)?;
                 }
                 TextSegment::Bold(text) => {
-                    self.set_font("Helvetica-Bold", self.base_font_size);
+                    let _ = self.set_font("Helvetica-Bold", self.base_font_size);
                     self.write_text(text)?;
                 }
                 TextSegment::Italic(text) => {
-                    self.set_font("Helvetica-Oblique", self.base_font_size);
+                    let _ = self.set_font("Helvetica-Oblique", self.base_font_size);
                     self.write_text(text)?;
                 }
                 TextSegment::BoldItalic(text) => {
-                    self.set_font("Helvetica-BoldOblique", self.base_font_size);
+                    let _ = self.set_font("Helvetica-BoldOblique", self.base_font_size);
                     self.write_text(text)?;
                 }
                 TextSegment::Code(code) => {
                     let code_size = self.base_font_size * 0.9;
-                    self.set_font("Courier", code_size);
+                    let _ = self.set_font("Courier", code_size);
                     self.write_text(code)?;
                 }
                 TextSegment::MathInline(expr) => {
-                    self.set_font("Helvetica-Oblique", self.base_font_size);
+                    let _ = self.set_font("Helvetica-Oblique", self.base_font_size);
                     self.write_text(expr)?;
-                    self.set_font("Helvetica", self.base_font_size);
+                    let _ = self.set_font("Helvetica", self.base_font_size);
                 }
                 TextSegment::Link { text, url } => {
-                    self.set_font("Helvetica", self.base_font_size);
+                    let _ = self.set_font("Helvetica", self.base_font_size);
                     self.write_text(&format!("{} ({})", text, url))?;
                 }
             }
@@ -273,26 +276,32 @@ impl StreamingPdfGenerator {
 
     /// Finish the PDF and close the file
     pub fn finish(mut self) -> Result<()> {
-        // Flush any remaining content
         self.flush_page()?;
 
-        // Build page tree and catalog
         let total_pages = self.page_contents.len();
-        let fonts_per_page = self.fonts_per_page;
+        let pages_obj_id = self.generator.next_id + total_pages as u32 * 6;
+        let mut page_ids = Vec::new();
 
-        // Calculate object IDs
-        // Layout: for each page: content_stream, page_obj, 5 fonts
-        // Then: pages_obj, catalog_obj
-        let pages_obj_id = (total_pages * (2 + fonts_per_page) + 2) as u32;
+        for &content_id in &self.page_contents {
+            let page_id = self.generator.next_id;
+            page_ids.push(page_id);
 
-        let mut all_objects = Vec::new();
+            let f1 = self.generator.add_object(
+                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica >>\n".to_string(),
+            );
+            let f2 = self.generator.add_object(
+                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-Bold >>\n".to_string(),
+            );
+            let f3 = self.generator.add_object(
+                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-Oblique >>\n".to_string(),
+            );
+            let f4 = self.generator.add_object(
+                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-BoldOblique >>\n".to_string(),
+            );
+            let f5 = self.generator.add_object(
+                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Courier >>\n".to_string(),
+            );
 
-        // Add all page objects
-        for (i, &content_id) in self.page_contents.iter().enumerate() {
-            let page_id = content_id + 1;
-            let first_font_id = content_id + 2;
-
-            // Page dictionary
             let page_dict = format!(
                 "<< /Type /Page\n\
                  /Parent {} 0 R\n\
@@ -310,64 +319,31 @@ impl StreamingPdfGenerator {
                 self.layout.width,
                 self.layout.height,
                 content_id,
-                first_font_id,
-                first_font_id + 1,
-                first_font_id + 2,
-                first_font_id + 3,
-                first_font_id + 4
+                f1, f2, f3, f4, f5
             );
-
-            all_objects.push((page_id, page_dict));
-
-            // Font objects
-            all_objects.push((first_font_id, format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica >>\n")));
-            all_objects.push((first_font_id + 1, format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-Bold >>\n")));
-            all_objects.push((first_font_id + 2, format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-Oblique >>\n")));
-            all_objects.push((first_font_id + 3, format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-BoldOblique >>\n")));
-            all_objects.push((first_font_id + 4, format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Courier >>\n")));
+            self.generator.add_object(page_dict);
         }
 
-        // Pages object
-        let page_refs: Vec<String> = all_objects.iter()
-            .filter(|(id, _)| {
-                // Page objects are at positions: 1, 8, 15, ...
-                (*id - 1) % (2 + fonts_per_page as u32) == 0
-            })
-            .map(|(id, _)| format!("{} 0 R", id))
-            .collect();
-
+        let kids: Vec<String> = page_ids.iter().map(|id| format!("{} 0 R", id)).collect();
         let pages_dict = format!(
             "<< /Type /Pages\n\
              /Kids [{}]\n\
              /Count {}\n\
              >>\n",
-            page_refs.join(" "),
+            kids.join(" "),
             total_pages
         );
+        self.generator.add_object(pages_dict);
 
-        all_objects.push((pages_obj_id, pages_dict));
-
-        // Catalog
         let catalog_dict = format!(
             "<< /Type /Catalog\n\
              /Pages {} 0 R\n\
              >>\n",
             pages_obj_id
         );
+        self.generator.add_object(catalog_dict);
 
-        all_objects.push((pages_obj_id + 1, catalog_dict));
-
-        // Now we need to regenerate with proper IDs
-        // This is a simplified version - in production, you'd track IDs better
-        let mut generator = PdfGenerator::new();
-
-        // Re-add all objects with proper IDs
-        for (_, content) in &all_objects {
-            generator.add_object(content.clone());
-        }
-
-        // Generate PDF
-        let pdf_data = generator.generate();
+        let pdf_data = self.generator.generate();
         self.file.write_all(&pdf_data)?;
         self.file.flush()?;
 

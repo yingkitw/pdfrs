@@ -29,6 +29,8 @@ enum Commands {
         font_size: f32,
         #[arg(long, help = "Use landscape orientation")]
         landscape: bool,
+        #[arg(long, help = "Optimization profile (web, print, archive, ebook)", default_value = "archive")]
+        profile: String,
     },
     #[command(about = "Extract text from PDF")]
     Extract {
@@ -45,6 +47,17 @@ enum Commands {
         font: String,
         #[arg(long, help = "Font size", default_value = "12")]
         font_size: f32,
+        #[arg(long, help = "Use landscape orientation")]
+        landscape: bool,
+        #[arg(long, help = "Optimization profile (web, print, archive, ebook)", default_value = "archive")]
+        profile: String,
+    },
+    #[command(about = "Create a new PDF with streaming (memory-efficient for large docs)")]
+    CreateStreaming {
+        #[arg(help = "Output PDF file")]
+        output: String,
+        #[arg(help = "Text content for the PDF")]
+        text: String,
         #[arg(long, help = "Use landscape orientation")]
         landscape: bool,
     },
@@ -148,6 +161,25 @@ enum Commands {
         #[arg(long, help = "Font size", default_value = "12")]
         font_size: f32,
     },
+    #[command(about = "Detect form fields in an existing PDF")]
+    DetectFormFields {
+        #[arg(help = "Input PDF file")]
+        input: String,
+    },
+    #[command(about = "Fill form fields in a PDF with new values")]
+    FillFormFields {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+        #[arg(long, help = "Field values as JSON object {\"fieldName\":\"value\"}")]
+        values: String,
+    },
+    #[command(about = "Detect document structure (headings, sections) in a PDF")]
+    DetectStructure {
+        #[arg(help = "Input PDF file")]
+        input: String,
+    },
     #[command(about = "Overlay an image onto all pages of a PDF")]
     OverlayImage {
         #[arg(help = "Input PDF file")]
@@ -181,6 +213,33 @@ enum Commands {
         opacity: f32,
         #[arg(long, help = "Position (center, topleft, topright, bottomleft, bottomright, diagonal)", default_value = "diagonal")]
         position: String,
+    },
+    #[command(about = "Extract tables from a PDF to CSV")]
+    ExtractTables {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output CSV file")]
+        output: String,
+    },
+    #[command(about = "Add a digital signature to a PDF")]
+    Sign {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(help = "Output signed PDF file")]
+        output: String,
+        #[arg(long, help = "Signer name", default_value = "")]
+        signer: String,
+        #[arg(long, help = "Reason for signing")]
+        reason: Option<String>,
+        #[arg(long, help = "Signing location")]
+        location: Option<String>,
+        #[arg(long, help = "Contact information")]
+        contact: Option<String>,
+    },
+    #[command(about = "Verify digital signatures in a PDF")]
+    VerifySignature {
+        #[arg(help = "Input PDF file")]
+        input: String,
     },
     #[command(about = "Add password protection and permissions to PDF")]
     Protect {
@@ -216,7 +275,17 @@ enum Commands {
 }
 
 // Use the library instead of declaring modules
-use pdfrs::{compression, elements, image, markdown, pdf, pdf_generator, pdf_ops, security};
+use pdfrs::{elements, image, optimization, parallel, pdf, pdf_generator, pdf_ops, security};
+
+fn parse_optimization_profile(s: &str) -> optimization::OptimizationProfile {
+    match s.to_lowercase().as_str() {
+        "web" => optimization::OptimizationProfile::web(),
+        "print" => optimization::OptimizationProfile::print(),
+        "archive" => optimization::OptimizationProfile::archive(),
+        "ebook" => optimization::OptimizationProfile::ebook(),
+        _ => optimization::OptimizationProfile::archive(),
+    }
+}
 
 fn main() {
     let cli = Cli::parse();
@@ -241,19 +310,31 @@ fn main() {
             font,
             font_size,
             landscape,
+            profile,
         } => {
-            let orientation = if landscape {
-                pdf_generator::PageOrientation::Landscape
+            let profile = parse_optimization_profile(&profile);
+            let layout = if landscape {
+                pdf_generator::PageLayout::landscape()
             } else {
-                pdf_generator::PageOrientation::Portrait
+                pdf_generator::PageLayout::portrait()
             };
-            match markdown::markdown_to_pdf_full(&input, &output, &font, font_size, orientation) {
-            Ok(_) => println!(
-                "Successfully converted Markdown {} to PDF {}",
-                input, output
-            ),
-            Err(e) => eprintln!("Error converting Markdown to PDF: {}", e),
-        }},
+            let result = (|| -> anyhow::Result<()> {
+                let content = std::fs::read_to_string(&input)?;
+                let elements = elements::parse_markdown(&content);
+                let generator = optimization::OptimizedPdfGenerator::new(profile)
+                    .with_font(&font)
+                    .with_font_size(font_size)
+                    .with_layout(layout);
+                generator.generate(&elements, &output)
+            })();
+            match result {
+                Ok(_) => println!(
+                    "Successfully converted Markdown {} to PDF {}",
+                    input, output
+                ),
+                Err(e) => eprintln!("Error converting Markdown to PDF: {}", e),
+            }
+        },
         Commands::Extract { input } => match pdf::extract_text(&input) {
             Ok(text) => println!("Extracted text:\n{}", text),
             Err(e) => eprintln!("Error extracting text: {}", e),
@@ -264,7 +345,9 @@ fn main() {
             font,
             font_size,
             landscape,
+            profile,
         } => {
+            let profile = parse_optimization_profile(&profile);
             let layout = if landscape {
                 pdf_generator::PageLayout::landscape()
             } else {
@@ -280,9 +363,45 @@ fn main() {
                     }
                 })
                 .collect();
-            match pdf_generator::create_pdf_from_elements_with_layout(&output, &elements, &font, font_size, layout) {
+            let generator = optimization::OptimizedPdfGenerator::new(profile)
+                .with_font(&font)
+                .with_font_size(font_size)
+                .with_layout(layout);
+            match generator.generate(&elements, &output) {
                 Ok(_) => println!("PDF created successfully: {}", output),
                 Err(e) => eprintln!("Error creating PDF: {}", e),
+            }
+        },
+        Commands::CreateStreaming {
+            output,
+            text,
+            landscape,
+        } => {
+            let layout = if landscape {
+                pdfrs::pdf_generator::PageLayout::landscape()
+            } else {
+                pdfrs::pdf_generator::PageLayout::portrait()
+            };
+            match pdfrs::streaming::StreamingPdfGenerator::new(&output, layout) {
+                Ok(mut pdf_gen) => {
+                    for line in text.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() {
+                            let _ = pdf_gen.add_paragraph("");
+                        } else if trimmed.starts_with("# ") {
+                            let _ = pdf_gen.add_heading(&trimmed[2..], 1);
+                        } else if trimmed.starts_with("## ") {
+                            let _ = pdf_gen.add_heading(&trimmed[3..], 2);
+                        } else {
+                            let _ = pdf_gen.add_paragraph(trimmed);
+                        }
+                    }
+                    match pdf_gen.finish() {
+                        Ok(_) => println!("Streaming PDF created successfully: {}", output),
+                        Err(e) => eprintln!("Error finishing streaming PDF: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Error creating streaming PDF generator: {}", e),
             }
         },
         Commands::AddImage {
@@ -300,8 +419,7 @@ fn main() {
             Err(e) => eprintln!("Error adding image: {}", e),
         },
         Commands::Merge { inputs, output } => {
-            let refs: Vec<&str> = inputs.iter().map(|s| s.as_str()).collect();
-            match pdf_ops::merge_pdfs(&refs, &output) {
+            match parallel::merge_pdfs_parallel(&inputs, output.clone()) {
                 Ok(_) => println!("Successfully merged into {}", output),
                 Err(e) => eprintln!("Error merging PDFs: {}", e),
             }
@@ -383,8 +501,8 @@ fn main() {
             output,
             text,
             fields,
-            font,
-            font_size,
+            font: _font,
+            font_size: _font_size,
         } => {
             // Read form fields from JSON file
             let fields_json = match std::fs::read_to_string(&fields) {
@@ -407,6 +525,67 @@ fn main() {
             match pdf_ops::create_pdf_with_form_fields(&output, &text, &form_fields) {
                 Ok(_) => println!("Successfully created {} with {} form fields", output, form_fields.len()),
                 Err(e) => eprintln!("Error creating PDF with form fields: {}", e),
+            }
+        }
+        Commands::DetectFormFields { input } => {
+            match pdf_ops::detect_form_fields(&input) {
+                Ok(fields) => {
+                    if fields.is_empty() {
+                        println!("No form fields found in {}", input);
+                    } else {
+                        println!("Found {} form field(s) in {}:", fields.len(), input);
+                        for f in &fields {
+                            let value_str = f.value.as_deref().unwrap_or("(empty)");
+                            let req_str = if f.required { " [required]" } else { "" };
+                            println!("  - {} ({}) = {}{}", f.name, f.field_type, value_str, req_str);
+                            if !f.options.is_empty() {
+                                println!("    options: {}", f.options.join(", "));
+                            }
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error detecting form fields: {}", e),
+            }
+        }
+        Commands::FillFormFields { input, output, values } => {
+            let field_values: std::collections::HashMap<String, String> = match serde_json::from_str(&values) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Error parsing field values JSON: {}", e);
+                    eprintln!("Expected format: {{\"fieldName\":\"value\",\"otherField\":\"otherValue\"}}");
+                    return;
+                }
+            };
+
+            match pdf_ops::fill_form_fields(&input, &output, &field_values) {
+                Ok(_) => println!("Successfully filled form fields in {}", output),
+                Err(e) => eprintln!("Error filling form fields: {}", e),
+            }
+        }
+        Commands::DetectStructure { input } => {
+            match pdf_ops::detect_document_structure(&input) {
+                Ok(structure) => {
+                    if structure.headings.is_empty() {
+                        println!("No headings detected in {}", input);
+                        println!("Estimated pages: {}", structure.estimated_page_count);
+                        println!("Body font size: {}pt", structure.body_font_size);
+                    } else {
+                        println!("Detected {} heading(s) in {} (est. {} pages):", structure.headings.len(), input, structure.estimated_page_count);
+                        for h in &structure.headings {
+                            let indent = "  ".repeat(h.level as usize);
+                            println!("{}{} {}", indent, "#".repeat(h.level as usize), h.text);
+                        }
+                        println!("\nSections:");
+                        for s in &structure.sections {
+                            if let Some(ref title) = s.title {
+                                println!("  - {} ({} content lines)", title, s.content_lines.len());
+                            } else {
+                                println!("  - [untitled] ({} content lines)", s.content_lines.len());
+                            }
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error detecting structure: {}", e),
             }
         }
         Commands::OverlayImage {
@@ -461,6 +640,88 @@ fn main() {
                 Err(e) => eprintln!("Error adding watermark: {}", e),
             }
         }
+        Commands::ExtractTables { input, output } => {
+            match pdf_ops::extract_tables_from_pdf(&input) {
+                Ok(tables) => {
+                    if tables.is_empty() {
+                        println!("No tables found in {}", input);
+                    } else {
+                        let mut csv = String::new();
+                        for (i, table_csv) in tables.iter().enumerate() {
+                            if i > 0 {
+                                csv.push_str("\n---\n");
+                            }
+                            csv.push_str(table_csv);
+                        }
+                        match std::fs::write(&output, csv) {
+                            Ok(_) => println!("Extracted {} table(s) to {}", tables.len(), output),
+                            Err(e) => eprintln!("Error writing CSV: {}", e),
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error extracting tables: {}", e),
+            }
+        }
+        Commands::Sign {
+            input,
+            output,
+            signer,
+            reason,
+            location,
+            contact,
+        } => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let date = format!("{}0000+0000", now);
+            let sig = security::DigitalSignature::new(&signer)
+                .with_date(date);
+            let sig = if let Some(r) = reason {
+                sig.with_reason(r)
+            } else {
+                sig
+            };
+            let sig = if let Some(l) = location {
+                sig.with_location(l)
+            } else {
+                sig
+            };
+            let sig = if let Some(c) = contact {
+                sig.with_contact_info(c)
+            } else {
+                sig
+            };
+            match pdf_ops::sign_pdf(&input, &output, &sig) {
+                Ok(_) => println!("Successfully signed {} -> {}", input, output),
+                Err(e) => eprintln!("Error signing PDF: {}", e),
+            }
+        }
+        Commands::VerifySignature { input } => {
+            match pdf_ops::verify_pdf_signature(&input) {
+                Ok(sigs) => {
+                    if sigs.is_empty() {
+                        println!("No digital signatures found in {}", input);
+                    } else {
+                        println!("Found {} signature(s) in {}:", sigs.len(), input);
+                        for (i, sig) in sigs.iter().enumerate() {
+                            println!("  Signature #{}:", i + 1);
+                            println!("    Signer: {}", sig.signer_name);
+                            if let Some(ref reason) = sig.reason {
+                                println!("    Reason: {}", reason);
+                            }
+                            if let Some(ref location) = sig.location {
+                                println!("    Location: {}", location);
+                            }
+                            if let Some(ref date) = sig.date {
+                                println!("    Date: {}", date);
+                            }
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error verifying signatures: {}", e),
+            }
+        }
         Commands::Protect {
             input,
             output,
@@ -487,8 +748,8 @@ fn main() {
             let encryption_algo = match algorithm.to_lowercase().as_str() {
                 "rc4-40" => security::EncryptionAlgorithm::Rc4_40,
                 "rc4-128" => security::EncryptionAlgorithm::Rc4_128,
-                "aes-128" => security::EncryptionAlgorithm::Aes_128,
-                "aes-256" => security::EncryptionAlgorithm::Aes_256,
+                "aes-128" => security::EncryptionAlgorithm::Aes128,
+                "aes-256" => security::EncryptionAlgorithm::Aes256,
                 _ => {
                     eprintln!("Error: Invalid algorithm '{}'. Valid options: rc4-40, rc4-128, aes-128, aes-256", algorithm);
                     return;

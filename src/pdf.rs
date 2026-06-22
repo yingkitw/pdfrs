@@ -1,8 +1,11 @@
 use crate::compression;
 use anyhow::Result;
 use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct PdfDocument {
@@ -32,6 +35,38 @@ pub enum PdfObject {
 pub enum PdfValue {
     Object(PdfObject),
     Reference(u32, u32),
+}
+
+/// Find all stream data ranges in raw PDF bytes.
+/// Returns a list of (data_start, data_end) byte positions for each stream,
+/// where data_start..data_end is the raw stream payload (between stream\n and endstream).
+fn find_stream_ranges(buffer: &[u8]) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let stream_marker = b"\nstream\n";
+    let endstream_marker = b"\nendstream";
+    let mut pos = 0;
+
+    while let Some(stream_pos) = find_subsequence(&buffer[pos..], stream_marker) {
+        let abs_stream = pos + stream_pos;
+        let data_start = abs_stream + stream_marker.len();
+        // Find the next endstream after this stream marker
+        if let Some(end_pos) = find_subsequence(&buffer[data_start..], endstream_marker) {
+            let data_end = data_start + end_pos;
+            ranges.push((data_start, data_end));
+            pos = data_end + endstream_marker.len();
+        } else {
+            break;
+        }
+    }
+
+    ranges
+}
+
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 // --- Font encoding tables ---
@@ -163,7 +198,21 @@ impl PdfDocument {
             }
         }
 
+        // Find all stream data ranges in raw bytes before string parsing corrupts them
+        let stream_ranges = find_stream_ranges(&buffer);
+
         parse_objects(&content, &mut doc)?;
+
+        // Replace corrupted stream data with raw bytes from the original buffer
+        let mut stream_idx = 0;
+        for obj in doc.objects.values_mut() {
+            if let PdfObject::Stream { data, .. } = obj {
+                if let Some(&(start, end)) = stream_ranges.get(stream_idx) {
+                    *data = buffer[start..end].to_vec();
+                }
+                stream_idx += 1;
+            }
+        }
 
         Ok(doc)
     }
@@ -285,9 +334,14 @@ impl PdfDocument {
     }
 }
 
+/// Check if bytes form a valid zlib header (CMF=0x78, FLG satisfies checksum)
+fn is_zlib_header(b0: u8, b1: u8) -> bool {
+    b0 == 0x78 && ((b0 as u16) * 256 + (b1 as u16)) % 31 == 0
+}
+
 /// Decompress stream data if it appears to be deflate-compressed
 fn decompress_stream(data: &[u8]) -> Vec<u8> {
-    if data.len() > 2 && data[0] == 0x78 && (data[1] == 0x9C || data[1] == 0xDA) {
+    if data.len() > 2 && is_zlib_header(data[0], data[1]) {
         match compression::decompress_deflate(data) {
             Ok(decompressed) => decompressed,
             Err(_) => data.to_vec(),
@@ -713,8 +767,81 @@ pub fn decode_pdf_hex_string(s: &str) -> String {
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         decode_utf16be(&bytes[2..])
     } else {
+        if let Some(decoded) = decode_unicode_glyph_id_bytes(&bytes) {
+            return decoded;
+        }
         String::from_utf8_lossy(&bytes).to_string()
     }
+}
+
+fn resolve_unicode_ttf_path_for_extraction() -> Option<String> {
+    if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH") {
+        if !path.trim().is_empty() && Path::new(&path).exists() {
+            return Some(path);
+        }
+    }
+
+    let candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+    ];
+
+    candidates
+        .iter()
+        .find(|p| Path::new(p).exists())
+        .map(|p| (*p).to_string())
+}
+
+fn build_unicode_gid_reverse_map() -> Option<HashMap<u16, char>> {
+    let font_path = resolve_unicode_ttf_path_for_extraction()?;
+    let font_bytes = fs::read(font_path).ok()?;
+    let face = ttf_parser::Face::parse(&font_bytes, 0).ok()?;
+
+    let mut reverse_map = HashMap::new();
+    for cp in 0u32..=0x10FFFF {
+        let Some(ch) = char::from_u32(cp) else {
+            continue;
+        };
+        if let Some(glyph) = face.glyph_index(ch) {
+            reverse_map.entry(glyph.0).or_insert(ch);
+        }
+    }
+
+    Some(reverse_map)
+}
+
+fn decode_unicode_glyph_id_bytes(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 2 || bytes.len() % 2 != 0 {
+        return None;
+    }
+
+    static GID_REVERSE_MAP: OnceLock<Option<HashMap<u16, char>>> = OnceLock::new();
+    let gid_map = GID_REVERSE_MAP
+        .get_or_init(build_unicode_gid_reverse_map)
+        .as_ref()?;
+
+    let mut out = String::with_capacity(bytes.len() / 2);
+    let mut known_count = 0usize;
+    let total = bytes.len() / 2;
+
+    for chunk in bytes.chunks_exact(2) {
+        let gid = u16::from_be_bytes([chunk[0], chunk[1]]);
+        if let Some(ch) = gid_map.get(&gid) {
+            out.push(*ch);
+            known_count += 1;
+        } else if gid == 0 {
+            out.push(' ');
+        } else {
+            out.push('\u{FFFD}');
+        }
+    }
+
+    // Require a strong hit-rate to avoid mis-decoding arbitrary hex payloads.
+    if known_count == 0 || known_count * 10 < total * 6 {
+        return None;
+    }
+
+    Some(out)
 }
 
 fn decode_utf16be(bytes: &[u8]) -> String {
@@ -788,6 +915,30 @@ mod tests {
     fn test_decode_hex_string_unicode_symbols() {
         assert_eq!(decode_pdf_hex_string("FEFF03B103B203B3"), "αβγ");
         assert_eq!(decode_pdf_hex_string("FEFF221E2211222B"), "∞∑∫");
+    }
+
+    #[test]
+    fn test_decode_hex_string_unicode_glyph_ids_roundtrip() {
+        let Some(path) = resolve_unicode_ttf_path_for_extraction() else {
+            return;
+        };
+        let Ok(bytes) = fs::read(path) else {
+            return;
+        };
+        let Ok(face) = ttf_parser::Face::parse(&bytes, 0) else {
+            return;
+        };
+
+        let sample = "Unicode test: 你好 Γεια ∑";
+        let mut encoded = String::new();
+        for ch in sample.chars() {
+            let Some(gid) = face.glyph_index(ch) else {
+                return;
+            };
+            encoded.push_str(&format!("{:04X}", gid.0));
+        }
+
+        assert_eq!(decode_pdf_hex_string(&encoded), sample);
     }
 
     #[test]

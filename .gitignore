@@ -1,5 +1,6 @@
 # Build artifacts
 /target
+AGENTS.md
 
 # Generated PDF files
 *.pdf

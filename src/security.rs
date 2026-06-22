@@ -142,9 +142,9 @@ pub enum EncryptionAlgorithm {
     /// RC4 128-bit (PDF 1.4)
     Rc4_128,
     /// AES 128-bit (PDF 1.6)
-    Aes_128,
+    Aes128,
     /// AES 256-bit (PDF 2.0)
-    Aes_256,
+    Aes256,
 }
 
 impl EncryptionAlgorithm {
@@ -153,8 +153,8 @@ impl EncryptionAlgorithm {
         match self {
             Self::Rc4_40 => 5,
             Self::Rc4_128 => 16,
-            Self::Aes_128 => 16,
-            Self::Aes_256 => 32,
+            Self::Aes128 => 16,
+            Self::Aes256 => 32,
         }
     }
 
@@ -163,8 +163,8 @@ impl EncryptionAlgorithm {
         match self {
             Self::Rc4_40 => "V2",
             Self::Rc4_128 => "V4",
-            Self::Aes_128 => "AESV2",
-            Self::Aes_256 => "AESV3",
+            Self::Aes128 => "AESV2",
+            Self::Aes256 => "AESV3",
         }
     }
 }
@@ -300,7 +300,6 @@ impl PdfSecurity {
             return String::new();
         }
 
-        let algorithm = self.encryption_algorithm.name();
         let key_length = self.encryption_algorithm.key_length() * 8;
         let flags = self.permissions.to_pdf_flags();
 
@@ -313,16 +312,16 @@ impl PdfSecurity {
                /EncryptMetadata {} \
                /O <OWNER_PASSWORD_PLACEHOLDER> \
                /U <USER_PASSWORD_PLACEHOLDER> >>",
-            if self.encryption_algorithm == EncryptionAlgorithm::Aes_256 {
+            if self.encryption_algorithm == EncryptionAlgorithm::Aes256 {
                 "5"
-            } else if self.encryption_algorithm == EncryptionAlgorithm::Aes_128 {
+            } else if self.encryption_algorithm == EncryptionAlgorithm::Aes128 {
                 "4"
             } else {
                 "2"
             },
-            if self.encryption_algorithm == EncryptionAlgorithm::Aes_256 {
+            if self.encryption_algorithm == EncryptionAlgorithm::Aes256 {
                 "5"
-            } else if self.encryption_algorithm == EncryptionAlgorithm::Aes_128 {
+            } else if self.encryption_algorithm == EncryptionAlgorithm::Aes128 {
                 "4"
             } else {
                 "3"
@@ -332,6 +331,141 @@ impl PdfSecurity {
             if self.encrypt_metadata { "true" } else { "false" }
         )
     }
+}
+
+/// Digital signature information for PDF documents
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigitalSignature {
+    /// Name of the signer
+    pub signer_name: String,
+    /// Reason for signing (e.g., "I approve this document")
+    pub reason: Option<String>,
+    /// Location where the document was signed
+    pub location: Option<String>,
+    /// Contact information for the signer
+    pub contact_info: Option<String>,
+    /// Signing date (ISO 8601 format)
+    pub date: Option<String>,
+    /// Signature filter (e.g., "Adobe.PPKLite")
+    pub filter: String,
+    /// Sub-filter defining the signature format (e.g., "adbe.pkcs7.detached")
+    pub sub_filter: String,
+    /// The PKCS#7/CMS signature bytes (hex-encoded for PDF storage)
+    pub signature_hex: Option<String>,
+    /// Byte range [start1, len1, start2, len2] that was signed
+    pub byte_range: Option<Vec<u32>>,
+}
+
+impl Default for DigitalSignature {
+    fn default() -> Self {
+        Self {
+            signer_name: String::new(),
+            reason: None,
+            location: None,
+            contact_info: None,
+            date: None,
+            filter: "Adobe.PPKLite".to_string(),
+            sub_filter: "adbe.pkcs7.detached".to_string(),
+            signature_hex: None,
+            byte_range: None,
+        }
+    }
+}
+
+impl DigitalSignature {
+    /// Create a new digital signature with the given signer name
+    pub fn new(signer_name: impl Into<String>) -> Self {
+        Self {
+            signer_name: signer_name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the reason for signing
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    /// Set the signing location
+    pub fn with_location(mut self, location: impl Into<String>) -> Self {
+        self.location = Some(location.into());
+        self
+    }
+
+    /// Set the contact information
+    pub fn with_contact_info(mut self, contact: impl Into<String>) -> Self {
+        self.contact_info = Some(contact.into());
+        self
+    }
+
+    /// Set the signing date
+    pub fn with_date(mut self, date: impl Into<String>) -> Self {
+        self.date = Some(date.into());
+        self
+    }
+
+    /// Build the PDF signature dictionary string
+    pub fn to_pdf_dict(&self) -> String {
+        let mut dict = format!(
+            "<< /Type /Sig\n\
+             /Filter /{}\n\
+             /SubFilter /{}\n\
+             /M (D:{})\n\
+             /Name ({})\n",
+            escape_pdf_name(&self.filter),
+            escape_pdf_name(&self.sub_filter),
+            self.date.as_deref().unwrap_or(""),
+            escape_pdf_string(&self.signer_name)
+        );
+
+        if let Some(ref reason) = self.reason {
+            dict.push_str(&format!(" /Reason ({})\n", escape_pdf_string(reason)));
+        }
+        if let Some(ref location) = self.location {
+            dict.push_str(&format!(" /Location ({})\n", escape_pdf_string(location)));
+        }
+        if let Some(ref contact) = self.contact_info {
+            dict.push_str(&format!(" /ContactInfo ({})\n", escape_pdf_string(contact)));
+        }
+
+        // ByteRange: [start1, len1, start2, len2]
+        if let Some(ref range) = self.byte_range {
+            let range_str: Vec<String> = range.iter().map(|v| v.to_string()).collect();
+            dict.push_str(&format!(" /ByteRange [{}]\n", range_str.join(" ")));
+        }
+
+        // Contents: hex-encoded signature placeholder or actual signature
+        if let Some(ref sig_hex) = self.signature_hex {
+            dict.push_str(&format!(" /Contents <{}>\n", sig_hex));
+        } else {
+            // Placeholder for a 4096-byte signature
+            dict.push_str(" /Contents <");
+            dict.push_str(&"0".repeat(8192));
+            dict.push_str(">\n");
+        }
+
+        dict.push_str(">>");
+        dict
+    }
+}
+
+fn escape_pdf_string(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
+}
+
+fn escape_pdf_name(name: &str) -> String {
+    name.replace(" ", "#20")
+        .replace("#", "#23")
+        .replace("/", "#2F")
+        .replace("[", "#5B")
+        .replace("]", "#5D")
+        .replace("<", "#3C")
+        .replace(">", "#3E")
+        .replace("(", "#28")
+        .replace(")", "#29")
 }
 
 #[cfg(test)]
@@ -392,8 +526,8 @@ mod tests {
     fn test_encryption_algorithm_key_length() {
         assert_eq!(EncryptionAlgorithm::Rc4_40.key_length(), 5);
         assert_eq!(EncryptionAlgorithm::Rc4_128.key_length(), 16);
-        assert_eq!(EncryptionAlgorithm::Aes_128.key_length(), 16);
-        assert_eq!(EncryptionAlgorithm::Aes_256.key_length(), 32);
+        assert_eq!(EncryptionAlgorithm::Aes128.key_length(), 16);
+        assert_eq!(EncryptionAlgorithm::Aes256.key_length(), 32);
     }
 
     #[test]
@@ -442,5 +576,43 @@ mod tests {
         assert!(dict.contains("/Filter /Standard"));
         assert!(dict.contains("/O <"));
         assert!(dict.contains("/U <"));
+    }
+
+    #[test]
+    fn test_digital_signature_defaults() {
+        let sig = DigitalSignature::new("Alice");
+        assert_eq!(sig.signer_name, "Alice");
+        assert_eq!(sig.filter, "Adobe.PPKLite");
+        assert_eq!(sig.sub_filter, "adbe.pkcs7.detached");
+    }
+
+    #[test]
+    fn test_digital_signature_builder() {
+        let sig = DigitalSignature::new("Bob")
+            .with_reason("I approve")
+            .with_location("NYC")
+            .with_contact_info("bob@example.com")
+            .with_date("20240101");
+
+        assert_eq!(sig.signer_name, "Bob");
+        assert_eq!(sig.reason, Some("I approve".to_string()));
+        assert_eq!(sig.location, Some("NYC".to_string()));
+        assert_eq!(sig.contact_info, Some("bob@example.com".to_string()));
+        assert_eq!(sig.date, Some("20240101".to_string()));
+    }
+
+    #[test]
+    fn test_digital_signature_to_pdf_dict() {
+        let sig = DigitalSignature::new("Charlie")
+            .with_reason("Test reason")
+            .with_location("Test location");
+
+        let dict = sig.to_pdf_dict();
+        assert!(dict.contains("/Type /Sig"));
+        assert!(dict.contains("/Filter /Adobe.PPKLite"));
+        assert!(dict.contains("/SubFilter /adbe.pkcs7.detached"));
+        assert!(dict.contains("/Name (Charlie)"));
+        assert!(dict.contains("/Reason (Test reason)"));
+        assert!(dict.contains("/Location (Test location)"));
     }
 }

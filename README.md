@@ -13,7 +13,7 @@ A Rust library and CLI tool for reading, writing, and manipulating PDF files. Co
 ### PDF Generation
 - **From scratch**: Create PDFs with custom fonts and text content
 - **From Markdown**: Rich formatting (headers, lists, task lists, blockquotes, tables, code blocks, definition lists, footnotes, images, links, page breaks)
-- **Math rendering**: Supports inline `$...$` and `$$...$$` blocks with LaTeX-like symbol conversion
+- **Math rendering**: Supports inline `$...$` and `$$...$$` blocks with LaTeX-like symbol conversion and glyph-safe Unicode symbol output (including italic math text)
 - **Unicode-aware wrapping**: Better line wrapping/width estimation for CJK and emoji-heavy content
 - **Embedded Unicode font (default)**: Uses a Type0/CIDFont with embedded TrueType (`FontFile2`) and glyph-ID text encoding for correct cross-script rendering
 - **Unicode font path override**: Set `PDFRS_UNICODE_FONT_PATH=/path/to/font.ttf` to control which Unicode TTF is embedded

@@ -4,7 +4,6 @@
 //! It follows the Strategy pattern for different table rendering approaches.
 
 use crate::elements::TableAlignment;
-use anyhow::Result;
 
 /// Configuration for table styling
 #[derive(Debug, Clone)]
@@ -309,7 +308,7 @@ impl PdfTableHelper {
 
     /// Convert string rows to TableCell rows with alignments
     pub fn convert_rows(&self, rows: &[Vec<String>], alignments: Option<&[TableAlignment]>) -> Vec<TableRow> {
-        rows.iter().enumerate().map(|(row_idx, row)| {
+        rows.iter().map(|row| {
             let cells: Vec<TableCell> = row.iter().enumerate().map(|(col_idx, cell)| {
                 let alignment = alignments
                     .and_then(|a| a.get(col_idx))

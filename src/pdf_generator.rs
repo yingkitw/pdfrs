@@ -1,255 +1,19 @@
 use crate::elements::{Element, TextSegment};
 use crate::table_renderer::{PdfTableHelper, TableStyle};
 use anyhow::Result;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
-use syntect::parsing::{SyntaxSet, SyntaxReference};
 
-// Lazy static syntax set and theme
-fn get_syntax_set() -> &'static SyntaxSet {
-    use std::sync::OnceLock;
-    static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SYNTAX_SET.get_or_init(|| {
-        SyntaxSet::load_defaults_newlines()
-    })
-}
+#[path = "pdf_generator/code_highlight.rs"]
+mod code_highlight;
+#[path = "pdf_generator/text_support.rs"]
+mod text_support;
+#[path = "pdf_generator/unicode_support.rs"]
+mod unicode_support;
 
-fn get_syntax_for_language(lang: &str) -> Option<&'static SyntaxReference> {
-    let syntax_set = get_syntax_set();
-    match lang.to_lowercase().as_str() {
-        "rust" | "rs" => syntax_set.find_syntax_by_token("Rust"),
-        "python" | "py" => syntax_set.find_syntax_by_token("Python"),
-        "javascript" | "js" => syntax_set.find_syntax_by_token("JavaScript"),
-        "typescript" | "ts" => syntax_set.find_syntax_by_token("TypeScript"),
-        "html" | "htm" => syntax_set.find_syntax_by_token("HTML"),
-        "css" => syntax_set.find_syntax_by_token("CSS"),
-        "json" => syntax_set.find_syntax_by_token("JSON"),
-        "c" | "cpp" | "cxx" => syntax_set.find_syntax_by_token("C++"),
-        "java" => syntax_set.find_syntax_by_token("Java"),
-        "go" => syntax_set.find_syntax_by_token("Go"),
-        "ruby" => syntax_set.find_syntax_by_token("Ruby"),
-        "php" => syntax_set.find_syntax_by_token("PHP"),
-        "shell" | "bash" | "sh" => syntax_set.find_syntax_by_token("Bash"),
-        "sql" => syntax_set.find_syntax_by_token("SQL"),
-        "markdown" | "md" => syntax_set.find_syntax_by_token("Markdown"),
-        "xml" => syntax_set.find_syntax_by_token("XML"),
-        "yaml" | "yml" => syntax_set.find_syntax_by_token("YAML"),
-        _ => syntax_set.find_syntax_by_token("Plain Text"),
-    }
-}
-
-/// Simple syntax token for rendering (reserved for future use)
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct CodeToken {
-    text: String,
-    color: Color,
-}
-
-/// Perform simple syntax highlighting on code
-fn highlight_code(code: &str, language: &str) -> Vec<CodeToken> {
-    let syntax_set = get_syntax_set();
-
-    let _syntax = get_syntax_for_language(language)
-        .unwrap_or_else(|| syntax_set.find_syntax_by_token("Plain Text").unwrap());
-
-    // Use a simple approach - return tokens with different colors
-    // This is a simplified version; full syntect integration would be more complex
-    let mut tokens = Vec::new();
-
-    // Basic keyword highlighting for common languages
-    let keywords = match language.to_lowercase().as_str() {
-        "rust" | "rs" => vec![
-            "fn", "let", "mut", "pub", "struct", "enum", "impl", "use", "mod",
-            "return", "if", "else", "match", "for", "while", "loop", "break", "continue",
-            "true", "false", "const", "static", "trait", "type", "where", "move",
-            "crate", "ref", "self", "Self", "super", "async", "await", "unsafe",
-        ],
-        "python" | "py" => vec![
-            "def", "class", "if", "else", "elif", "for", "while", "return",
-            "import", "from", "as", "try", "except", "finally", "with", "lambda",
-            "True", "False", "None", "and", "or", "not", "in", "is", "pass", "break", "continue",
-        ],
-        "javascript" | "js" | "typescript" | "ts" => vec![
-            "function", "const", "let", "var", "if", "else", "for", "while", "return",
-            "import", "export", "default", "from", "as", "class", "extends", "new",
-            "true", "false", "null", "undefined", "async", "await", "try", "catch", "finally",
-            "typeof", "instanceof", "this", "super",
-        ],
-        _ => vec![],
-    };
-
-    let string_color = Color::rgb(0.15, 0.49, 0.07); // Green for strings
-    let keyword_color = Color::rgb(0.53, 0.07, 0.24); // Purple for keywords
-    let comment_color = Color::rgb(0.4, 0.4, 0.4); // Gray for comments
-    let number_color = Color::rgb(0.15, 0.15, 0.8); // Blue for numbers
-    let default_color = Color::black();
-
-    // Simple tokenization - split by common patterns
-    let mut remaining = code.to_string();
-
-    while !remaining.is_empty() {
-        // Check for string literals
-        if remaining.starts_with('"') {
-            if let Some(end) = remaining[1..].find('"') {
-                let token = &remaining[..end + 2];
-                tokens.push(CodeToken {
-                    text: token.to_string(),
-                    color: string_color,
-                });
-                remaining = remaining[end + 2..].to_string();
-                continue;
-            }
-        }
-
-        // Check for single quotes
-        if remaining.starts_with('\'') {
-            if let Some(end) = remaining[1..].find('\'') {
-                let token = &remaining[..end + 2];
-                tokens.push(CodeToken {
-                    text: token.to_string(),
-                    color: string_color,
-                });
-                remaining = remaining[end + 2..].to_string();
-                continue;
-            }
-        }
-
-        // Check for comments
-        if remaining.starts_with("//") {
-            if let Some(end) = remaining.find('\n') {
-                let token = &remaining[..end];
-                tokens.push(CodeToken {
-                    text: token.to_string(),
-                    color: comment_color,
-                });
-                remaining = remaining[end..].to_string();
-                continue;
-            } else {
-                tokens.push(CodeToken {
-                    text: remaining.clone(),
-                    color: comment_color,
-                });
-                break;
-            }
-        }
-
-        // Check for comments (hash style)
-        if remaining.starts_with('#') {
-            if let Some(end) = remaining.find('\n') {
-                let token = &remaining[..end];
-                tokens.push(CodeToken {
-                    text: token.to_string(),
-                    color: comment_color,
-                });
-                remaining = remaining[end..].to_string();
-                continue;
-            } else {
-                tokens.push(CodeToken {
-                    text: remaining.clone(),
-                    color: comment_color,
-                });
-                break;
-            }
-        }
-
-        // Check for numbers
-        if remaining.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-            let end = remaining.chars()
-                .position(|c| !c.is_ascii_digit() && c != '.')
-                .unwrap_or(remaining.len());
-            let token = &remaining[..end];
-            tokens.push(CodeToken {
-                text: token.to_string(),
-                color: number_color,
-            });
-            remaining = remaining[end..].to_string();
-            continue;
-        }
-
-        // Check for keywords
-        let mut found_keyword = false;
-        for keyword in &keywords {
-            if remaining.starts_with(keyword) {
-                let next_char = remaining.chars().nth(keyword.len());
-                if next_char.map(|c| !c.is_alphanumeric() && c != '_').unwrap_or(true) {
-                    tokens.push(CodeToken {
-                        text: keyword.to_string(),
-                        color: keyword_color,
-                    });
-                    remaining = remaining[keyword.len()..].to_string();
-                    found_keyword = true;
-                    break;
-                }
-            }
-        }
-
-        if found_keyword {
-            continue;
-        }
-
-        // Take a run of plain characters (identifiers, whitespace, punctuation)
-        // until we hit something that could start a special token
-        let mut end = 0;
-        let mut chars_iter = remaining.chars();
-        while let Some(c) = chars_iter.next() {
-            let rest = &remaining[end..];
-            // Stop if we see the start of a string, comment, number-at-word-boundary, or keyword
-            if end > 0 && (c == '"' || c == '\''
-                || rest.starts_with("//")
-                || (c == '#' && !remaining[..end].ends_with(|ch: char| ch.is_alphanumeric() || ch == '_'))
-                || (c.is_ascii_digit() && (end == 0 || !remaining.as_bytes().get(end.wrapping_sub(1)).map(|b| b.is_ascii_alphanumeric() || *b == b'_').unwrap_or(false))))
-            {
-                break;
-            }
-            // Check if a keyword starts here (only at word boundary)
-            let mut is_keyword_start = false;
-            if end > 0 {
-                let prev = remaining.as_bytes()[end - 1];
-                if !prev.is_ascii_alphanumeric() && prev != b'_' {
-                    for keyword in &keywords {
-                        if rest.starts_with(keyword) {
-                            let next = rest.chars().nth(keyword.len());
-                            if next.map(|nc| !nc.is_alphanumeric() && nc != '_').unwrap_or(true) {
-                                is_keyword_start = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if is_keyword_start {
-                break;
-            }
-            end += c.len_utf8();
-        }
-        if end == 0 {
-            // Couldn't group, take one character
-            let c = remaining.chars().next().unwrap();
-            end = c.len_utf8();
-        }
-        let chunk = &remaining[..end];
-        tokens.push(CodeToken {
-            text: chunk.to_string(),
-            color: default_color,
-        });
-        remaining = remaining[end..].to_string();
-    }
-
-    // If tokenization failed, just return the whole code as one token
-    if tokens.is_empty() && !code.is_empty() {
-        tokens.push(CodeToken {
-            text: code.to_string(),
-            color: default_color,
-        });
-    }
-
-    tokens
-}
+use code_highlight::highlight_code;
+use text_support::{encode_pdf_text, escape_pdf_string, render_math_text, use_base14_normalization};
+use unicode_support::{prepare_unicode_font_support, UnicodeFontEncoder};
 
 // --- Page orientation and layout ---
 
@@ -257,6 +21,56 @@ fn highlight_code(code: &str, language: &str) -> Vec<CodeToken> {
 pub enum PageOrientation {
     Portrait,
     Landscape,
+}
+
+fn text_requires_unicode(text: &str) -> bool {
+    text.chars().any(|ch| !ch.is_ascii())
+}
+
+fn document_requires_unicode(elements: &[Element]) -> bool {
+    elements.iter().any(|elem| match elem {
+        Element::Heading { text, .. }
+        | Element::Paragraph { text }
+        | Element::UnorderedListItem { text, .. }
+        | Element::OrderedListItem { text, .. }
+        | Element::TaskListItem { text, .. }
+        | Element::BlockQuote { text, .. }
+        | Element::InlineCode { code: text }
+        | Element::StyledText { text, .. }
+        => text_requires_unicode(text),
+        // Math often starts as ASCII LaTeX and may render to unicode symbols.
+        // Enable unicode path only when rendered output actually needs it.
+        Element::MathBlock { expression } | Element::MathInline { expression } => {
+            text_requires_unicode(&render_math_text(expression))
+        }
+        Element::CodeBlock { code, .. } => text_requires_unicode(code),
+        Element::DefinitionItem { term, definition } => {
+            text_requires_unicode(term) || text_requires_unicode(definition)
+        }
+        Element::Footnote { label, text } => {
+            text_requires_unicode(label) || text_requires_unicode(text)
+        }
+        Element::Link { text, url } => {
+            text_requires_unicode(text) || text_requires_unicode(url)
+        }
+        Element::Image { alt, path } => {
+            text_requires_unicode(alt) || text_requires_unicode(path)
+        }
+        Element::TableRow { cells, .. } => cells.iter().any(|c| text_requires_unicode(c)),
+        Element::RichParagraph { segments } => segments.iter().any(|seg| match seg {
+            TextSegment::Plain(t)
+            | TextSegment::Bold(t)
+            | TextSegment::Italic(t)
+            | TextSegment::BoldItalic(t)
+            | TextSegment::Code(t)
+            => text_requires_unicode(t),
+            TextSegment::MathInline(expr) => text_requires_unicode(&render_math_text(expr)),
+            TextSegment::Link { text, url } => {
+                text_requires_unicode(text) || text_requires_unicode(url)
+            }
+        }),
+        Element::HorizontalRule | Element::EmptyLine | Element::PageBreak => false,
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -951,11 +765,7 @@ impl ContentStreamBuilder {
     }
 
     fn encode_text_for_current_font(&self, text: &str) -> String {
-        if text.is_ascii() {
-            return encode_pdf_text(text);
-        }
-
-        if self.current_font == FONT_HELVETICA {
+        if self.current_font != FONT_COURIER {
             if let Some(encoder) = &self.unicode_font_encoder {
                 if !use_base14_normalization() {
                     return encoder.encode_text_as_glyph_ids(text);
@@ -1054,7 +864,11 @@ pub fn create_pdf_from_elements_with_layout(
     base_font_size: f32,
     layout: PageLayout,
 ) -> Result<()> {
-    let unicode_font_support = prepare_unicode_font_support();
+    let unicode_font_support = if document_requires_unicode(elements) {
+        prepare_unicode_font_support()
+    } else {
+        None
+    };
     let unicode_font_encoder = unicode_font_support
         .as_ref()
         .map(|(_, encoder)| encoder.clone());
@@ -1073,6 +887,44 @@ pub fn create_pdf_from_elements_with_layout(
         font,
         &layout,
         unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        None,
+    )?;
+    Ok(())
+}
+
+/// Same as `create_pdf_from_elements_with_layout` but with optional stream compression
+pub fn create_pdf_from_elements_with_layout_and_compression(
+    filename: &str,
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+    compression_level: Option<u8>,
+) -> Result<()> {
+    let unicode_font_support = if document_requires_unicode(elements) {
+        prepare_unicode_font_support()
+    } else {
+        None
+    };
+    let unicode_font_encoder = unicode_font_support
+        .as_ref()
+        .map(|(_, encoder)| encoder.clone());
+    let show_page_numbers = true;
+    let mut builder = ContentStreamBuilder::new(
+        base_font_size,
+        show_page_numbers,
+        layout,
+        unicode_font_encoder,
+    );
+    render_elements_to_builder(&mut builder, elements, base_font_size);
+    let page_streams = builder.finish();
+    assemble_pdf(
+        filename,
+        &page_streams,
+        font,
+        &layout,
+        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        compression_level,
     )?;
     Ok(())
 }
@@ -1295,7 +1147,9 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                 builder.reset_color();
             }
             Element::MathBlock { expression } => {
-                let math_size = base_font_size * 1.1;
+                // Slightly larger display-math sizing improves readability of
+                // large operators (∫, ∑, ∏) and script limits.
+                let math_size = base_font_size * 1.22;
                 let padding = 10.0;
                 let line_h = line_height(math_size);
                 let math_lines: Vec<&str> = expression.lines().collect();
@@ -1374,81 +1228,6 @@ struct FontResourceIds {
     courier: u32,
 }
 
-fn resolve_unicode_ttf_path() -> Option<String> {
-    if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH") {
-        if !path.trim().is_empty() && Path::new(&path).exists() {
-            return Some(path);
-        }
-    }
-
-    // macOS-first defaults (current project target environment).
-    let candidates = [
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        "/Library/Fonts/Arial Unicode.ttf",
-    ];
-
-    candidates
-        .iter()
-        .find(|p| Path::new(p).exists())
-        .map(|p| (*p).to_string())
-}
-
-fn load_unicode_font_bytes() -> Option<Vec<u8>> {
-    let path = resolve_unicode_ttf_path()?;
-    fs::read(path).ok()
-}
-
-#[derive(Debug, Clone)]
-struct UnicodeFontEncoder {
-    font_bytes: Vec<u8>,
-    fallback_gid: u16,
-    glyph_cache: RefCell<HashMap<char, u16>>,
-}
-
-impl UnicodeFontEncoder {
-    fn from_font_bytes(font_bytes: Vec<u8>) -> Option<Self> {
-        let face = ttf_parser::Face::parse(&font_bytes, 0).ok()?;
-        let fallback_gid = face.glyph_index('?').map(|g| g.0).unwrap_or(0);
-        Some(Self {
-            font_bytes,
-            fallback_gid,
-            glyph_cache: RefCell::new(HashMap::new()),
-        })
-    }
-
-    fn glyph_id_for_char(&self, ch: char) -> u16 {
-        if let Some(gid) = self.glyph_cache.borrow().get(&ch).copied() {
-            return gid;
-        }
-
-        let gid = ttf_parser::Face::parse(&self.font_bytes, 0)
-            .ok()
-            .and_then(|face| face.glyph_index(ch).map(|g| g.0))
-            .unwrap_or(self.fallback_gid);
-
-        self.glyph_cache.borrow_mut().insert(ch, gid);
-        gid
-    }
-
-    fn encode_text_as_glyph_ids(&self, text: &str) -> String {
-        let mut bytes = Vec::with_capacity(text.chars().count() * 2);
-        for ch in text.chars() {
-            let gid = self.glyph_id_for_char(ch);
-            bytes.push((gid >> 8) as u8);
-            bytes.push((gid & 0xFF) as u8);
-        }
-
-        let hex: String = bytes.iter().map(|b| format!("{:02X}", b)).collect();
-        format!("<{}>", hex)
-    }
-}
-
-fn prepare_unicode_font_support() -> Option<(Vec<u8>, UnicodeFontEncoder)> {
-    let bytes = load_unicode_font_bytes()?;
-    let encoder = UnicodeFontEncoder::from_font_bytes(bytes.clone())?;
-    Some((bytes, encoder))
-}
-
 fn add_shared_font_resources(generator: &mut PdfGenerator, unicode_font_bytes: Option<&[u8]>) -> FontResourceIds {
     let helvetica_id = if let Some(bytes) = unicode_font_bytes {
         let font_file_id = generator.add_stream_object(
@@ -1462,7 +1241,7 @@ fn add_shared_font_resources(generator: &mut PdfGenerator, unicode_font_bytes: O
         ));
 
         let cid_font_id = generator.add_object(format!(
-            "<< /Type /Font\n/Subtype /CIDFontType2\n/BaseFont /UnicodeTT\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>\n/FontDescriptor {} 0 R\n/DW 1000\n/CIDToGIDMap /Identity\n>>\n",
+            "<< /Type /Font\n/Subtype /CIDFontType2\n/BaseFont /UnicodeTT\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>\n/FontDescriptor {} 0 R\n/DW 700\n/CIDToGIDMap /Identity\n>>\n",
             descriptor_id
         ));
 
@@ -1477,20 +1256,27 @@ fn add_shared_font_resources(generator: &mut PdfGenerator, unicode_font_bytes: O
         ))
     };
 
-    let helvetica_bold_id = generator.add_object(format!(
-        "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-        FONT_HELVETICA_BOLD
-    ));
-
-    let helvetica_oblique_id = generator.add_object(format!(
-        "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-        FONT_HELVETICA_OBLIQUE
-    ));
-
-    let helvetica_bold_oblique_id = generator.add_object(format!(
-        "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-        FONT_HELVETICA_BOLD_OBLIQUE
-    ));
+    let (helvetica_bold_id, helvetica_oblique_id, helvetica_bold_oblique_id) =
+        if unicode_font_bytes.is_some() {
+            // Reuse the same embedded Type0/CIDFont for style variants to keep
+            // unicode/maths glyph coverage in italic/bold rendering paths.
+            (helvetica_id, helvetica_id, helvetica_id)
+        } else {
+            (
+                generator.add_object(format!(
+                    "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+                    FONT_HELVETICA_BOLD
+                )),
+                generator.add_object(format!(
+                    "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+                    FONT_HELVETICA_OBLIQUE
+                )),
+                generator.add_object(format!(
+                    "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
+                    FONT_HELVETICA_BOLD_OBLIQUE
+                )),
+            )
+        };
 
     let courier_id = generator.add_object(format!(
         "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
@@ -1513,7 +1299,11 @@ pub fn generate_pdf_bytes(
     base_font_size: f32,
     layout: PageLayout,
 ) -> Result<Vec<u8>> {
-    let unicode_font_support = prepare_unicode_font_support();
+    let unicode_font_support = if document_requires_unicode(elements) {
+        prepare_unicode_font_support()
+    } else {
+        None
+    };
     let unicode_font_encoder = unicode_font_support
         .as_ref()
         .map(|(_, encoder)| encoder.clone());
@@ -1531,6 +1321,41 @@ pub fn generate_pdf_bytes(
         font,
         &layout,
         unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        None,
+    ))
+}
+
+/// Same as `generate_pdf_bytes` but with optional stream compression
+pub fn generate_pdf_bytes_with_compression(
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+    compression_level: Option<u8>,
+) -> Result<Vec<u8>> {
+    let unicode_font_support = if document_requires_unicode(elements) {
+        prepare_unicode_font_support()
+    } else {
+        None
+    };
+    let unicode_font_encoder = unicode_font_support
+        .as_ref()
+        .map(|(_, encoder)| encoder.clone());
+    let show_page_numbers = true;
+    let mut builder = ContentStreamBuilder::new(
+        base_font_size,
+        show_page_numbers,
+        layout,
+        unicode_font_encoder,
+    );
+    render_elements_to_builder(&mut builder, elements, base_font_size);
+    let page_streams = builder.finish();
+    Ok(assemble_pdf_bytes(
+        &page_streams,
+        font,
+        &layout,
+        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        compression_level,
     ))
 }
 
@@ -1540,6 +1365,7 @@ fn assemble_pdf_bytes(
     _font: &str,
     layout: &PageLayout,
     unicode_font_bytes: Option<&[u8]>,
+    compression_level: Option<u8>,
 ) -> Vec<u8> {
     let mut generator = PdfGenerator::new();
 
@@ -1553,10 +1379,17 @@ fn assemble_pdf_bytes(
     let pages_obj_id = generator.next_id + per_page_objects * page_streams.len() as u32;
 
     for page_stream in page_streams {
-        let content_id = generator.add_stream_object(
-            format!("<< /Length {} >>\n", page_stream.len()),
-            page_stream.clone(),
-        );
+        let (dict, data) = if let Some(level) = compression_level {
+            match crate::compression::compress_deflate_with_level(page_stream, level) {
+                Ok(compressed) if compressed.len() < page_stream.len() => {
+                    (format!("<< /Length {} /Filter /FlateDecode >>\n", compressed.len()), compressed)
+                }
+                _ => (format!("<< /Length {} >>\n", page_stream.len()), page_stream.clone()),
+            }
+        } else {
+            (format!("<< /Length {} >>\n", page_stream.len()), page_stream.clone())
+        };
+        let content_id = generator.add_stream_object(dict, data);
 
         let page_dict = format!(
             "<< /Type /Page\n\
@@ -1615,302 +1448,14 @@ fn assemble_pdf(
     font: &str,
     layout: &PageLayout,
     unicode_font_bytes: Option<&[u8]>,
+    compression_level: Option<u8>,
 ) -> Result<()> {
-    let pdf_data = assemble_pdf_bytes(page_streams, font, layout, unicode_font_bytes);
+    let pdf_data = assemble_pdf_bytes(page_streams, font, layout, unicode_font_bytes, compression_level);
     let mut file = File::create(filename)?;
     file.write_all(&pdf_data)?;
     Ok(())
 }
 
-/// Convert LaTeX-like math notation to readable text for PDF rendering.
-/// Since Type1 fonts don't support full LaTeX glyph rendering, we convert
-/// common math commands to their text/symbol equivalents.
-fn render_math_text(expr: &str) -> String {
-    let mut s = expr.to_string();
-
-    // Greek letters
-    let greek = [
-        ("\\alpha", "\u{03B1}"), ("\\beta", "\u{03B2}"), ("\\gamma", "\u{03B3}"),
-        ("\\delta", "\u{03B4}"), ("\\epsilon", "\u{03B5}"), ("\\zeta", "\u{03B6}"),
-        ("\\eta", "\u{03B7}"), ("\\theta", "\u{03B8}"), ("\\iota", "\u{03B9}"),
-        ("\\kappa", "\u{03BA}"), ("\\lambda", "\u{03BB}"), ("\\mu", "\u{03BC}"),
-        ("\\nu", "\u{03BD}"), ("\\xi", "\u{03BE}"), ("\\pi", "\u{03C0}"),
-        ("\\rho", "\u{03C1}"), ("\\sigma", "\u{03C3}"), ("\\tau", "\u{03C4}"),
-        ("\\upsilon", "\u{03C5}"), ("\\phi", "\u{03C6}"), ("\\chi", "\u{03C7}"),
-        ("\\psi", "\u{03C8}"), ("\\omega", "\u{03C9}"),
-        ("\\Alpha", "A"), ("\\Beta", "B"), ("\\Gamma", "\u{0393}"),
-        ("\\Delta", "\u{0394}"), ("\\Theta", "\u{0398}"), ("\\Lambda", "\u{039B}"),
-        ("\\Xi", "\u{039E}"), ("\\Pi", "\u{03A0}"), ("\\Sigma", "\u{03A3}"),
-        ("\\Phi", "\u{03A6}"), ("\\Psi", "\u{03A8}"), ("\\Omega", "\u{03A9}"),
-    ];
-
-    // Math operators and symbols
-    let operators = [
-        ("\\infty", "∞"), ("\\infinity", "∞"),
-        ("\\pm", "±"), ("\\mp", "∓"),
-        ("\\times", "×"), ("\\cdot", "·"),
-        ("\\div", "÷"), ("\\neq", "≠"), ("\\ne", "≠"),
-        ("\\leq", "≤"), ("\\le", "≤"),
-        ("\\geq", "≥"), ("\\ge", "≥"),
-        ("\\approx", "≈"), ("\\sim", "∼"),
-        ("\\equiv", "≡"), ("\\propto", "∝"),
-        ("\\rightarrow", "→"), ("\\leftarrow", "←"),
-        ("\\Rightarrow", "⇒"), ("\\Leftarrow", "⇐"),
-        ("\\leftrightarrow", "↔"),
-        ("\\forall", "∀"), ("\\exists", "∃"),
-        ("\\in", "∈"), ("\\notin", "∉"),
-        ("\\subset", "⊂"), ("\\supset", "⊃"),
-        ("\\cup", "∪"), ("\\cap", "∩"),
-        ("\\emptyset", "∅"),
-        ("\\nabla", "∇"), ("\\partial", "∂"),
-        ("\\ldots", "..."), ("\\cdots", "..."), ("\\dots", "..."),
-        ("\\quad", "  "), ("\\qquad", "    "),
-        ("\\,", " "), ("\\;", " "), ("\\!", ""),
-        ("\\left", ""), ("\\right", ""),
-        ("\\big", ""), ("\\Big", ""), ("\\bigg", ""), ("\\Bigg", ""),
-    ];
-
-    // Apply Greek letter replacements (longer patterns first to avoid partial matches)
-    for (cmd, replacement) in &greek {
-        s = s.replace(cmd, replacement);
-    }
-
-    // Apply operator replacements
-    for (cmd, replacement) in &operators {
-        s = s.replace(cmd, replacement);
-    }
-
-    // Handle \frac{a}{b} -> (a)/(b)
-    let frac_re = regex::Regex::new(r"\\frac\{([^}]*)\}\{([^}]*)\}").unwrap();
-    while frac_re.is_match(&s) {
-        s = frac_re.replace_all(&s, "($1)/($2)").to_string();
-    }
-
-    // Handle \sqrt{x} -> sqrt(x)
-    let sqrt_re = regex::Regex::new(r"\\sqrt\{([^}]*)\}").unwrap();
-    s = sqrt_re.replace_all(&s, "sqrt($1)").to_string();
-
-    // Handle \sqrt[n]{x} -> n-root(x)
-    let nroot_re = regex::Regex::new(r"\\sqrt\[([^\]]*)\]\{([^}]*)\}").unwrap();
-    s = nroot_re.replace_all(&s, "$1-root($2)").to_string();
-
-    // Handle \sum, \prod, \int with optional limits
-    let sum_re = regex::Regex::new(r"\\sum_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = sum_re.replace_all(&s, "∑[$1→$2]").to_string();
-    s = s.replace("\\sum", "∑");
-
-    let prod_re = regex::Regex::new(r"\\prod_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = prod_re.replace_all(&s, "∏[$1→$2]").to_string();
-    s = s.replace("\\prod", "∏");
-
-    let int_re = regex::Regex::new(r"\\int_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = int_re.replace_all(&s, "∫[$1→$2]").to_string();
-    s = s.replace("\\int", "∫");
-
-    let lim_re = regex::Regex::new(r"\\lim_\{([^}]*)\}").unwrap();
-    s = lim_re.replace_all(&s, "lim($1)").to_string();
-    s = s.replace("\\lim", "lim");
-
-    // Handle superscript ^{x} -> ^(x) and subscript _{x} -> _(x)
-    let sup_re = regex::Regex::new(r"\^\{([^}]*)\}").unwrap();
-    s = sup_re.replace_all(&s, "^($1)").to_string();
-
-    let sub_re = regex::Regex::new(r"_\{([^}]*)\}").unwrap();
-    s = sub_re.replace_all(&s, "_($1)").to_string();
-
-    // Handle \text{...} -> ...
-    let text_re = regex::Regex::new(r"\\text\{([^}]*)\}").unwrap();
-    s = text_re.replace_all(&s, "$1").to_string();
-
-    // Handle \mathbf{...}, \mathrm{...}, \mathit{...} -> content
-    let mathfmt_re = regex::Regex::new(r"\\math[a-z]+\{([^}]*)\}").unwrap();
-    s = mathfmt_re.replace_all(&s, "$1").to_string();
-
-    // Handle \hat{x}, \bar{x}, \vec{x}, \tilde{x}
-    let hat_re = regex::Regex::new(r"\\hat\{([^}]*)\}").unwrap();
-    s = hat_re.replace_all(&s, "$1^").to_string();
-    let bar_re = regex::Regex::new(r"\\bar\{([^}]*)\}").unwrap();
-    s = bar_re.replace_all(&s, "$1_bar").to_string();
-    let vec_re = regex::Regex::new(r"\\vec\{([^}]*)\}").unwrap();
-    s = vec_re.replace_all(&s, "vec($1)").to_string();
-
-    // Handle \log, \ln, \sin, \cos, \tan, \exp
-    for func in &["log", "ln", "sin", "cos", "tan", "exp", "min", "max", "det", "dim"] {
-        let cmd = format!("\\{}", func);
-        s = s.replace(&cmd, func);
-    }
-
-    // Strip remaining braces
-    s = s.replace('{', "").replace('}', "");
-
-    // Clean up multiple spaces
-    let multi_space = regex::Regex::new(r"  +").unwrap();
-    s = multi_space.replace_all(&s, " ").to_string();
-
-    s.trim().to_string()
-}
-
-/// Escape a PDF string literal (for ASCII-only text)
-fn escape_pdf_string(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('(', "\\(")
-        .replace(')', "\\)")
-        .replace('\r', "\\r")
-        .replace('\n', "\\n")
-        .replace('\t', "\\t")
-}
-
-/// Normalize text for Base-14 fonts (Helvetica/Courier family).
-///
-/// This is a compatibility fallback mode that can be enabled when a viewer
-/// cannot render UTF-16 text with Base-14 fonts.
-fn normalize_for_base14_font(text: &str) -> String {
-    let mut out = String::new();
-
-    for ch in text.chars() {
-        match ch {
-            // Fast path
-            c if c.is_ascii() => out.push(c),
-
-            // Math operators / relations
-            '∞' => out.push_str("infinity"),
-            '∑' => out.push_str("sum"),
-            '∏' => out.push_str("prod"),
-            '∫' => out.push_str("int"),
-            '∂' => out.push_str("partial"),
-            '∇' => out.push_str("nabla"),
-            '√' => out.push_str("sqrt"),
-            '≈' => out.push_str("~="),
-            '≠' => out.push_str("!="),
-            '≤' => out.push_str("<="),
-            '≥' => out.push_str(">="),
-            '±' => out.push_str("+/-"),
-            '×' => out.push('*'),
-            '÷' => out.push('/'),
-            '∈' => out.push_str(" in "),
-            '∉' => out.push_str(" not-in "),
-            '∩' => out.push_str(" cap "),
-            '∪' => out.push_str(" cup "),
-            '∀' => out.push_str("forall"),
-            '∃' => out.push_str("exists"),
-
-            // Greek letters commonly produced by render_math_text
-            'α' => out.push_str("alpha"),
-            'β' => out.push_str("beta"),
-            'γ' => out.push_str("gamma"),
-            'δ' => out.push_str("delta"),
-            'ε' => out.push_str("epsilon"),
-            'θ' => out.push_str("theta"),
-            'λ' => out.push_str("lambda"),
-            'μ' => out.push_str("mu"),
-            'π' => out.push_str("pi"),
-            'σ' => out.push_str("sigma"),
-            'φ' => out.push_str("phi"),
-            'ω' => out.push_str("omega"),
-            'Γ' => out.push_str("Gamma"),
-            'Δ' => out.push_str("Delta"),
-            'Θ' => out.push_str("Theta"),
-            'Λ' => out.push_str("Lambda"),
-            'Π' => out.push_str("Pi"),
-            'Σ' => out.push_str("Sigma"),
-            'Φ' => out.push_str("Phi"),
-            'Ω' => out.push_str("Omega"),
-
-            // Currency
-            '€' => out.push_str("EUR"),
-            '£' => out.push_str("GBP"),
-            '¥' => out.push_str("JPY"),
-            '₹' => out.push_str("INR"),
-            '₽' => out.push_str("RUB"),
-            '₩' => out.push_str("KRW"),
-            '₿' => out.push_str("BTC"),
-
-            // Arrows
-            '←' => out.push_str("<-"),
-            '→' => out.push_str("->"),
-            '↔' => out.push_str("<->"),
-            '⇐' => out.push_str("<="),
-            '⇒' => out.push_str("=>"),
-            '⇔' => out.push_str("<=>"),
-
-            // Superscripts / subscripts seen in examples
-            '²' => out.push_str("^2"),
-            '³' => out.push_str("^3"),
-            '₀' => out.push_str("_0"),
-            '₁' => out.push_str("_1"),
-            '₂' => out.push_str("_2"),
-            '₃' => out.push_str("_3"),
-            '₄' => out.push_str("_4"),
-            '₅' => out.push_str("_5"),
-            '₆' => out.push_str("_6"),
-            '₇' => out.push_str("_7"),
-            '₈' => out.push_str("_8"),
-            '₉' => out.push_str("_9"),
-
-            // Fallback: keep visibility instead of rendering blank glyphs
-            other => out.push_str(&format!("[U+{:04X}]", other as u32)),
-        }
-    }
-
-    out
-}
-
-fn use_base14_normalization() -> bool {
-    std::env::var("PDFRS_BASE14_NORMALIZE")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-}
-
-/// Encode text for PDF - uses UTF-16BE hex encoding for unicode, literal string for ASCII
-fn encode_pdf_text(text: &str) -> String {
-    let normalized = if use_base14_normalization() {
-        normalize_for_base14_font(text)
-    } else {
-        text.to_string()
-    };
-
-    // Check if text contains any non-ASCII characters
-    let has_unicode = normalized.chars().any(|c| !c.is_ascii());
-
-    if !has_unicode {
-        // Pure ASCII - use literal string format
-        format!("({})", escape_pdf_string(&normalized))
-    } else {
-        // Contains unicode - use UTF-16BE hex encoding with BOM
-        let mut utf16be_bytes = Vec::new();
-
-        // Add BOM (Big Endian)
-        utf16be_bytes.push(0xFE);
-        utf16be_bytes.push(0xFF);
-
-        // Encode each character as UTF-16BE
-        for c in normalized.chars() {
-            let mut code = c as u32;
-            if code < 0x10000 {
-                // BMP character - single UTF-16 code unit
-                utf16be_bytes.push((code >> 8) as u8);
-                utf16be_bytes.push((code & 0xFF) as u8);
-            } else {
-                // Surrogate pair for characters beyond BMP
-                code -= 0x10000;
-                let high_surrogate = 0xD800 + ((code >> 10) & 0x3FF);
-                let low_surrogate = 0xDC00 + (code & 0x3FF);
-                utf16be_bytes.push((high_surrogate >> 8) as u8);
-                utf16be_bytes.push((high_surrogate & 0xFF) as u8);
-                utf16be_bytes.push((low_surrogate >> 8) as u8);
-                utf16be_bytes.push((low_surrogate & 0xFF) as u8);
-            }
-        }
-
-        // Format as hex string
-        let hex_string: String = utf16be_bytes
-            .iter()
-            .map(|b| format!("{:02X}", b))
-            .collect();
-
-        format!("<{}>", hex_string)
-    }
-}
 
 // --- Accessibility / Tagged PDF support ---
 
@@ -2288,11 +1833,71 @@ mod accessibility_tests {
 
     #[test]
     fn test_render_math_text_uses_unicode_symbols() {
-        let rendered = render_math_text(r"\sum_{i=1}^{n} i \leq n^2 \approx \infty");
+        let rendered = render_math_text(r"\sum_{i=1}^{n} i \leq n^2 \approx \infty + \sqrt{x}");
         assert!(rendered.contains('∑'));
         assert!(rendered.contains('≤'));
         assert!(rendered.contains('≈'));
         assert!(rendered.contains('∞'));
+        assert!(rendered.contains('√'));
+    }
+
+    #[test]
+    fn test_render_math_text_handles_unbraced_limits() {
+        let rendered = render_math_text(r"\int_0^1 x^2 dx + \sum_i^n a_i");
+        assert!(rendered.contains("∫₀¹") || rendered.contains("∫[0→1]"), "rendered: {}", rendered);
+        assert!(rendered.contains("∑ᵢⁿ") || rendered.contains("∑[i→n]"), "rendered: {}", rendered);
+        assert!(rendered.contains("x²") || rendered.contains("x^(2)"), "rendered: {}", rendered);
+        assert!(rendered.contains("aᵢ") || rendered.contains("a_(i)"), "rendered: {}", rendered);
+    }
+
+    #[test]
+    fn test_render_math_text_handles_lim_and_to_arrow() {
+        let rendered = render_math_text(r"\lim_{x\to0} \frac{\sin x}{x}");
+        assert!(rendered.contains("lim(x→0)"), "rendered: {}", rendered);
+        assert!(rendered.contains("(sin x)/(x)"), "rendered: {}", rendered);
+    }
+
+    #[test]
+    fn test_render_math_text_handles_notin_without_partial_in_replacement() {
+        let rendered = render_math_text(r"x \notin A");
+        assert!(rendered.contains("∉"), "rendered: {}", rendered);
+        assert!(!rendered.contains("∈"), "rendered: {}", rendered);
+    }
+
+    #[test]
+    fn test_render_math_text_handles_set_logic_and_mathbb_symbols() {
+        let rendered = render_math_text(
+            r"\forall x \in \mathbb{R}, x \subseteq A \land x \notin B \Rightarrow \therefore x \in \mathbb{N}",
+        );
+        assert!(rendered.contains("∀"), "rendered: {}", rendered);
+        assert!(rendered.contains("∈"), "rendered: {}", rendered);
+        assert!(rendered.contains("ℝ"), "rendered: {}", rendered);
+        assert!(rendered.contains("⊆"), "rendered: {}", rendered);
+        assert!(rendered.contains("∧"), "rendered: {}", rendered);
+        assert!(rendered.contains("∉"), "rendered: {}", rendered);
+        assert!(rendered.contains("⇒"), "rendered: {}", rendered);
+        assert!(rendered.contains("∴"), "rendered: {}", rendered);
+        assert!(rendered.contains("ℕ"), "rendered: {}", rendered);
+    }
+
+    #[test]
+    fn test_render_math_text_complex_expressions_with_unicode() {
+        let expr1 = render_math_text(r"\int_0^1 x^2 dx + \sum_{i=1}^{n} a_i");
+        assert!(expr1.contains("∫₀¹"), "Should render integral with subscript/superscript: {}", expr1);
+        assert!(expr1.contains("∑"), "Should contain sum symbol: {}", expr1);
+        assert!(expr1.contains("x²"), "Should render x squared: {}", expr1);
+        
+        let expr2 = render_math_text(r"\prod_{k=1}^{m} b_k");
+        assert!(expr2.contains("∏"), "Should contain product symbol: {}", expr2);
+        assert!(expr2.contains("bₖ"), "Should render b subscript k: {}", expr2);
+        
+        let expr3 = render_math_text(r"\forall x \in \mathbb{R}, x \geq 0 \Rightarrow \sqrt{x} \in \mathbb{R}");
+        assert!(expr3.contains("∀"), "Should contain forall: {}", expr3);
+        assert!(expr3.contains("∈"), "Should contain element of: {}", expr3);
+        assert!(expr3.contains("ℝ"), "Should contain real numbers: {}", expr3);
+        assert!(expr3.contains("≥"), "Should contain greater or equal: {}", expr3);
+        assert!(expr3.contains("⇒"), "Should contain implies: {}", expr3);
+        assert!(expr3.contains("√"), "Should contain square root: {}", expr3);
     }
 
     #[test]
@@ -2318,6 +1923,7 @@ mod accessibility_tests {
         assert!(raw.contains("/Subtype /Type0"), "Expected Type0 font for unicode text");
         assert!(raw.contains("/Subtype /CIDFontType2"), "Expected CIDFontType2 descendant font");
         assert!(raw.contains("/FontFile2"), "Expected embedded FontFile2 object");
+        assert!(raw.contains("/DW 700"), "Expected balanced CID default width to avoid overlap while keeping spacing tight");
     }
 
     #[test]
@@ -2333,5 +1939,48 @@ mod accessibility_tests {
 
         assert_eq!(encoded, expected);
         assert_ne!(encoded, "<4F60>", "must not use unicode code point as CID directly");
+    }
+
+    #[test]
+    fn test_math_oblique_path_uses_unicode_glyph_encoding() {
+        let Some((_bytes, encoder)) = prepare_unicode_font_support() else {
+            return;
+        };
+
+        let mut builder = ContentStreamBuilder::new(
+            12.0,
+            false,
+            PageLayout::portrait(),
+            Some(encoder.clone()),
+        );
+        builder.set_font_with_style(12.0, false, true); // math path uses oblique
+
+        let encoded = builder.encode_text_for_current_font("∑∞≈");
+        let expected = encoder.encode_text_as_glyph_ids("∑∞≈");
+
+        assert_eq!(encoded, expected);
+    }
+
+    #[test]
+    fn test_ascii_text_uses_glyph_ids_when_unicode_font_mode_active() {
+        if use_base14_normalization() {
+            return;
+        }
+        let Some((_bytes, encoder)) = prepare_unicode_font_support() else {
+            return;
+        };
+
+        let mut builder = ContentStreamBuilder::new(
+            12.0,
+            false,
+            PageLayout::portrait(),
+            Some(encoder.clone()),
+        );
+        builder.set_font_with_style(12.0, true, false);
+
+        let encoded = builder.encode_text_for_current_font("Unicode Test");
+        let expected = encoder.encode_text_as_glyph_ids("Unicode Test");
+
+        assert_eq!(encoded, expected);
     }
 }

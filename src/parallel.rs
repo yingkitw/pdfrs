@@ -234,8 +234,6 @@ impl Default for ParallelPdfGenerator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_parallel_merge() {
         // This test requires actual PDF files, so we'll just test the structure

@@ -1050,7 +1050,19 @@ Regular paragraph after math.
         content.contains("2211") || content.contains("∑") || content.contains("sum"),
         "Rendered sum symbol/text not found in PDF"
     );
-    assert!(content.contains("sqrt"), "Rendered sqrt not found in PDF");
+    if !(content.contains("sqrt") || content.contains('√')) {
+        let tmp_pdf = format!(
+            "{}/target/test_output/math_api_render_check.pdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        fs::write(&tmp_pdf, &bytes).unwrap();
+        let extracted = pdfrs::pdf::extract_text(&tmp_pdf).unwrap();
+        assert!(
+            extracted.contains("sqrt") || extracted.contains('√'),
+            "Rendered sqrt/√ not found in PDF raw or extracted text. extracted={} ",
+            extracted
+        );
+    }
 
     println!("=== PASSED: math_parsing_library_api ===");
 }

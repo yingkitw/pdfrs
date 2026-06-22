@@ -1,17 +1,28 @@
 use anyhow::Result;
+use flate2::bufread::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use std::io::{Read, Write};
 
 pub fn decompress_deflate(data: &[u8]) -> Result<Vec<u8>> {
-    // Simple decompress implementation - in a real implementation you'd use
-    // a proper compression library like flate2
-    // For now, we'll just return the data as-is
-    Ok(data.to_vec())
+    let mut decoder = ZlibDecoder::new(data);
+    let mut result = Vec::new();
+    decoder.read_to_end(&mut result)?;
+    Ok(result)
 }
 
 pub fn compress_deflate(data: &[u8]) -> Result<Vec<u8>> {
-    // Simple compress implementation - in a real implementation you'd use
-    // a proper compression library like flate2
-    // For now, we'll just return the data as-is
-    Ok(data.to_vec())
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data)?;
+    Ok(encoder.finish()?)
+}
+
+/// Compress data with a specific compression level (0-9)
+pub fn compress_deflate_with_level(data: &[u8], level: u8) -> Result<Vec<u8>> {
+    let level = level.clamp(0, 9);
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(level as u32));
+    encoder.write_all(data)?;
+    Ok(encoder.finish()?)
 }
 
 pub fn decode_hex_string(hex_str: &str) -> Result<Vec<u8>> {

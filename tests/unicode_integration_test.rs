@@ -1,6 +1,17 @@
 use pdfrs::markdown;
+use pdfrs::pdf;
 use std::fs;
 use std::path::Path;
+
+fn assert_contains_any(haystack: &str, candidates: &[&str], label: &str) {
+    assert!(
+        candidates.iter().any(|c| haystack.contains(c)),
+        "Expected {} to contain one of {:?}, got: {}",
+        label,
+        candidates,
+        haystack
+    );
+}
 
 #[test]
 fn test_unicode_pdf_generation() {
@@ -41,6 +52,86 @@ $ € £ ¥ ₹
     let metadata = fs::metadata(test_pdf).expect("Failed to read PDF metadata");
     assert!(metadata.len() > 0, "PDF file is empty");
     
+    fs::remove_file(test_md).ok();
+}
+
+#[test]
+fn test_complex_math_formula_roundtrip_extraction() {
+    let test_md = "tests/fixtures/complex_math_formula_test.md";
+    let test_pdf = "tests/output/complex_math_formula_test.pdf";
+
+    fs::create_dir_all("tests/fixtures").ok();
+    fs::create_dir_all("tests/output").ok();
+
+    let content = r#"# Complex Math Formula Test
+
+Inline limit and fraction: $\lim_{x\to0} \frac{\sin x}{x}$
+
+Set membership: $x \notin A$, and root: $\sqrt{a^2 + b^2}$
+
+Block formulas:
+
+$$
+\int_0^1 x^2 dx + \sum_{i=1}^{n} a_i
+\prod_{k=1}^{m} b_k
+$$
+
+Quantifiers:
+
+$$
+\forall x \in \mathbb{R},\; x \ge 0 \Rightarrow \sqrt{x} \in \mathbb{R}
+$$
+"#;
+
+    fs::write(test_md, content).expect("Failed to write complex math markdown");
+
+    let result = markdown::markdown_to_pdf(test_md, test_pdf);
+    assert!(result.is_ok(), "Failed to generate PDF: {:?}", result.err());
+    assert!(Path::new(test_pdf).exists(), "PDF file was not created");
+
+    let extracted = pdf::extract_text(test_pdf).expect("Failed to extract text from generated PDF");
+
+    assert_contains_any(&extracted, &["lim(x→0)", "lim(x->0)"], "limit");
+    assert_contains_any(&extracted, &["(sin x)/(x)"], "fraction");
+    assert_contains_any(&extracted, &["∉", "not-in"], "not-in operator");
+    assert_contains_any(&extracted, &["√(a² + b²)", "√(a^(2) + b^(2))", "sqrt(a^(2) + b^(2))"], "square root");
+    assert_contains_any(&extracted, &["∫₀¹", "∫[0→1]", "int[0->1]"], "integral with limits");
+    assert_contains_any(&extracted, &["∑ᵢ₌₁ⁿ", "∑[i=1→n]", "sum[i=1->n]"], "summation with limits");
+    assert_contains_any(&extracted, &["∏ₖ₌₁ᵐ", "∏[k=1→m]", "prod[k=1->m]"], "product with limits");
+    assert_contains_any(&extracted, &["∀ x", "forall x"], "quantifier");
+    assert_contains_any(&extracted, &["ℝ", " R"], "real-number set");
+    assert_contains_any(&extracted, &["≥ 0", ">= 0"], "greater-than-or-equal");
+    assert_contains_any(&extracted, &["⇒", "=>"], "implication");
+
+    fs::remove_file(test_md).ok();
+}
+
+#[test]
+fn test_unicode_roundtrip_extraction() {
+    let test_md = "tests/fixtures/unicode_extract_test.md";
+    let test_pdf = "tests/output/unicode_extract_test.pdf";
+
+    fs::create_dir_all("tests/fixtures").ok();
+    fs::create_dir_all("tests/output").ok();
+
+    let content = "Unicode extraction: 你好 Γεια";
+    fs::write(test_md, content).expect("Failed to write unicode extraction markdown");
+
+    let result = markdown::markdown_to_pdf(test_md, test_pdf);
+    assert!(result.is_ok(), "Failed to generate PDF: {:?}", result.err());
+
+    let extracted = pdf::extract_text(test_pdf).expect("Failed to extract text from generated PDF");
+    assert!(
+        extracted.contains("你好"),
+        "Expected extracted text to contain Chinese unicode, got: {}",
+        extracted
+    );
+    assert!(
+        extracted.contains("Γεια"),
+        "Expected extracted text to contain Greek unicode, got: {}",
+        extracted
+    );
+
     fs::remove_file(test_md).ok();
 }
 

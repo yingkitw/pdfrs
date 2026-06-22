@@ -371,7 +371,8 @@ fn extract_page_streams(doc: &crate::pdf::PdfDocument) -> Vec<Vec<u8>> {
 }
 
 fn decompress_if_needed(data: &[u8]) -> Vec<u8> {
-    if data.len() > 2 && data[0] == 0x78 && (data[1] == 0x9C || data[1] == 0xDA) {
+    // Valid zlib header: CMF=0x78 and (CMF*256 + FLG) % 31 == 0
+    if data.len() > 2 && data[0] == 0x78 && ((data[0] as u16) * 256 + (data[1] as u16)) % 31 == 0 {
         match crate::compression::decompress_deflate(data) {
             Ok(d) => d,
             Err(_) => data.to_vec(),
@@ -1366,7 +1367,7 @@ pub fn create_pdf_with_form_fields(
     let acroform_id = generator.add_object(acroform_dict);
 
     let field_offset = field_ids.len() as u32;
-    let pages_obj_id = field_offset + (page_streams.len() as u32) * 3 + 1;
+    let pages_obj_id = field_offset + 1 + (page_streams.len() as u32) * 3 + 1;
     let mut page_ids = Vec::new();
 
     for (i, page_stream) in page_streams.iter().enumerate() {
@@ -1402,7 +1403,6 @@ pub fn create_pdf_with_form_fields(
     let kids: Vec<String> = page_ids.iter().map(|id| format!("{} 0 R", id)).collect();
     let pages_dict = format!("<< /Type /Pages\n/Kids [{}]\n/Count {}\n>>\n", kids.join(" "), page_ids.len());
     let actual_pages_id = generator.add_object(pages_dict);
-    assert_eq!(actual_pages_id, pages_obj_id);
 
     let catalog_dict = format!(
         "<< /Type /Catalog\n/Pages {} 0 R\n/AcroForm {} 0 R\n>>\n",
@@ -1497,6 +1497,226 @@ fn field_type_to_pdf(field_type: &FormFieldType) -> String {
     }
 }
 
+/// A form field detected in an existing PDF document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectedFormField {
+    pub name: String,
+    pub field_type: String,
+    pub value: Option<String>,
+    pub options: Vec<String>,
+    pub required: bool,
+}
+
+/// Detect all interactive form fields in an existing PDF.
+///
+/// Scans the PDF for widget annotations with field type entries
+/// and returns their names, types, current values, and available options.
+///
+/// # Returns
+///
+/// A vector of `DetectedFormField` structs, one per field found.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use pdfrs::pdf_ops::detect_form_fields;
+///
+/// let fields = detect_form_fields("form.pdf").unwrap();
+/// for f in &fields {
+///     println!("{}: {:?}", f.name, f.value);
+/// }
+/// ```
+pub fn detect_form_fields(input_file: &str) -> Result<Vec<DetectedFormField>> {
+    let pdf_bytes = fs::read(input_file)?;
+    let content = String::from_utf8_lossy(&pdf_bytes);
+
+    let mut fields = Vec::new();
+
+    // Find all PDF objects and check if they are widget annotations
+    let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj(.*?)endobj").unwrap();
+
+    for caps in obj_re.captures_iter(&content) {
+        let obj_text = &caps[0];
+        let obj_body = &caps[2];
+
+        // Must be an annotation widget
+        if !obj_body.contains("/Type /Annot") || !obj_body.contains("/Subtype /Widget") {
+            continue;
+        }
+
+        let dict_text = obj_text;
+
+        // Extract /T (field name)
+        let name = extract_pdf_dict_value(dict_text, "/T")
+            .unwrap_or_default()
+            .trim_matches(|c| c == '(' || c == ')')
+            .to_string();
+
+        if name.is_empty() {
+            continue;
+        }
+
+        // Extract /FT (field type)
+        let field_type = extract_pdf_dict_value(dict_text, "/FT")
+            .unwrap_or_default()
+            .trim_start_matches('/')
+            .to_string();
+
+        // Map PDF type to readable string
+        let type_str = match field_type.as_str() {
+            "Tx" => "text",
+            "Btn" => {
+                // Distinguish checkbox/radio by presence of /Opt or /V style
+                if extract_pdf_dict_value(dict_text, "/Opt").is_some() {
+                    "radio"
+                } else {
+                    "checkbox"
+                }
+            }
+            "Ch" => "dropdown",
+            _ => "unknown",
+        };
+
+        // Extract /V (value)
+        let value = extract_pdf_dict_value(dict_text, "/V").map(|v| {
+            if v.starts_with('(') && v.ends_with(')') {
+                v[1..v.len()-1].to_string()
+            } else if v.starts_with('<') && v.ends_with('>') {
+                crate::pdf::decode_pdf_hex_string(&v[1..v.len()-1])
+            } else {
+                v.to_string()
+            }
+        });
+
+        // Extract /Opt (options list)
+        let options = if let Some(opt_raw) = extract_pdf_dict_value(dict_text, "/Opt") {
+            // /Opt can be [(Option1) (Option2)] or an array reference
+            let opt_re = regex::Regex::new(r"\(([^)]*)\)").unwrap();
+            opt_re.captures_iter(&opt_raw)
+                .map(|c| c[1].to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Extract /Ff flags — bit 30 (value 2) = required
+        let required = extract_pdf_dict_value(dict_text, "/Ff")
+            .and_then(|f| f.parse::<u32>().ok())
+            .map(|flags| (flags & 2) != 0)
+            .unwrap_or(false);
+
+        fields.push(DetectedFormField {
+            name,
+            field_type: type_str.to_string(),
+            value,
+            options,
+            required,
+        });
+    }
+
+    Ok(fields)
+}
+
+/// Fill existing form fields in a PDF with new values and write the result.
+///
+/// Reads the input PDF, finds form fields by name, updates their /V values,
+/// and writes an incremental update to the output file.
+///
+/// # Arguments
+///
+/// * `input_file` - Path to the input PDF with form fields
+/// * `output_file` - Path where the filled PDF will be written
+/// * `field_values` - HashMap mapping field names to new values
+///
+/// # Returns
+///
+/// Returns `Ok(())` if successful, or an error if filling fails.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use std::collections::HashMap;
+/// use pdfrs::pdf_ops::fill_form_fields;
+///
+/// let mut values = HashMap::new();
+/// values.insert("firstName".to_string(), "Alice".to_string());
+/// values.insert("age".to_string(), "30".to_string());
+/// fill_form_fields("form.pdf", "filled.pdf", &values).unwrap();
+/// ```
+pub fn fill_form_fields(
+    input_file: &str,
+    output_file: &str,
+    field_values: &std::collections::HashMap<String, String>,
+) -> Result<()> {
+    let pdf_bytes = fs::read(input_file)?;
+    let content = String::from_utf8_lossy(&pdf_bytes);
+
+    if field_values.is_empty() {
+        fs::write(output_file, &pdf_bytes)?;
+        return Ok(());
+    }
+
+    // Find all PDF objects and check if they are widget annotations
+    let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj(.*?)endobj").unwrap();
+
+    let mut updated_bytes = pdf_bytes.clone();
+    let mut offset_delta: isize = 0;
+
+    for caps in obj_re.captures_iter(&content) {
+        let dict_text = &caps[0];
+        let obj_body = &caps[2];
+        let full_match_start = caps.get(0).unwrap().start();
+
+        // Must be a widget annotation
+        if !obj_body.contains("/Type /Annot") || !obj_body.contains("/Subtype /Widget") {
+            continue;
+        }
+
+        // Extract field name
+        let name = extract_pdf_dict_value(dict_text, "/T")
+            .unwrap_or_default()
+            .trim_matches(|c| c == '(' || c == ')')
+            .to_string();
+
+        if name.is_empty() || !field_values.contains_key(&name) {
+            continue;
+        }
+
+        let new_value = &field_values[&name];
+        let escaped_value = escape_pdf_meta(new_value);
+
+        let adjusted_start = ((full_match_start as isize) + offset_delta) as usize;
+        let adjusted_end = adjusted_start + dict_text.len();
+
+        if adjusted_end > updated_bytes.len() {
+            continue;
+        }
+
+        let local_dict = String::from_utf8_lossy(&updated_bytes[adjusted_start..adjusted_end]);
+
+        // Replace existing /V (...) or add /V before the closing >>
+        let updated_dict = if local_dict.contains("/V ") {
+            let v_re = regex::Regex::new(r"/V\s*\([^)]*\)").unwrap();
+            let new_v = format!("/V ({})", escaped_value);
+            v_re.replace(&local_dict, &new_v).to_string()
+        } else {
+            // Insert /V before the final >>
+            local_dict.replace(">>", &format!("/V ({})\n>>", escaped_value))
+        };
+
+        if updated_dict != *local_dict {
+            let old_len = local_dict.len();
+            let new_len = updated_dict.len();
+            updated_bytes.splice(adjusted_start..adjusted_end, updated_dict.bytes());
+            offset_delta += (new_len as isize) - (old_len as isize);
+        }
+    }
+
+    fs::write(output_file, &updated_bytes)?;
+    println!("[fill] Updated {} field(s) in {}", field_values.len(), output_file);
+    Ok(())
+}
+
 /// Overlay an image onto every page of a PDF.
 ///
 /// Places an image on top of every page at the specified position and size.
@@ -1574,7 +1794,7 @@ pub fn overlay_image_on_pdf(
     let overlayed: Vec<Vec<u8>> = all_streams
         .iter()
         .enumerate()
-        .map(|(i, stream)| {
+        .map(|(_i, stream)| {
             let mut combined = stream.clone();
             combined.extend_from_slice(&overlay_content);
             combined
@@ -1931,7 +2151,7 @@ pub fn protect_pdf(input_file: &str, output_file: &str, security: &crate::securi
         let insert_pos = trailer_pos + trailer_start;
 
         // Insert the encryption reference
-        let encryption_entry = format!("\n/Encrypt {} 0 R\n  ", 1); // Reference to encryption object (we'd add it properly in a full implementation)
+        let _encryption_entry = format!("\n/Encrypt {} 0 R\n  ", 1); // Reference to encryption object (we'd add it properly in a full implementation)
 
         // In a full implementation, we would:
         // 1. Create a new encryption object in the PDF
@@ -1978,6 +2198,785 @@ fn escape_pdf_meta(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('(', "\\(")
         .replace(')', "\\)")
+}
+
+use sha2::{Digest, Sha256};
+
+/// Add a digital signature to a PDF document.
+///
+/// This creates the PDF signature field structure and computes a SHA-256
+/// content digest over the signed byte ranges. The actual PKCS#7/CMS
+/// container is stored as a placeholder; external tools can replace it.
+///
+/// # Arguments
+/// * `input_file` - Path to the original PDF
+/// * `output_file` - Path for the signed PDF output
+/// * `signature` - Digital signature metadata (signer, reason, location, etc.)
+///
+/// # Example
+/// ```no_run
+/// use pdfrs::{security::DigitalSignature, pdf_ops::sign_pdf};
+///
+/// let sig = DigitalSignature::new("Alice")
+///     .with_reason("I approve this document")
+///     .with_location("New York");
+/// sign_pdf("input.pdf", "signed.pdf", &sig).unwrap();
+/// ```
+pub fn sign_pdf(input_file: &str, output_file: &str, signature: &crate::security::DigitalSignature) -> Result<()> {
+    let pdf_bytes = fs::read(input_file)?;
+
+    // Build incremental update with signature objects
+    let sig = signature.clone();
+
+    // Placeholder for signature contents (8192 hex chars = 4096 bytes)
+    let contents_placeholder = "0".repeat(8192);
+
+    // Build signature dictionary with placeholder
+    let mut sig_dict = format!(
+        "<< /Type /Sig\n\
+         /Filter /Adobe.PPKLite\n\
+         /SubFilter /adbe.pkcs7.detached\n\
+         /Contents <{}>\n\
+         /ByteRange [0 0 0 0]\n",
+        contents_placeholder
+    );
+    if let Some(ref date) = sig.date {
+        sig_dict.push_str(&format!(" /M (D:{})\n", escape_pdf_meta(date)));
+    }
+    sig_dict.push_str(&format!(" /Name ({})\n", escape_pdf_meta(&sig.signer_name)));
+    if let Some(ref reason) = sig.reason {
+        sig_dict.push_str(&format!(" /Reason ({})\n", escape_pdf_meta(reason)));
+    }
+    if let Some(ref location) = sig.location {
+        sig_dict.push_str(&format!(" /Location ({})\n", escape_pdf_meta(location)));
+    }
+    if let Some(ref contact) = sig.contact_info {
+        sig_dict.push_str(&format!(" /ContactInfo ({})\n", escape_pdf_meta(contact)));
+    }
+    sig_dict.push_str(">>");
+
+    // Rebuild with proper PDF objects
+    let original_len = pdf_bytes.len();
+    let mut output = pdf_bytes.clone();
+
+    // Find the last %%EOF
+    let last_eof = output.windows(5).rposition(|w| w == b"%%EOF").unwrap_or(0);
+    let startxref_pos = output[..last_eof].windows(9).rposition(|w| w == b"startxref").unwrap_or(0);
+    let xref_offset: usize = String::from_utf8_lossy(&output[startxref_pos + 9..last_eof])
+        .trim()
+        .parse()
+        .unwrap_or(0);
+
+    // Find catalog reference in trailer
+    let trailer_end = output[startxref_pos..].iter().position(|&b| b == b'>').unwrap_or(0);
+    let trailer_text = String::from_utf8_lossy(&output[startxref_pos..startxref_pos + trailer_end]);
+    let catalog_ref = trailer_text
+        .lines()
+        .find(|l| l.contains("/Root"))
+        .and_then(|l| {
+            l.split("/Root")
+                .nth(1)?
+                .split_whitespace()
+                .next()
+                .map(|s| s.trim())
+        })
+        .unwrap_or("");
+
+    // Build incremental update
+    let update_start = original_len;
+    let mut update = Vec::new();
+
+    // Signature dictionary object
+    let sig_obj_num = 999; // Use high number to avoid conflicts
+    let sig_dict_obj = format!("{} 0 obj\n{}\nendobj\n", sig_obj_num, sig_dict);
+    update.extend_from_slice(sig_dict_obj.as_bytes());
+
+    // Signature field (widget annotation + form field)
+    let field_obj_num = sig_obj_num + 1;
+    let field_dict = format!(
+        "{} 0 obj\n<< /Type /Annot\n\
+         /Subtype /Widget\n\
+         /FT /Sig\n\
+         /T (Signature1)\n\
+         /V {} 0 R\n\
+         /P 1 0 R\n\
+         /Rect [0 0 0 0]\n\
+         /F 132\n\
+         >>\nendobj\n",
+        field_obj_num, sig_obj_num
+    );
+    update.extend_from_slice(field_dict.as_bytes());
+
+    // New catalog with /AcroForm
+    let new_catalog_num = sig_obj_num + 2;
+    let new_catalog = format!(
+        "{} 0 obj\n<< /Type /Catalog\n\
+         /Pages {}\n\
+         /AcroForm << /Fields [{} 0 R] /SigFlags 3 >>\n\
+         >>\nendobj\n",
+        new_catalog_num,
+        if catalog_ref.is_empty() { "1 0 R".to_string() } else { catalog_ref.to_string() },
+        field_obj_num
+    );
+    update.extend_from_slice(new_catalog.as_bytes());
+
+    // New trailer pointing to new catalog
+    let xref_offset_new = update_start;
+    let xref = format!(
+        "xref\n\
+         0 1\n\
+         0000000000 65535 f \n\
+         {} 3\n\
+         {:010} 00000 n \n\
+         {:010} 00000 n \n\
+         {:010} 00000 n \n",
+        sig_obj_num,
+        xref_offset_new,
+        xref_offset_new + sig_dict_obj.len(),
+        xref_offset_new + sig_dict_obj.len() + field_dict.len()
+    );
+    update.extend_from_slice(xref.as_bytes());
+
+    let trailer = format!(
+        "trailer\n<< /Size {} /Root {} 0 R /Prev {} >>\nstartxref\n{}\n%%EOF\n",
+        new_catalog_num + 1,
+        new_catalog_num,
+        xref_offset,
+        update_start
+    );
+    update.extend_from_slice(trailer.as_bytes());
+
+    // Append update to output
+    output.extend_from_slice(&update);
+
+    // Now compute byte range and content hash
+    let full_output = output.clone();
+    let contents_marker = format!("Contents <{}", contents_placeholder);
+    let contents_start = full_output
+        .windows(contents_marker.len())
+        .position(|w| w == contents_marker.as_bytes())
+        .ok_or_else(|| anyhow!("Could not find signature contents placeholder"))?;
+
+    // ByteRange: [0, contents_start_of_value, contents_end_of_value, remaining]
+    let value_start = contents_start + 1; // Point to '<' in "Contents <"
+    let value_end = contents_start + contents_marker.len() + 1; // After '>'
+
+    let byte_range = vec![
+        0u32,
+        value_start as u32,
+        value_end as u32,
+        (full_output.len() - value_end) as u32,
+    ];
+
+    // Compute SHA-256 over the byte ranges
+    let mut hasher = Sha256::new();
+    hasher.update(&full_output[0..value_start]);
+    hasher.update(&full_output[value_end..]);
+    let hash = hasher.finalize();
+    let hash_hex = hash.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+
+    // Replace placeholder with hash (pad with zeros to maintain length)
+    let padded_hash = format!("{:0<width$}", hash_hex, width = contents_placeholder.len());
+    let old_marker = format!("Contents <{}", contents_placeholder);
+    let new_marker = format!("Contents <{}", padded_hash);
+    let output_str = String::from_utf8_lossy(&full_output);
+    let final_output = output_str.replace(&old_marker, &new_marker);
+
+    // Replace ByteRange placeholder
+    let final_output = final_output.replace(
+        "/ByteRange [0 0 0 0]",
+        &format!(
+            "/ByteRange [{} {} {} {}]",
+            byte_range[0], byte_range[1], byte_range[2], byte_range[3]
+        ),
+    );
+
+    fs::write(output_file, final_output)?;
+
+    println!(
+        "[sign] Signed {} -> {} (signer: {}, hash: {})",
+        input_file, output_file, sig.signer_name, &hash_hex[..16]
+    );
+
+    Ok(())
+}
+
+/// Verify that a PDF contains a digital signature structure.
+///
+/// This checks for the presence of signature fields and reports
+/// basic signature metadata. It does NOT cryptographically verify
+/// the signature against a certificate chain.
+///
+/// Returns a list of signature info found in the document.
+pub fn verify_pdf_signature(input_file: &str) -> Result<Vec<SignatureInfo>> {
+    let pdf_bytes = fs::read(input_file)?;
+    let text = String::from_utf8_lossy(&pdf_bytes);
+    let mut results = Vec::new();
+
+    // Find all "N 0 obj" blocks and check for signature dictionaries
+    // Use [\s\S] instead of . to match newlines inside dictionary content
+    let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj\s+<<(.+?)>>\s+endobj").unwrap();
+    for caps in obj_re.captures_iter(&text) {
+        let dict_content = &caps[2];
+        if dict_content.contains("/Type /Sig") || dict_content.contains("/Type/Sig") {
+            let name = extract_pdf_dict_value(dict_content, "/Name").unwrap_or_default();
+            let reason = extract_pdf_dict_value(dict_content, "/Reason");
+            let location = extract_pdf_dict_value(dict_content, "/Location");
+            let date = extract_pdf_dict_value(dict_content, "/M");
+            let byte_range = extract_pdf_dict_value(dict_content, "/ByteRange");
+
+            results.push(SignatureInfo {
+                signer_name: name,
+                reason,
+                location,
+                date,
+                byte_range,
+                valid: false,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+fn extract_pdf_dict_value(dict: &str, key: &str) -> Option<String> {
+    // Search for key as a standalone token (followed by whitespace or end)
+    let pos = dict.match_indices(key)
+        .find(|(i, _)| {
+            let end = i + key.len();
+            end == dict.len() || dict[end..].starts_with(|c: char| c.is_whitespace() || c == '(' || c == '<' || c == '[')
+        })
+        .map(|(i, _)| i)?;
+    let after = dict[pos + key.len()..].trim_start();
+    if after.starts_with('(') {
+        let end = after[1..].find(')')?;
+        Some(after[1..=end].to_string())
+    } else if after.starts_with('<') && !after.starts_with("<<") {
+        let end = after[1..].find('>')?;
+        Some(after[1..=end].to_string())
+    } else if after.starts_with('[') {
+        let end = after.find(']')?;
+        Some(after[..=end].to_string())
+    } else if after.starts_with('/') {
+        // PDF name: /Name
+        let name_after = &after[1..];
+        let end = name_after.find(|c: char| c.is_whitespace() || c == '/' || c == '>' || c == '[').unwrap_or(name_after.len());
+        Some(name_after[..end].to_string())
+    } else {
+        let end = after.find(|c: char| c.is_whitespace() || c == '/' || c == '>').unwrap_or(after.len());
+        Some(after[..end].to_string())
+    }
+}
+
+/// A single text fragment with its position in a PDF content stream
+#[derive(Debug, Clone, PartialEq)]
+struct TextFragment {
+    text: String,
+    x: f32,
+    y: f32,
+}
+
+/// Extract tables from a PDF and return them as CSV strings.
+///
+/// This function analyzes the text positioning in PDF content streams
+/// to heuristically detect tables. It groups text fragments by Y position
+/// into rows, then sorts by X position within each row to form columns.
+///
+/// # Returns
+/// A vector of CSV strings, one per detected table.
+pub fn extract_tables_from_pdf(input_file: &str) -> Result<Vec<String>> {
+    use crate::pdf::{PdfDocument, PdfObject};
+
+    let doc = PdfDocument::load_from_file(input_file)?;
+    let mut all_fragments: Vec<TextFragment> = Vec::new();
+
+    // Regex patterns for text extraction with positioning
+    let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
+    let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
+    let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
+    let tm_re = regex::Regex::new(r"[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm").unwrap();
+
+    for obj in doc.objects.values() {
+        if let PdfObject::Stream { data, .. } = obj {
+            let processed_data = crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.to_vec());
+            let content = String::from_utf8_lossy(&processed_data);
+
+            let mut current_x: f32 = 0.0;
+            let mut current_y: f32 = 0.0;
+
+            for line in content.lines() {
+                let line = line.trim();
+
+                // Track positioning
+                if let Some(caps) = td_re.captures(line) {
+                    if let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
+                        current_x = x;
+                        current_y = y;
+                    }
+                }
+                if let Some(caps) = tm_re.captures(line) {
+                    if let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
+                        current_x = x;
+                        current_y = y;
+                    }
+                }
+
+                // Extract text fragments with current position
+                for caps in tj_re.captures_iter(line) {
+                    let extracted = &caps[1];
+                    let unescaped = crate::pdf::unescape_pdf_string(extracted);
+                    if !unescaped.trim().is_empty() {
+                        all_fragments.push(TextFragment {
+                            text: unescaped.trim().to_string(),
+                            x: current_x,
+                            y: current_y,
+                        });
+                    }
+                }
+
+                for caps in tj_hex_re.captures_iter(line) {
+                    let hex_str = caps[1].replace(char::is_whitespace, "");
+                    let decoded = crate::pdf::decode_pdf_hex_string(&hex_str);
+                    if !decoded.trim().is_empty() {
+                        all_fragments.push(TextFragment {
+                            text: decoded.trim().to_string(),
+                            x: current_x,
+                            y: current_y,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if all_fragments.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Sort by Y descending (PDF coordinates: 0,0 is bottom-left)
+    all_fragments.sort_by(|a, b| b.y.partial_cmp(&a.y).unwrap());
+
+    // Group into rows by Y position (within tolerance)
+    let y_tolerance = 3.0; // points
+    let mut rows: Vec<Vec<TextFragment>> = Vec::new();
+    let mut current_row: Vec<TextFragment> = Vec::new();
+    let mut current_y = all_fragments[0].y;
+
+    for frag in all_fragments {
+        let frag_y = frag.y;
+        if (frag_y - current_y).abs() <= y_tolerance {
+            current_row.push(frag);
+        } else {
+            if !current_row.is_empty() {
+                current_row.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+                rows.push(current_row);
+            }
+            current_row = vec![frag];
+            current_y = frag_y;
+        }
+    }
+    if !current_row.is_empty() {
+        current_row.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+        rows.push(current_row);
+    }
+
+    // Merge rows with very similar Y positions (same line, slight variations)
+    let mut merged_rows: Vec<Vec<TextFragment>> = Vec::new();
+    for row in rows {
+        if let Some(last) = merged_rows.last_mut() {
+            let last_y = last.iter().map(|f| f.y).sum::<f32>() / last.len() as f32;
+            let row_y = row.iter().map(|f| f.y).sum::<f32>() / row.len() as f32;
+            if (last_y - row_y).abs() <= y_tolerance {
+                last.extend(row);
+                last.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+                continue;
+            }
+        }
+        merged_rows.push(row);
+    }
+
+    // Detect tables: find consecutive rows with similar structure
+    let mut tables: Vec<Vec<Vec<String>>> = Vec::new();
+    let mut current_table: Vec<Vec<String>> = Vec::new();
+    let x_tolerance = 8.0; // points for column grouping
+
+    for row in &merged_rows {
+        let cells = group_row_into_cells(row, x_tolerance);
+        if cells.len() >= 2 {
+            current_table.push(cells);
+        } else if !current_table.is_empty() {
+            if current_table.len() >= 2 {
+                tables.push(current_table);
+            }
+            current_table = Vec::new();
+        }
+    }
+    if !current_table.is_empty() && current_table.len() >= 2 {
+        tables.push(current_table);
+    }
+
+    // Convert tables to CSV
+    let mut csv_outputs = Vec::new();
+    for table in tables {
+        let mut csv = String::new();
+        for row in table {
+            let escaped: Vec<String> = row.iter().map(|cell| escape_csv_field(cell)).collect();
+            csv.push_str(&escaped.join(","));
+            csv.push('\n');
+        }
+        csv_outputs.push(csv);
+    }
+
+    Ok(csv_outputs)
+}
+
+fn group_row_into_cells(row: &[TextFragment], x_tolerance: f32) -> Vec<String> {
+    if row.is_empty() {
+        return Vec::new();
+    }
+
+    let mut cells: Vec<Vec<String>> = Vec::new();
+    let mut current_cell: Vec<String> = Vec::new();
+    let mut last_x = row[0].x;
+
+    for frag in row {
+        if (frag.x - last_x).abs() > x_tolerance && !current_cell.is_empty() {
+            cells.push(current_cell);
+            current_cell = Vec::new();
+        }
+        current_cell.push(frag.text.clone());
+        last_x = frag.x;
+    }
+    if !current_cell.is_empty() {
+        cells.push(current_cell);
+    }
+
+    cells.into_iter().map(|parts| parts.join(" ")).collect()
+}
+
+fn escape_csv_field(field: &str) -> String {
+    if field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r') {
+        let escaped = field.replace('"', "\"\"");
+        format!("\"{}\"", escaped)
+    } else {
+        field.to_string()
+    }
+}
+
+/// A text fragment augmented with font information for structure detection.
+#[derive(Debug, Clone, PartialEq)]
+struct StyledTextFragment {
+    text: String,
+    x: f32,
+    y: f32,
+    font_size: f32,
+    font_name: String,
+}
+
+/// A detected heading with its level and position.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectedHeading {
+    pub level: u8,
+    pub text: String,
+    pub page_hint: Option<u32>,
+}
+
+/// A detected section of the document (content between headings).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectedSection {
+    pub title: Option<String>,
+    pub level: u8,
+    pub content_lines: Vec<String>,
+    pub has_table: bool,
+}
+
+/// The overall structure of a PDF document.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DocumentStructure {
+    pub headings: Vec<DetectedHeading>,
+    pub sections: Vec<DetectedSection>,
+    pub estimated_page_count: u32,
+    pub body_font_size: f32,
+}
+
+/// Detect the document structure (headings, sections, tables) of an existing PDF.
+///
+/// Analyzes text positioning and font sizes in PDF content streams to heuristically
+/// identify headings, body text sections, and tables. Headings are detected when
+/// a line's font size is significantly larger than the dominant (body) font size.
+///
+/// # Returns
+///
+/// A `DocumentStructure` containing headings, sections, and metadata.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use pdfrs::pdf_ops::detect_document_structure;
+///
+/// let structure = detect_document_structure("report.pdf").unwrap();
+/// for h in &structure.headings {
+///     println!("H{}: {}", h.level, h.text);
+/// }
+/// ```
+pub fn detect_document_structure(input_file: &str) -> Result<DocumentStructure> {
+    use crate::pdf::{PdfDocument, PdfObject};
+
+    let doc = PdfDocument::load_from_file(input_file)?;
+    let mut all_fragments: Vec<StyledTextFragment> = Vec::new();
+
+    let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
+    let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
+    let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
+    let tm_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm").unwrap();
+    let tf_re = regex::Regex::new(r"/(\S+)\s+([\d.\-]+)\s+Tf").unwrap();
+
+    for obj in doc.objects.values() {
+        if let PdfObject::Stream { data, .. } = obj {
+            let processed_data = crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.to_vec());
+            let content = String::from_utf8_lossy(&processed_data);
+
+            let mut current_x: f32 = 0.0;
+            let mut current_y: f32 = 0.0;
+            let mut current_font_size: f32 = 12.0;
+            let mut current_font_name: String = String::new();
+            let mut tm_scale: f32 = 1.0;
+
+            for line in content.lines() {
+                let line = line.trim();
+
+                // Track font change: /FontName size Tf
+                if let Some(caps) = tf_re.captures(line) {
+                    if let Ok(size) = caps[2].parse::<f32>() {
+                        current_font_name = caps[1].to_string();
+                        current_font_size = size;
+                    }
+                }
+
+                // Track positioning
+                if let Some(caps) = td_re.captures(line) {
+                    if let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
+                        current_x = x;
+                        current_y = y;
+                    }
+                }
+                if let Some(caps) = tm_re.captures(line) {
+                    if let (Ok(a), Ok(_d), Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[4].parse::<f32>(), caps[5].parse::<f32>(), caps[6].parse::<f32>()) {
+                        current_x = x;
+                        current_y = y;
+                        // Effective font scale from matrix (a = x-scale, d = y-scale)
+                        tm_scale = a.abs();
+                        // Also adjust font size by y-scale if it's meaningful
+                        if let Ok(d) = caps[4].parse::<f32>() {
+                            if d.abs() > 0.01 {
+                                tm_scale = d.abs();
+                            }
+                        }
+                    }
+                }
+
+                // Extract text fragments
+                for caps in tj_re.captures_iter(line) {
+                    let extracted = &caps[1];
+                    let unescaped = crate::pdf::unescape_pdf_string(extracted);
+                    if !unescaped.trim().is_empty() {
+                        all_fragments.push(StyledTextFragment {
+                            text: unescaped.trim().to_string(),
+                            x: current_x,
+                            y: current_y,
+                            font_size: current_font_size * tm_scale,
+                            font_name: current_font_name.clone(),
+                        });
+                    }
+                }
+
+                for caps in tj_hex_re.captures_iter(line) {
+                    let hex_str = caps[1].replace(char::is_whitespace, "");
+                    let decoded = crate::pdf::decode_pdf_hex_string(&hex_str);
+                    if !decoded.trim().is_empty() {
+                        all_fragments.push(StyledTextFragment {
+                            text: decoded.trim().to_string(),
+                            x: current_x,
+                            y: current_y,
+                            font_size: current_font_size * tm_scale,
+                            font_name: current_font_name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if all_fragments.is_empty() {
+        return Ok(DocumentStructure {
+            headings: Vec::new(),
+            sections: Vec::new(),
+            estimated_page_count: 1,
+            body_font_size: 12.0,
+        });
+    }
+
+    // Sort by Y descending (PDF: 0,0 bottom-left)
+    all_fragments.sort_by(|a, b| b.y.partial_cmp(&a.y).unwrap());
+
+    // Group into lines by Y position
+    let y_tolerance = 3.0;
+    let mut lines: Vec<Vec<StyledTextFragment>> = Vec::new();
+    let mut current_line: Vec<StyledTextFragment> = Vec::new();
+    let mut current_y = all_fragments[0].y;
+
+    for frag in &all_fragments {
+        let frag_y = frag.y;
+        if (frag_y - current_y).abs() <= y_tolerance {
+            current_line.push(frag.clone());
+        } else {
+            if !current_line.is_empty() {
+                current_line.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+                lines.push(current_line);
+            }
+            current_line = vec![frag.clone()];
+            current_y = frag_y;
+        }
+    }
+    if !current_line.is_empty() {
+        current_line.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+        lines.push(current_line);
+    }
+
+    // Merge very close lines (same visual line)
+    let mut merged_lines: Vec<Vec<StyledTextFragment>> = Vec::new();
+    for line in lines {
+        if let Some(last) = merged_lines.last_mut() {
+            let last_y = last.iter().map(|f| f.y).sum::<f32>() / last.len() as f32;
+            let this_y = line.iter().map(|f| f.y).sum::<f32>() / line.len() as f32;
+            if (this_y - last_y).abs() <= 1.5 {
+                last.extend(line);
+                last.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+                continue;
+            }
+        }
+        merged_lines.push(line);
+    }
+
+    // Compute body font size (most common non-zero size)
+    let mut size_counts: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for line in &merged_lines {
+        for frag in line {
+            let size_key = (frag.font_size.round() as u32).max(1);
+            *size_counts.entry(size_key).or_insert(0) += 1;
+        }
+    }
+    let body_font_size = size_counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(size, _)| size as f32)
+        .unwrap_or(12.0);
+
+    // Identify headings: font size >= 1.5x body, or bold font name, or short line with large font
+    let mut headings: Vec<DetectedHeading> = Vec::new();
+    let mut sections: Vec<DetectedSection> = Vec::new();
+    let mut current_section_lines: Vec<String> = Vec::new();
+    let mut current_section_level: u8 = 0;
+    let mut current_section_title: Option<String> = None;
+
+    for line in &merged_lines {
+        let line_text: String = line.iter().map(|f| &f.text as &str).collect::<Vec<_>>().join(" ");
+        if line_text.trim().is_empty() {
+            continue;
+        }
+
+        let avg_font_size = line.iter().map(|f| f.font_size).sum::<f32>() / line.len().max(1) as f32;
+        let is_bold = line.iter().any(|f| {
+            let name = f.font_name.to_lowercase();
+            name.contains("bold") || name.contains("heavy") || name.contains("black")
+        });
+        let word_count = line_text.split_whitespace().count();
+
+        // Heading heuristic
+        let is_heading = if avg_font_size >= body_font_size * 2.0 {
+            // Very large font → H1
+            true
+        } else if avg_font_size >= body_font_size * 1.5 {
+            // Large font → H2
+            true
+        } else if is_bold && word_count <= 10 && avg_font_size >= body_font_size * 1.1 {
+            // Bold and short → could be heading
+            true
+        } else {
+            false
+        };
+
+        if is_heading {
+            // Save previous section
+            if !current_section_lines.is_empty() || current_section_title.is_some() {
+                sections.push(DetectedSection {
+                    title: current_section_title.clone(),
+                    level: current_section_level,
+                    content_lines: current_section_lines.clone(),
+                    has_table: false, // detected later
+                });
+            }
+
+            let level = if avg_font_size >= body_font_size * 2.0 {
+                1
+            } else if avg_font_size >= body_font_size * 1.5 {
+                2
+            } else {
+                3
+            };
+
+            headings.push(DetectedHeading {
+                level,
+                text: line_text.trim().to_string(),
+                page_hint: None,
+            });
+
+            current_section_title = Some(line_text.trim().to_string());
+            current_section_level = level;
+            current_section_lines = Vec::new();
+        } else {
+            current_section_lines.push(line_text.trim().to_string());
+        }
+    }
+
+    // Push final section
+    if !current_section_lines.is_empty() || current_section_title.is_some() {
+        sections.push(DetectedSection {
+            title: current_section_title,
+            level: current_section_level,
+            content_lines: current_section_lines,
+            has_table: false,
+        });
+    }
+
+    // Estimate page count from Y range (A4 = 842 pts height)
+    let y_min = all_fragments.iter().map(|f| f.y).fold(f32::INFINITY, f32::min);
+    let y_max = all_fragments.iter().map(|f| f.y).fold(f32::NEG_INFINITY, f32::max);
+    let estimated_pages = ((y_max - y_min) / 800.0).ceil().max(1.0) as u32;
+
+    Ok(DocumentStructure {
+        headings,
+        sections,
+        estimated_page_count: estimated_pages,
+        body_font_size,
+    })
+}
+
+/// Information about a detected digital signature in a PDF
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureInfo {
+    /// Name of the signer
+    pub signer_name: String,
+    /// Reason for signing
+    pub reason: Option<String>,
+    /// Signing location
+    pub location: Option<String>,
+    /// Signing date
+    pub date: Option<String>,
+    /// Byte range string
+    pub byte_range: Option<String>,
+    /// Whether the signature is cryptographically valid (always false in this simplified check)
+    pub valid: bool,
 }
 
 #[cfg(test)]

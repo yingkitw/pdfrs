@@ -102,6 +102,12 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 
 **Architecture Pattern**: Builder Pattern
 
+**Internal Submodules**:
+
+- `src/pdf_generator/code_highlight.rs` — syntax tokenization and color tagging for code blocks
+- `src/pdf_generator/text_support.rs` — math-to-text conversion and PDF text encoding helpers
+- `src/pdf_generator/unicode_support.rs` — Unicode TTF discovery/loading and glyph-ID encoder for embedded Type0/CIDFont paths
+
 **Key Classes**:
 
 ```rust

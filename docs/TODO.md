@@ -42,6 +42,9 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `math_and_formulas.md` — LaTeX math blocks/inline, code blocks, tables, formulas (27KB, 14 pages)
 - [x] Library API integration tests (generate_pdf_bytes + validate_pdf_bytes, portrait + landscape batch)
 - [x] Math parsing library API test (MathBlock + MathInline element detection + PDF generation)
+- [x] Complex math formula PDF roundtrip test (limits, fraction, roots, integral/sum/product, set operators, quantifiers)
+- [x] Extended math symbol coverage (mathbb sets, set relations, logic symbols, common function aliases) with regression tests
+- [x] Rebalanced Unicode CID font default width to reduce text overlap while preserving compact spacing
 
 ---
 
@@ -78,6 +81,8 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Tables with alignment parsing (left/center/right)
 
 - [x] PDF generation improvements
+  - [x] Modularized `pdf_generator.rs` into focused helper submodules (`code_highlight`, `text_support`, `unicode_support`)
+  - [x] Fixed mixed ASCII+Unicode rendering in Type0 font mode (prevent garbled ASCII headings when Unicode support is active)
   - [x] Text justification and alignment (H1 centered, TextAlign enum)
   - [x] Page numbering
   - [x] Header font size hierarchy (H1-H6)
@@ -91,6 +96,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Unicode-aware text width estimation and wrapping (CJK/emoji-aware)
   - [x] UTF-16BE-safe text emission used consistently in line/code/math rendering paths
   - [x] Base-14 font compatibility fallback for unicode/math visibility (transliteration + `[U+XXXX]` marker)
+  - [x] Math symbols render correctly in italic/oblique math paths under embedded Unicode font mode
   - [x] Regression tests for inline math detection in formatting parser
   - [x] Fixed font object ID references in PDF assembly
   - [x] Fixed table rendering crash with ragged row column counts
@@ -109,7 +115,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] Security features
   - [x] Password protection — `PdfSecurity` with user/owner passwords
   - [x] User/owner permissions — `PdfPermissions` with PDF 1.7 compliance
-  - [ ] Digital signatures
+  - [x] Digital signatures — `DigitalSignature` with `sign`/`verify-signature` CLI commands, SHA-256 content digest, PDF signature dictionary structure
 
 - [ ] Performance improvements
   - [ ] Memory usage optimization
@@ -169,9 +175,9 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 ### 🟡 High Impact
 
 #### FR14: Smart Content Analysis
-- [ ] **FR14.1**: Structure detection (headings, sections, tables)
-- [ ] **FR14.2**: Table extraction to CSV/Excel formats
-- [ ] **FR14.3**: Form field detection and filling
+- [x] **FR14.1**: Structure detection (headings, sections) — `detect-structure` CLI command with font-size heuristics
+- [x] **FR14.2**: Table extraction to CSV/Excel formats — `extract-tables` CLI command
+- [x] **FR14.3**: Form field detection and filling — `detect-form-fields` / `fill-form-fields` CLI commands
 - [ ] **FR14.4**: Content-aware image compression
 - [ ] **FR14.5**: PDF/A validation and conversion
 
@@ -208,10 +214,10 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 1. ✅ **Table border rendering** (COMPLETED)
 2. ✅ **Code block text visibility** (COMPLETED)
 3. ✅ **Text wrapping** (COMPLETED)
-4. ⏳ **FR12.3**: Streaming PDF write
-5. ⏳ **FR13.3**: Parallel PDF merge
-6. ⏳ **FR15.1**: Builder API
-7. ⏳ **FR18.4**: Optimization profiles
+4. ✅ **FR12.3**: Streaming PDF write (wired `create-streaming` CLI command, fixed `StreamingPdfGenerator::finish` object ID generation)
+5. ✅ **FR13.3**: Parallel PDF merge (wired to `merge` CLI command via `parallel::merge_pdfs_parallel`)
+6. ✅ **FR15.1**: Builder API (fluent `PdfBuilder` in `src/builder.rs`, exported via `lib.rs`)
+7. ✅ **FR18.4**: Optimization profiles (wired `--profile` to `create`/`md-to-pdf` CLI commands with real FlateDecode stream compression via `flate2`)
 
 ---
 
@@ -236,6 +242,8 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Text annotations — `TextAnnotation` + `create_pdf_with_annotations` API
   - [x] Link annotations — `LinkAnnotation` with URI actions
   - [x] Highlighting and markup — `HighlightAnnotation` with QuadPoints
+
+- [x] Table extraction to CSV — `extract-tables` CLI command with position-based heuristic detection
 
 ### 🟢 Medium
 
