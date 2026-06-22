@@ -37,6 +37,52 @@ pub enum PdfValue {
     Reference(u32, u32),
 }
 
+fn serialize_value(val: &PdfValue) -> String {
+    match val {
+        PdfValue::Object(obj) => serialize_object(obj),
+        PdfValue::Reference(id, generation) => format!("{} {} R", id, generation),
+    }
+}
+
+fn serialize_object(obj: &PdfObject) -> String {
+    match obj {
+        PdfObject::Dictionary(dict) => {
+            let mut entries: Vec<String> = Vec::new();
+            for (key, value) in dict {
+                entries.push(format!("/{} {}", key, serialize_value(value)));
+            }
+            format!("<< {} >>", entries.join(" "))
+        }
+        PdfObject::Stream { dictionary, data } => {
+            let mut entries: Vec<String> = Vec::new();
+            for (key, value) in dictionary {
+                entries.push(format!("/{} {}", key, serialize_value(value)));
+            }
+            format!(
+                "<< {} >>\nstream\n{}\nendstream",
+                entries.join(" "),
+                String::from_utf8_lossy(data)
+            )
+        }
+        PdfObject::Array(items) => {
+            let parts: Vec<String> = items.iter().map(serialize_value).collect();
+            format!("[ {} ]", parts.join(" "))
+        }
+        PdfObject::String(s) => s.clone(),
+        PdfObject::Number(n) => {
+            if *n == (n.round()) {
+                format!("{:.0}", n)
+            } else {
+                n.to_string()
+            }
+        }
+        PdfObject::Boolean(b) => b.to_string(),
+        PdfObject::Null => "null".to_string(),
+        PdfObject::Reference(id, generation) => format!("{} {} R", id, generation),
+        PdfObject::Name(n) => format!("/{}", n),
+    }
+}
+
 /// Find all stream data ranges in raw PDF bytes.
 /// Returns a list of (data_start, data_end) byte positions for each stream,
 /// where data_start..data_end is the raw stream payload (between stream\n and endstream).
@@ -187,8 +233,12 @@ impl PdfDocument {
         let mut file = File::open(filename)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
+        Self::load_from_bytes(&buffer)
+    }
 
-        let content = String::from_utf8_lossy(&buffer);
+    /// Parse PDF bytes into a `PdfDocument` without touching the filesystem.
+    pub fn load_from_bytes(buffer: &[u8]) -> Result<Self> {
+        let content = String::from_utf8_lossy(buffer);
         let mut doc = PdfDocument::new();
 
         // Parse PDF header
@@ -199,14 +249,19 @@ impl PdfDocument {
         }
 
         // Find all stream data ranges in raw bytes before string parsing corrupts them
-        let stream_ranges = find_stream_ranges(&buffer);
+        let stream_ranges = find_stream_ranges(buffer);
 
         parse_objects(&content, &mut doc)?;
 
-        // Replace corrupted stream data with raw bytes from the original buffer
+        // Replace corrupted stream data with raw bytes from the original buffer.
+        // Stream ranges are found in file order; objects must be matched in the
+        // same order. We sort by object ID since well-formed PDFs typically store
+        // objects (and thus streams) in ascending ID order.
+        let mut sorted_obj_ids: Vec<u32> = doc.objects.keys().copied().collect();
+        sorted_obj_ids.sort();
         let mut stream_idx = 0;
-        for obj in doc.objects.values_mut() {
-            if let PdfObject::Stream { data, .. } = obj {
+        for obj_id in sorted_obj_ids {
+            if let Some(PdfObject::Stream { data, .. }) = doc.objects.get_mut(&obj_id) {
                 if let Some(&(start, end)) = stream_ranges.get(stream_idx) {
                     *data = buffer[start..end].to_vec();
                 }
@@ -214,7 +269,84 @@ impl PdfDocument {
             }
         }
 
+        // Parse catalog reference from trailer so to_bytes() can write the correct /Root
+        let root_re = regex::Regex::new(r"/Root\s+(\d+)\s+\d+\s+R").unwrap();
+        if let Some(caps) = root_re.captures(&content) {
+            if let Ok(id) = caps[1].parse::<u32>() {
+                doc.catalog = id;
+            }
+        }
+
         Ok(doc)
+    }
+
+    /// Serialize this document back to PDF bytes.
+    ///
+    /// Writes objects in ascending ID order, builds a fresh xref table,
+    /// and produces a minimal but structurally valid PDF.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(format!("%PDF-{}\n", self.version).as_bytes());
+        pdf.extend_from_slice(b"%\xE2\xE3\xCF\xD3\n");
+
+        let mut offsets = Vec::new();
+        let mut current_offset = pdf.len() as u32;
+
+        let mut sorted_ids: Vec<u32> = self.objects.keys().copied().collect();
+        sorted_ids.sort();
+
+        for id in &sorted_ids {
+            offsets.push(current_offset);
+            let obj = &self.objects[id];
+            let obj_header = format!("{} 0 obj\n", id);
+            pdf.extend_from_slice(obj_header.as_bytes());
+
+            if let PdfObject::Stream { dictionary, data } = obj {
+                let mut entries: Vec<String> = Vec::new();
+                for (key, value) in dictionary {
+                    if key == "Length" {
+                        // Ensure /Length matches the actual data size
+                        entries.push(format!("/Length {}", data.len()));
+                    } else {
+                        entries.push(format!("/{} {}", key, serialize_value(value)));
+                    }
+                }
+                let dict_str = format!("<< {} >>\n", entries.join(" "));
+                pdf.extend_from_slice(dict_str.as_bytes());
+                pdf.extend_from_slice(b"stream\n");
+                pdf.extend_from_slice(data);
+                pdf.extend_from_slice(b"\nendstream");
+            } else {
+                pdf.extend_from_slice(serialize_object(obj).as_bytes());
+            }
+            pdf.extend_from_slice(b"\nendobj\n");
+            current_offset = pdf.len() as u32;
+        }
+
+        // xref table
+        let xref_offset = pdf.len() as u32;
+        pdf.extend_from_slice(format!("xref\n0 {}\n", sorted_ids.len() + 1).as_bytes());
+        pdf.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets {
+            pdf.extend_from_slice(format!("{:010} 00000 n \n", offset).as_bytes());
+        }
+
+        // trailer
+        let root_id = if self.catalog > 0 {
+            self.catalog
+        } else if let Some(last) = sorted_ids.last() {
+            *last
+        } else {
+            0
+        };
+
+        pdf.extend_from_slice(b"trailer\n");
+        pdf.extend_from_slice(format!("<< /Size {} /Root {} 0 R >>\n", sorted_ids.len() + 1, root_id).as_bytes());
+        pdf.extend_from_slice(b"startxref\n");
+        pdf.extend_from_slice(format!("{}\n", xref_offset).as_bytes());
+        pdf.extend_from_slice(b"%%EOF\n");
+
+        pdf
     }
 
     pub fn get_text(&self) -> Result<String> {
@@ -688,6 +820,103 @@ pub fn validate_pdf_bytes(data: &[u8]) -> PdfValidation {
         page_count: actual_pages,
         object_count,
     }
+}
+
+/// Validation result for PDF/A compliance checks
+#[derive(Debug, Clone)]
+pub struct PdfAValidation {
+    pub compliant: bool,
+    pub level: String,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub embedded_fonts: bool,
+    pub has_xmp: bool,
+    pub has_encryption: bool,
+}
+
+/// Validate PDF bytes for PDF/A-1b compliance (basic level).
+///
+/// Checks the most important PDF/A-1b requirements that can be
+/// detected with structural analysis (no full content stream parsing):
+///
+/// - **No encryption** — /Encrypt must not be present
+/// - **No JavaScript** — /JS or /JavaScript actions must not be present
+/// - **No external streams** — /F references in streams must not be present
+/// - **Embedded fonts** — all /Font descriptors must reference a font file
+/// - **XMP metadata** — catalog should contain /Metadata reference
+pub fn validate_pdf_a_bytes(data: &[u8]) -> PdfAValidation {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let content = String::from_utf8_lossy(data);
+
+    // 1. No encryption
+    let has_encryption = content.contains("/Encrypt") || content.contains("\nEncrypt");
+    if has_encryption {
+        errors.push("PDF contains encryption (not allowed in PDF/A)".to_string());
+    }
+
+    // 2. No JavaScript
+    let has_js = content.contains("/JS") || content.contains("/JavaScript");
+    if has_js {
+        errors.push("PDF contains JavaScript (not allowed in PDF/A)".to_string());
+    }
+
+    // 3. No external file references in streams
+    let has_external = content.contains("\n/F ") || content.contains("/F (");
+    if has_external {
+        errors.push("PDF contains external stream references (not allowed in PDF/A)".to_string());
+    }
+
+    // 4. Check for embedded fonts
+    // Count font descriptors and font files; every descriptor should have a file
+    let font_desc_count = content.matches("/Type /FontDescriptor").count();
+    let font_file_count = content.matches("/FontFile").count()
+        + content.matches("/FontFile2").count()
+        + content.matches("/FontFile3").count();
+    let embedded_fonts = font_desc_count == 0 || font_file_count >= font_desc_count;
+    if !embedded_fonts {
+        errors.push(format!(
+            "Fonts not fully embedded: {} descriptors vs {} font files",
+            font_desc_count, font_file_count
+        ));
+    }
+
+    // 5. Check for XMP metadata
+    let has_xmp = content.contains("/Type /Metadata") || content.contains("/Metadata ");
+    if !has_xmp {
+        warnings.push("No XMP metadata stream found (recommended for PDF/A)".to_string());
+    }
+
+    // 6. No transparency (PDF/A-1 specific)
+    let has_transparency = content.contains("/CA ") || content.contains("/ca ");
+    if has_transparency {
+        warnings.push("Possible transparency group detected (not allowed in PDF/A-1)".to_string());
+    }
+
+    // 7. No launch actions
+    if content.contains("/S /Launch") {
+        errors.push("PDF contains launch actions (not allowed in PDF/A)".to_string());
+    }
+
+    let compliant = errors.is_empty();
+
+    PdfAValidation {
+        compliant,
+        level: "PDF/A-1b".to_string(),
+        errors,
+        warnings,
+        embedded_fonts,
+        has_xmp,
+        has_encryption,
+    }
+}
+
+/// Validate a PDF file for PDF/A-1b compliance
+pub fn validate_pdf_a(filename: &str) -> Result<PdfAValidation> {
+    let mut file = File::open(filename)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    Ok(validate_pdf_a_bytes(&buffer))
 }
 
 pub fn extract_text(filename: &str) -> Result<String> {
@@ -1213,5 +1442,46 @@ mod tests {
         let content = String::from_utf8_lossy(&pdf_bytes);
         assert!(content.contains("792"), "Landscape width should be 792");
         assert!(content.contains("612"), "Landscape height should be 612");
+    }
+
+    #[test]
+    fn test_load_from_bytes_roundtrip() {
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "Roundtrip".into() },
+            crate::elements::Element::Paragraph { text: "Testing load_from_bytes.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        // Parse from bytes
+        let doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        assert!(!doc.objects.is_empty());
+
+        // Serialize back to bytes
+        let roundtrip_bytes = doc.to_bytes();
+        assert!(!roundtrip_bytes.is_empty());
+
+        // Re-parse and verify text is intact
+        let doc2 = PdfDocument::load_from_bytes(&roundtrip_bytes).unwrap();
+        let text = doc2.get_text().unwrap();
+        assert!(text.contains("Roundtrip"), "Text lost after roundtrip: {}", text);
+        assert!(text.contains("Testing load_from_bytes."), "Text lost after roundtrip: {}", text);
+    }
+
+    #[test]
+    fn test_validate_pdf_a_generated_pdf() {
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "PDF/A Test".into() },
+            crate::elements::Element::Paragraph { text: "Testing PDF/A validation.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_a_bytes(&pdf_bytes);
+        // Generated PDFs use Base-14 fonts without embedding, so they won't be fully PDF/A compliant
+        // but should have no encryption, no JS, no external references
+        assert!(!result.has_encryption, "Generated PDF should not have encryption");
+        assert!(!result.errors.iter().any(|e| e.contains("JavaScript")), "No JS expected");
+        assert!(!result.errors.iter().any(|e| e.contains("external")), "No external refs expected");
     }
 }

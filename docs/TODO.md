@@ -167,10 +167,10 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [ ] **FR15.5**: Interactive REPL for PDF manipulation
 
 #### FR18: Intelligent Optimization
-- [ ] **FR18.1**: Smart content-aware compression
+- [x] **FR18.1**: Smart content-aware compression — `optimize-pdf` CLI command with stream recompression via `PdfDocument::to_bytes()`
 - [ ] **FR18.2**: Font subsetting to reduce file size
 - [ ] **FR18.3**: Object deduplication across pages
-- [ ] **FR18.4**: Optimization profiles (web, print, archive, ebook)
+- [x] **FR18.4**: Optimization profiles (web, print, archive, ebook)
 
 ### 🟡 High Impact
 
@@ -179,7 +179,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR14.2**: Table extraction to CSV/Excel formats — `extract-tables` CLI command
 - [x] **FR14.3**: Form field detection and filling — `detect-form-fields` / `fill-form-fields` CLI commands
 - [ ] **FR14.4**: Content-aware image compression
-- [ ] **FR14.5**: PDF/A validation and conversion
+- [x] **FR14.5**: PDF/A-1b validation — `validate-pdfa` CLI command with encryption, JS, font embedding, and XMP checks
 
 #### FR16: WebAssembly Support
 - [ ] **FR16.1**: Add `wasm-bindgen` and `wasm-pack`
@@ -235,6 +235,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [ ] Image filters and effects
   - [x] Multiple images per page — `create_pdf_with_images` API
   - [x] Image overlay and watermarking
+  - [x] Image extraction from PDFs — `extract-images` CLI command (JPEG DCTDecode + raw binary fallback)
   - [ ] Vector graphics support
 
 - [x] Form and annotation support
@@ -278,6 +279,8 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `validate_pdf()` / `validate_pdf_bytes()` — structural PDF validation
   - [x] `PdfValidation` result struct (errors, warnings, page_count, object_count)
   - [x] Rich `Element` enum with 19 variants for document modeling (including MathBlock, MathInline)
+  - [x] `PdfDocument::load_from_bytes()` — in-memory PDF parsing without filesystem
+  - [x] `PdfDocument::to_bytes()` — round-trip serialization for PDF optimization
   - [ ] Rust API documentation (rustdoc with examples)
   - [ ] Example usage patterns (examples/ directory)
 

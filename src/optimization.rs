@@ -359,21 +359,73 @@ impl Default for OptimizedPdfGenerator {
 
 /// Apply optimization settings to existing PDF bytes
 ///
-/// This function re-compresses PDF streams according to the optimization settings.
-/// Note: This is a placeholder for a full implementation.
+/// Re-compresses all PDF content streams using the specified compression level.
+/// This reduces file size by re-encoding stream data with stronger (or weaker)
+/// FlateDeflate compression as requested by the profile.
+///
+/// # Supported optimizations
+///
+/// - **Stream recompression**: Decompresses existing `/FlateDecode` streams and
+///   recompresses them with the target deflate level.
+/// - **Uncompressed stream compression**: Compresses streams that lack a `/Filter`
+///   entry when the profile requests compression.
 pub fn optimize_pdf_bytes(
-    _pdf_data: &[u8],
-    _settings: OptimizationSettings,
+    pdf_data: &[u8],
+    settings: OptimizationSettings,
 ) -> Result<Vec<u8>> {
-    // TODO: Implement full PDF optimization
-    // This would involve:
-    // - Parsing the PDF
-    // - Recompressing streams with the specified compression level
-    // - Downsampling images to the target DPI
-    // - Subsetting fonts if requested
-    // - Removing metadata if not preserving
-    // - Linearizing the PDF if requested
-    anyhow::bail!("PDF optimization not yet implemented")
+    use crate::pdf::{PdfDocument, PdfObject, PdfValue};
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let mut doc = PdfDocument::load_from_bytes(pdf_data)?;
+
+    let target_level = settings.compression_level.deflate_level();
+
+    for obj in doc.objects.values_mut() {
+        if let PdfObject::Stream { dictionary, data } = obj {
+            // Determine if the stream is currently compressed
+            let is_compressed = dictionary
+                .get("Filter")
+                .map(|v| match v {
+                    PdfValue::Object(PdfObject::String(s)) => {
+                        s.contains("FlateDecode") || s.contains("flate")
+                    }
+                    _ => false,
+                })
+                .unwrap_or(false);
+
+            // Get the raw uncompressed data
+            let raw_data = if is_compressed {
+                crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.clone())
+            } else {
+                data.clone()
+            };
+
+            // Recompress if target level is not None and we actually want compression
+            if target_level > 0 {
+                let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(target_level as u32));
+                encoder.write_all(&raw_data)?;
+                let compressed = encoder.finish()?;
+                *data = compressed;
+                dictionary.insert(
+                    "Filter".to_string(),
+                    PdfValue::Object(PdfObject::String("/FlateDecode".to_string())),
+                );
+            } else {
+                *data = raw_data;
+                dictionary.remove("Filter");
+            }
+
+            // Update Length to match the new data size
+            dictionary.insert(
+                "Length".to_string(),
+                PdfValue::Object(PdfObject::Number(data.len() as f64)),
+            );
+        }
+    }
+
+    Ok(doc.to_bytes())
 }
 
 /// Apply an optimization profile to an existing PDF file

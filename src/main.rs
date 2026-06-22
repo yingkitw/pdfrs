@@ -180,6 +180,15 @@ enum Commands {
         #[arg(help = "Input PDF file")]
         input: String,
     },
+    #[command(about = "Optimize a PDF (recompress streams, reduce file size)")]
+    OptimizePdf {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+        #[arg(short, long, help = "Optimization profile (web, print, archive, ebook)", default_value = "web")]
+        profile: String,
+    },
     #[command(about = "Overlay an image onto all pages of a PDF")]
     OverlayImage {
         #[arg(help = "Input PDF file")]
@@ -219,6 +228,13 @@ enum Commands {
         #[arg(help = "Input PDF file")]
         input: String,
         #[arg(short, long, help = "Output CSV file")]
+        output: String,
+    },
+    #[command(about = "Extract embedded images from a PDF")]
+    ExtractImages {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output directory for extracted images", default_value = "extracted_images")]
         output: String,
     },
     #[command(about = "Add a digital signature to a PDF")]
@@ -271,6 +287,16 @@ enum Commands {
         allow_print_high_quality: bool,
         #[arg(long, help = "Read-only (no modifications)")]
         read_only: bool,
+    },
+    #[command(about = "Validate PDF structural integrity")]
+    Validate {
+        #[arg(help = "Input PDF file")]
+        input: String,
+    },
+    #[command(about = "Validate PDF/A-1b compliance")]
+    ValidatePdfa {
+        #[arg(help = "Input PDF file")]
+        input: String,
     },
 }
 
@@ -588,6 +614,24 @@ fn main() {
                 Err(e) => eprintln!("Error detecting structure: {}", e),
             }
         }
+        Commands::OptimizePdf { input, output, profile } => {
+            let profile = parse_optimization_profile(&profile);
+            let settings = profile.settings();
+            match optimization::optimize_pdf_file(&input, &output, profile) {
+                Ok(_) => {
+                    let in_size = std::fs::metadata(&input).map(|m| m.len()).unwrap_or(0);
+                    let out_size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
+                    println!(
+                        "Successfully optimized PDF: {} -> {} ({:.1}% of original)",
+                        input,
+                        output,
+                        if in_size > 0 { (out_size as f64 / in_size as f64) * 100.0 } else { 0.0 }
+                    );
+                    println!("Profile: {:?} | compression: {:?}", profile, settings.compression_level);
+                }
+                Err(e) => eprintln!("Error optimizing PDF: {}", e),
+            }
+        }
         Commands::OverlayImage {
             input,
             output,
@@ -660,6 +704,21 @@ fn main() {
                     }
                 }
                 Err(e) => eprintln!("Error extracting tables: {}", e),
+            }
+        }
+        Commands::ExtractImages { input, output } => {
+            match pdf_ops::extract_images_from_pdf(&input, &output) {
+                Ok(files) => {
+                    if files.is_empty() {
+                        println!("No embedded images found in {}", input);
+                    } else {
+                        println!("Extracted {} image(s) from {} to {}", files.len(), input, output);
+                        for f in &files {
+                            println!("  - {}", f);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error extracting images: {}", e),
             }
         }
         Commands::Sign {
@@ -793,6 +852,54 @@ fn main() {
             match pdf_ops::protect_pdf(&input, &output, &sec) {
                 Ok(_) => println!("Successfully applied protection to {}", output),
                 Err(e) => eprintln!("Error protecting PDF: {}", e),
+            }
+        }
+        Commands::Validate { input } => {
+            match pdf::validate_pdf(&input) {
+                Ok(result) => {
+                    println!("Validation result for {}:", input);
+                    println!("  Valid: {}", result.valid);
+                    println!("  Pages: {}", result.page_count);
+                    println!("  Objects: {}", result.object_count);
+                    if !result.errors.is_empty() {
+                        println!("  Errors:");
+                        for e in &result.errors {
+                            println!("    - {}", e);
+                        }
+                    }
+                    if !result.warnings.is_empty() {
+                        println!("  Warnings:");
+                        for w in &result.warnings {
+                            println!("    - {}", w);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error validating PDF: {}", e),
+            }
+        }
+        Commands::ValidatePdfa { input } => {
+            match pdf::validate_pdf_a(&input) {
+                Ok(result) => {
+                    println!("PDF/A validation result for {}:", input);
+                    println!("  Level: {}", result.level);
+                    println!("  Compliant: {}", result.compliant);
+                    println!("  Embedded fonts: {}", result.embedded_fonts);
+                    println!("  Has XMP metadata: {}", result.has_xmp);
+                    println!("  Has encryption: {}", result.has_encryption);
+                    if !result.errors.is_empty() {
+                        println!("  Errors:");
+                        for e in &result.errors {
+                            println!("    - {}", e);
+                        }
+                    }
+                    if !result.warnings.is_empty() {
+                        println!("  Warnings:");
+                        for w in &result.warnings {
+                            println!("    - {}", w);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error validating PDF/A: {}", e),
             }
         }
     }

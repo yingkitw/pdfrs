@@ -2979,6 +2979,81 @@ pub struct SignatureInfo {
     pub valid: bool,
 }
 
+/// Extract embedded images from a PDF and save them to an output directory.
+///
+/// Returns a list of saved file paths. Currently supports:
+/// - JPEG images (`/Filter /DCTDecode`)
+/// - Raw pixel streams saved as `.bin` for manual inspection
+///
+/// # Arguments
+///
+/// * `input_path` - Path to the input PDF file
+/// * `output_dir` - Directory where extracted images will be saved
+pub fn extract_images_from_pdf(input_path: &str, output_dir: &str) -> Result<Vec<String>> {
+    use crate::pdf::{PdfDocument, PdfObject, PdfValue};
+    use std::path::Path;
+
+    fs::create_dir_all(output_dir)?;
+    let doc = PdfDocument::load_from_file(input_path)?;
+
+    let mut extracted = Vec::new();
+    let mut image_idx = 0;
+
+    for (obj_id, obj) in &doc.objects {
+        let (dictionary, data) = match obj {
+            PdfObject::Stream { dictionary, data } => (dictionary, data),
+            _ => continue,
+        };
+
+        // Check if this is an image XObject
+        let is_image = dictionary.get("Subtype")
+            .and_then(|v| match v {
+                PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
+                _ => None,
+            })
+            .map(|s| s == "/Image" || s == "Image")
+            .unwrap_or(false);
+
+        if !is_image {
+            continue;
+        }
+
+        // Determine format from /Filter
+        let filter = dictionary.get("Filter")
+            .and_then(|v| match v {
+                PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
+                _ => None,
+            });
+
+        let (ext, raw_data) = match filter {
+            Some("/DCTDecode") | Some("DCTDecode") => {
+                // JPEG: data is already a valid JPEG (may need SOI marker)
+                let jpeg_data = if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
+                    data.clone()
+                } else {
+                    let mut prefixed = vec![0xFF, 0xD8];
+                    prefixed.extend_from_slice(data);
+                    prefixed
+                };
+                ("jpg", jpeg_data)
+            }
+            _ => {
+                // Unknown or raw pixel data — decompress if needed and save as binary
+                let decompressed = decompress_if_needed(data);
+                ("bin", decompressed)
+            }
+        };
+
+        let filename = format!("image_{:03}.{}.{}", image_idx, obj_id, ext);
+        let out_path = Path::new(output_dir).join(&filename);
+        fs::write(&out_path, &raw_data)?;
+        extracted.push(out_path.to_string_lossy().to_string());
+        image_idx += 1;
+    }
+
+    Ok(extracted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

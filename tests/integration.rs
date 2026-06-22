@@ -403,3 +403,111 @@ Result paragraph two.
 
     std::fs::remove_file(&struct_pdf).ok();
 }
+
+#[test]
+fn test_optimize_pdf_recompression() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let source_pdf = format!("{}/opt_source.pdf", out_dir);
+    let optimized_pdf = format!("{}/opt_output.pdf", out_dir);
+
+    // Create a PDF with content
+    let markdown = r#"# Optimization Test
+
+This is a test paragraph for PDF optimization.
+It contains enough text to create a multi-page document.
+
+## Section Two
+
+More text here to fill the page.
+And even more text to ensure we have content streams.
+"#;
+    let elements = pdfrs::elements::parse_markdown(markdown);
+    pdfrs::pdf_generator::create_pdf_from_elements_with_layout(
+        &source_pdf,
+        &elements,
+        "Helvetica",
+        12.0,
+        pdfrs::pdf_generator::PageLayout::portrait(),
+    )
+    .unwrap();
+
+    let original_size = std::fs::metadata(&source_pdf).unwrap().len();
+
+    // Optimize with Web profile (high compression)
+    let profile = pdfrs::optimization::OptimizationProfile::Web;
+    let settings = profile.settings();
+    let pdf_bytes = std::fs::read(&source_pdf).unwrap();
+    let optimized = pdfrs::optimization::optimize_pdf_bytes(&pdf_bytes, settings).unwrap();
+    std::fs::write(&optimized_pdf, &optimized).unwrap();
+
+    // Verify optimized PDF is valid and can be loaded
+    let doc = pdfrs::pdf::PdfDocument::load_from_file(&optimized_pdf).unwrap();
+    assert!(!doc.objects.is_empty(), "Optimized PDF should have objects");
+
+    // Verify text can still be extracted
+    let text = doc.get_text().unwrap();
+    assert!(
+        text.contains("Optimization Test"),
+        "Optimized PDF should still contain original text"
+    );
+
+    // For small text-only PDFs, recompression may not always reduce size,
+    // but it should not corrupt the document.
+    assert!(
+        optimized.len() > 100,
+        "Optimized PDF should be non-trivial in size"
+    );
+
+    std::fs::remove_file(&source_pdf).ok();
+    std::fs::remove_file(&optimized_pdf).ok();
+}
+
+#[test]
+fn test_extract_images_from_pdf() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    // Create a minimal 1x1 BMP file programmatically
+    let bmp_path = format!("{}/test_image.bmp", out_dir);
+    let mut bmp_data = Vec::new();
+    // BMP file header (14 bytes)
+    bmp_data.extend_from_slice(b"BM");              // signature
+    bmp_data.extend_from_slice(&70_u32.to_le_bytes()); // file size
+    bmp_data.extend_from_slice(&[0, 0]);              // reserved
+    bmp_data.extend_from_slice(&[0, 0]);              // reserved
+    bmp_data.extend_from_slice(&54_u32.to_le_bytes()); // offset to pixel data
+    // DIB header (BITMAPINFOHEADER, 40 bytes)
+    bmp_data.extend_from_slice(&40_u32.to_le_bytes()); // header size
+    bmp_data.extend_from_slice(&1_u32.to_le_bytes());  // width
+    bmp_data.extend_from_slice(&1_u32.to_le_bytes());  // height
+    bmp_data.extend_from_slice(&1_u16.to_le_bytes());  // planes
+    bmp_data.extend_from_slice(&24_u16.to_le_bytes()); // bits per pixel
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // compression (none)
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // image size
+    bmp_data.extend_from_slice(&2835_u32.to_le_bytes()); // X pixels per meter
+    bmp_data.extend_from_slice(&2835_u32.to_le_bytes()); // Y pixels per meter
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // colors used
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // important colors
+    // Pixel data: 1 pixel (3 bytes) + 1 byte padding to 4-byte boundary
+    bmp_data.extend_from_slice(&[0xFF, 0x00, 0x00, 0x00]);
+    std::fs::write(&bmp_path, &bmp_data).unwrap();
+
+    // Embed the image in a PDF
+    let image_pdf = format!("{}/image_embed_test.pdf", out_dir);
+    pdfrs::image::add_image_to_pdf(&image_pdf, &bmp_path, 100.0, 100.0, 50.0, 50.0).unwrap();
+
+    // Extract images from the PDF
+    let extract_dir = format!("{}/extracted_test_images", out_dir);
+    let extracted = pdfrs::pdf_ops::extract_images_from_pdf(&image_pdf, &extract_dir).unwrap();
+
+    assert!(!extracted.is_empty(), "Should extract at least one image from the PDF");
+
+    // Cleanup
+    std::fs::remove_file(&bmp_path).ok();
+    std::fs::remove_file(&image_pdf).ok();
+    std::fs::remove_dir_all(&extract_dir).ok();
+}
