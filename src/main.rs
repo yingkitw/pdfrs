@@ -298,10 +298,71 @@ enum Commands {
         #[arg(help = "Input PDF file")]
         input: String,
     },
+    #[command(about = "Validate PDF/A-3b compliance")]
+    ValidatePdfa3 {
+        #[arg(help = "Input PDF file")]
+        input: String,
+    },
+    #[command(about = "Validate PDF/UA (accessibility) compliance")]
+    ValidatePdfua {
+        #[arg(help = "Input PDF file")]
+        input: String,
+    },
+    #[command(about = "Compare two PDFs structurally and report differences")]
+    DiffPdfs {
+        #[arg(help = "Old PDF file")]
+        old: String,
+        #[arg(help = "New PDF file")]
+        new: String,
+    },
+    #[command(about = "Sanitize a PDF by removing dangerous content (JS, launch actions, etc.)")]
+    SanitizePdf {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output sanitized PDF file")]
+        output: String,
+    },
+    #[command(about = "Watch a markdown file and regenerate PDF on changes")]
+    WatchMarkdown {
+        #[arg(help = "Input markdown file")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+        #[arg(short, long, help = "Font name")]
+        font: Option<String>,
+        #[arg(short, long, help = "Font size")]
+        font_size: Option<f32>,
+        #[arg(short, long, help = "Page orientation")]
+        orientation: Option<String>,
+        #[arg(short, long, help = "Poll interval in milliseconds", default_value = "1000")]
+        interval: u64,
+    },
+    #[command(about = "Interactive REPL for PDF manipulation")]
+    Repl,
+    #[command(about = "Create a PDF portfolio (collection) from multiple files")]
+    CreatePortfolio {
+        #[arg(short, long, help = "Output portfolio PDF file")]
+        output: String,
+        #[arg(help = "Files to include in the portfolio")]
+        files: Vec<String>,
+        #[arg(short, long, help = "Portfolio title")]
+        title: Option<String>,
+    },
+    #[command(about = "Attach an external file to a PDF")]
+    AttachFile {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+        #[arg(help = "File to attach")]
+        file: String,
+        #[arg(short, long, help = "Attachment name in PDF (defaults to file basename)")]
+        name: Option<String>,
+    },
 }
 
 // Use the library instead of declaring modules
-use pdfrs::{elements, image, optimization, parallel, pdf, pdf_generator, pdf_ops, security};
+use pdfrs::{elements, image, markdown, optimization, parallel, pdf, pdf_generator, pdf_ops, security};
 
 fn parse_optimization_profile(s: &str) -> optimization::OptimizationProfile {
     match s.to_lowercase().as_str() {
@@ -900,6 +961,376 @@ fn main() {
                     }
                 }
                 Err(e) => eprintln!("Error validating PDF/A: {}", e),
+            }
+        }
+        Commands::AttachFile { input, output, file, name } => {
+            let attachment_name = name.as_deref().unwrap_or_else(|| {
+                std::path::Path::new(&file)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&file)
+            });
+
+            match pdf::PdfDocument::load_from_file(&input) {
+                Ok(mut doc) => {
+                    let data = match std::fs::read(&file) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            eprintln!("Error reading attachment file: {}", e);
+                            return;
+                        }
+                    };
+                    match doc.embed_file(attachment_name, &data) {
+                        Ok(_) => {
+                            match std::fs::write(&output, &doc.to_bytes()) {
+                                Ok(_) => println!("Attached '{}' to {} as '{}'", file, input, attachment_name),
+                                Err(e) => eprintln!("Error writing output PDF: {}", e),
+                            }
+                        }
+                        Err(e) => eprintln!("Error embedding file: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Error loading PDF: {}", e),
+            }
+        }
+        Commands::DiffPdfs { old, new } => {
+            match (std::fs::read(&old), std::fs::read(&new)) {
+                (Ok(old_bytes), Ok(new_bytes)) => {
+                    match pdf::diff_pdf_bytes(&old_bytes, &new_bytes) {
+                        Ok(diff) => {
+                            println!("PDF diff: {} -> {}", old, new);
+                            println!("  Objects: {} -> {}", diff.object_count_old, diff.object_count_new);
+                            println!("  Pages: {} -> {}", diff.pages_old, diff.pages_new);
+                            println!("  Text similarity: {:.1}%", diff.text_similarity * 100.0);
+                            println!("  Added objects: {:?}", diff.added_objects);
+                            println!("  Removed objects: {:?}", diff.removed_objects);
+                            println!("  Modified objects: {:?}", diff.modified_objects);
+                            println!("  Metadata changed: {}", diff.metadata_changed);
+                            println!("  Embedded files (old): {}", diff.has_embedded_files_old);
+                            println!("  Embedded files (new): {}", diff.has_embedded_files_new);
+                        }
+                        Err(e) => eprintln!("Error diffing PDFs: {}", e),
+                    }
+                }
+                _ => eprintln!("Error reading one or both PDF files"),
+            }
+        }
+        Commands::SanitizePdf { input, output } => {
+            match pdf::PdfDocument::load_from_file(&input) {
+                Ok(mut doc) => {
+                    doc.sanitize();
+                    match std::fs::write(&output, &doc.to_bytes()) {
+                        Ok(_) => println!("Sanitized PDF written to {}", output),
+                        Err(e) => eprintln!("Error writing sanitized PDF: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Error loading PDF: {}", e),
+            }
+        }
+        Commands::ValidatePdfa3 { input } => {
+            match pdf::validate_pdf_a3(&input) {
+                Ok(result) => {
+                    println!("PDF/A-3b validation result for {}:", input);
+                    println!("  Level: {}", result.level);
+                    println!("  Compliant: {}", result.compliant);
+                    println!("  Embedded fonts: {}", result.embedded_fonts);
+                    println!("  Has XMP metadata: {}", result.has_xmp);
+                    println!("  Has encryption: {}", result.has_encryption);
+                    if !result.errors.is_empty() {
+                        println!("  Errors:");
+                        for e in &result.errors {
+                            println!("    - {}", e);
+                        }
+                    }
+                    if !result.warnings.is_empty() {
+                        println!("  Warnings:");
+                        for w in &result.warnings {
+                            println!("    - {}", w);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error validating PDF/A-3b: {}", e),
+            }
+        }
+        Commands::ValidatePdfua { input } => {
+            match pdf::validate_pdf_ua(&input) {
+                Ok(result) => {
+                    println!("PDF/UA validation result for {}:", input);
+                    println!("  Compliant: {}", result.compliant);
+                    println!("  MarkInfo: {}", result.has_mark_info);
+                    println!("  StructTreeRoot: {}", result.has_struct_tree);
+                    println!("  Lang: {}", result.has_lang);
+                    println!("  Title: {}", result.has_title);
+                    println!("  Fonts embedded: {}", result.fonts_embedded);
+                    if !result.errors.is_empty() {
+                        println!("  Errors:");
+                        for e in &result.errors {
+                            println!("    - {}", e);
+                        }
+                    }
+                    if !result.warnings.is_empty() {
+                        println!("  Warnings:");
+                        for w in &result.warnings {
+                            println!("    - {}", w);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error validating PDF/UA: {}", e),
+            }
+        }
+        Commands::CreatePortfolio { output, files, title } => {
+            if files.is_empty() {
+                eprintln!("Error: no files provided for portfolio");
+                return;
+            }
+            let file_tuples: Vec<(String, String)> = files.iter()
+                .map(|f| {
+                    let desc = std::path::Path::new(f)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(f)
+                        .to_string();
+                    (f.clone(), desc)
+                })
+                .collect();
+            match pdf_ops::create_portfolio_pdf(&output, &file_tuples, title.as_deref()) {
+                Ok(_) => println!("Created portfolio PDF with {} file(s): {}", files.len(), output),
+                Err(e) => eprintln!("Error creating portfolio: {}", e),
+            }
+        }
+        Commands::WatchMarkdown { input, output, font, font_size, orientation, interval } => {
+            let font = font.unwrap_or_else(|| "Helvetica".to_string());
+            let font_size = font_size.unwrap_or(12.0);
+            let orientation = match orientation.as_deref() {
+                Some("landscape") => pdf_generator::PageOrientation::Landscape,
+                _ => pdf_generator::PageOrientation::Portrait,
+            };
+            match markdown::watch_markdown_to_pdf(&input, &output, &font, font_size, orientation, Some(interval)) {
+                Ok(_) => {}
+                Err(e) => eprintln!("Error watching markdown: {}", e),
+            }
+        }
+        Commands::Repl => {
+            run_repl();
+        }
+    }
+}
+
+/// Interactive REPL for PDF manipulation.
+///
+/// Supports commands:
+/// - `load <file>` — load a PDF into the session
+/// - `save <file>` — save the current PDF
+/// - `text` — extract text from the loaded PDF
+/// - `pages` — count pages in the loaded PDF
+/// - `validate` — validate structural integrity
+/// - `validate-pdfa` — check PDF/A-1b compliance
+/// - `optimize [web|print|archive|ebook]` — optimize the PDF
+/// - `sanitize` — remove dangerous content
+/// - `attach <file> [name]` — embed a file attachment
+/// - `info` — show document info (objects, pages, catalog)
+/// - `help` — show available commands
+/// - `quit` / `exit` — leave the REPL
+fn run_repl() {
+    use std::io::{self, Write};
+
+    let mut doc: Option<pdf::PdfDocument> = None;
+    let mut current_path: Option<String> = None;
+
+    println!("pdfrs PDF REPL — type 'help' for commands, 'quit' to exit.");
+
+    loop {
+        print!("pdf> ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() {
+            break;
+        }
+        let line = input.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let cmd = parts.first().copied().unwrap_or("");
+        let args = &parts[1..];
+
+        match cmd {
+            "quit" | "exit" => {
+                println!("Goodbye.");
+                break;
+            }
+            "help" => {
+                println!("Commands:");
+                println!("  load <file>           Load a PDF file");
+                println!("  save <file>           Save the current PDF");
+                println!("  text                  Extract text from loaded PDF");
+                println!("  pages                 Count pages");
+                println!("  validate              Validate structural integrity");
+                println!("  validate-pdfa         Check PDF/A-1b compliance");
+                println!("  optimize [profile]    Optimize (web|print|archive|ebook)");
+                println!("  sanitize              Remove JS, launch actions, etc.");
+                println!("  attach <file> [name]  Embed a file attachment");
+                println!("  info                  Show document info");
+                println!("  help                  Show this message");
+                println!("  quit / exit           Leave the REPL");
+            }
+            "load" => {
+                if args.is_empty() {
+                    println!("Usage: load <file>");
+                    continue;
+                }
+                let path = args[0];
+                match pdf::PdfDocument::load_from_file(path) {
+                    Ok(loaded) => {
+                        println!("Loaded {} ({} objects)", path, loaded.objects.len());
+                        doc = Some(loaded);
+                        current_path = Some(path.to_string());
+                    }
+                    Err(e) => println!("Error loading PDF: {}", e),
+                }
+            }
+            "save" => {
+                if args.is_empty() {
+                    println!("Usage: save <file>");
+                    continue;
+                }
+                let Some(ref d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                let path = args[0];
+                match std::fs::write(path, &d.to_bytes()) {
+                    Ok(_) => println!("Saved to {}", path),
+                    Err(e) => println!("Error saving PDF: {}", e),
+                }
+            }
+            "text" => {
+                let Some(ref d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                match d.get_text() {
+                    Ok(t) => println!("{}", t),
+                    Err(e) => println!("Error extracting text: {}", e),
+                }
+            }
+            "pages" => {
+                let Some(ref d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                let bytes = d.to_bytes();
+                let content = String::from_utf8_lossy(&bytes);
+                let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
+                let count = page_re.find_iter(&content).count();
+                println!("Pages: {}", count);
+            }
+            "validate" => {
+                let Some(ref d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                let result = pdf::validate_pdf_bytes(&d.to_bytes());
+                println!("Valid: {}", result.valid);
+                if !result.errors.is_empty() {
+                    println!("Errors:");
+                    for e in &result.errors {
+                        println!("  - {}", e);
+                    }
+                }
+            }
+            "validate-pdfa" => {
+                let Some(ref d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                let result = pdf::validate_pdf_a_bytes(&d.to_bytes());
+                println!("PDF/A-1b Compliant: {}", result.compliant);
+                if !result.errors.is_empty() {
+                    println!("Errors:");
+                    for e in &result.errors {
+                        println!("  - {}", e);
+                    }
+                }
+            }
+            "optimize" => {
+                let Some(ref mut d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                let profile = args.first().copied().unwrap_or("web");
+                let settings = match profile {
+                    "web" => optimization::OptimizationProfile::web(),
+                    "print" => optimization::OptimizationProfile::print(),
+                    "archive" => optimization::OptimizationProfile::archive(),
+                    "ebook" => optimization::OptimizationProfile::ebook(),
+                    _ => optimization::OptimizationProfile::web(),
+                }.settings();
+                let bytes = d.to_bytes();
+                match optimization::optimize_pdf_bytes(&bytes, settings) {
+                    Ok(optimized) => {
+                        match pdf::PdfDocument::load_from_bytes(&optimized) {
+                            Ok(reloaded) => {
+                                println!("Optimized ({} -> {} bytes)", bytes.len(), optimized.len());
+                                *d = reloaded;
+                            }
+                            Err(e) => println!("Error reloading optimized PDF: {}", e),
+                        }
+                    }
+                    Err(e) => println!("Error optimizing PDF: {}", e),
+                }
+            }
+            "sanitize" => {
+                let Some(ref mut d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                d.sanitize();
+                println!("Sanitized PDF (removed JS, launch actions, etc.)");
+            }
+            "attach" => {
+                let Some(ref mut d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                if args.is_empty() {
+                    println!("Usage: attach <file> [name]");
+                    continue;
+                }
+                let file_path = args[0];
+                let name = args.get(1).copied().unwrap_or_else(|| {
+                    std::path::Path::new(file_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(file_path)
+                });
+                match std::fs::read(file_path) {
+                    Ok(data) => match d.embed_file(name, &data) {
+                        Ok(_) => println!("Attached '{}' as '{}'", file_path, name),
+                        Err(e) => println!("Error embedding file: {}", e),
+                    },
+                    Err(e) => println!("Error reading file: {}", e),
+                }
+            }
+            "info" => {
+                let Some(ref d) = doc else {
+                    println!("No PDF loaded. Use 'load <file>' first.");
+                    continue;
+                };
+                let bytes = d.to_bytes();
+                let content = String::from_utf8_lossy(&bytes);
+                let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
+                let pages = page_re.find_iter(&content).count();
+                println!("Objects: {}", d.objects.len());
+                println!("Pages: {}", pages);
+                println!("Catalog ID: {}", d.catalog);
+                println!("Version: {}", d.version);
+                println!("Has embedded files: {}", content.contains("/EmbeddedFiles"));
+            }
+            _ => {
+                println!("Unknown command '{}'. Type 'help' for available commands.", cmd);
             }
         }
     }

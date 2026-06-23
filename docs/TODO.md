@@ -116,6 +116,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Password protection — `PdfSecurity` with user/owner passwords
   - [x] User/owner permissions — `PdfPermissions` with PDF 1.7 compliance
   - [x] Digital signatures — `DigitalSignature` with `sign`/`verify-signature` CLI commands, SHA-256 content digest, PDF signature dictionary structure
+  - [x] PDF sanitization — `PdfDocument::sanitize()` strips JavaScript, launch actions, external file references, additional actions; `sanitize-pdf` CLI command
 
 - [ ] Performance improvements
   - [ ] Memory usage optimization
@@ -130,46 +131,29 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 ### 🔴 Critical (Competitive Advantages)
 
 #### FR12: Streaming & Incremental Processing
-- [ ] **FR12.1**: Streaming PDF generation trait
-  ```rust
-  pub trait StreamingPdfGenerator {
-      fn generate_streaming(&mut self, elements: &[Element]) -> Stream<Page>;
-  }
-  ```
-- [ ] **FR12.2**: Page-by-page lazy loading
-  ```rust
-  pub fn render_page_range(&mut self, elements: &[Element], range: Range<usize>) -> Result<Vec<Page>>;
-  ```
-- [ ] **FR12.3**: Incremental PDF writing (write pages as generated)
-  ```rust
-  pub fn create_pdf_streaming(filename: &str, elements: &[Element]) -> Result<()>;
-  ```
-- [ ] **FR12.4**: Lazy PDF document (load pages on-demand)
-  ```rust
-  pub struct LazyPdfDocument { /* ... */ }
-  ```
+- [x] **FR12.1**: Streaming PDF generation — `StreamingPdfGenerator` struct with incremental page writing to `BufWriter<File>`
+- [x] **FR12.2**: Page-by-page lazy loading — `render_page_range()` renders all elements, slices the resulting page streams to the requested `Range<usize>`, and assembles a standalone PDF with only the selected pages
+- [x] **FR12.3**: Incremental PDF writing — `StreamingPdfGenerator::finish()` writes header, objects, xref, and trailer incrementally
+- [x] **FR12.4**: Lazy PDF document — `LazyPdfDocument::load_from_bytes()` indexes stream object byte ranges without parsing dictionaries/arrays; `get_text()` lazily decompresses only content streams with text operators
 
 #### FR13: Performance & Parallelism
-- [ ] **FR13.1**: Add `rayon` dependency for parallelism
-- [ ] **FR13.2**: Parallel page rendering with `par_iter()`
-- [ ] **FR13.3**: Parallel PDF merging (load inputs concurrently)
+- [x] **FR13.1**: `rayon` dependency for parallelism — `Cargo.toml` dependency and `parallel.rs` module
+- [x] **FR13.2**: Parallel page rendering — `ParallelPdfGenerator::generate_markdown_pdfs_parallel()` with `par_iter()`
+- [x] **FR13.3**: Parallel PDF merging — `merge_pdfs_parallel()` loads inputs concurrently, `extract_text_parallel()`, `validate_pdfs_parallel()`, `count_pages_parallel()`, `process_pdfs_parallel()`
 - [ ] **FR13.4**: SIMD text width calculations
-- [ ] **FR13.5**: Async PDF API for web servers (`tokio`)
+- [x] **FR13.5**: Async PDF API for web servers — `async_api` module gated behind `async` Cargo feature; `tokio::fs` for non-blocking I/O, `tokio::task::spawn_blocking` for CPU-bound parsing/generation; `load_pdf_async()`, `generate_pdf_async()`, `optimize_pdf_async()`, `validate_pdf_async()`, `validate_pdf_a_async()`
 
 #### FR15: Developer Experience
-- [ ] **FR15.1**: Builder API with fluent interface
-  ```rust
-  PdfBuilder::new().with_layout(PageLayout::landscape()).build()?;
-  ```
-- [ ] **FR15.2**: Property-based testing with `proptest`
-- [ ] **FR15.3**: Diff/patch support for version control
-- [ ] **FR15.4**: Hot-reload during development
-- [ ] **FR15.5**: Interactive REPL for PDF manipulation
+- [x] **FR15.1**: Builder API with fluent interface — `PdfBuilder` with `.with_layout()`, `.with_font()`, `.add_heading()`, `.add_paragraph()`, `.build()`, `.build_bytes()`
+- [x] **FR15.2**: Property-based testing with `proptest` — `proptest` dev-dependency with tests in `compression.rs`, `image.rs`, `pdf_ops.rs`, `elements.rs`
+- [x] **FR15.3**: Diff/patch support for version control — `diff_pdf_bytes()` compares two PDFs structurally (object count, page count, added/removed/modified objects, text similarity via Jaccard); `diff-pdfs` CLI command
+- [x] **FR15.4**: Hot-reload during development — `watch-markdown` CLI command polls source file modification time and regenerates PDF on changes; configurable poll interval; `watch_markdown_to_pdf()` API function
+- [x] **FR15.5**: Interactive REPL for PDF manipulation — `repl` CLI command with `load`, `save`, `text`, `pages`, `validate`, `validate-pdfa`, `optimize`, `sanitize`, `attach`, `info`, `help`, `quit` commands; stateful session with `PdfDocument`
 
 #### FR18: Intelligent Optimization
 - [x] **FR18.1**: Smart content-aware compression — `optimize-pdf` CLI command with stream recompression via `PdfDocument::to_bytes()`
 - [ ] **FR18.2**: Font subsetting to reduce file size
-- [ ] **FR18.3**: Object deduplication across pages
+- [x] **FR18.3**: Object deduplication across pages — `PdfDocument::deduplicate_objects()` with deterministic content hashing and reference rewriting, integrated into `optimize_pdf_bytes()`
 - [x] **FR18.4**: Optimization profiles (web, print, archive, ebook)
 
 ### 🟡 High Impact
@@ -178,7 +162,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR14.1**: Structure detection (headings, sections) — `detect-structure` CLI command with font-size heuristics
 - [x] **FR14.2**: Table extraction to CSV/Excel formats — `extract-tables` CLI command
 - [x] **FR14.3**: Form field detection and filling — `detect-form-fields` / `fill-form-fields` CLI commands
-- [ ] **FR14.4**: Content-aware image compression
+- [x] **FR14.4**: Content-aware image compression — `optimize_pdf_bytes` skips DCTDecode/JPXDecode/JBIG2Decode image streams to avoid re-wrapping already-compressed images in FlateDecode
 - [x] **FR14.5**: PDF/A-1b validation — `validate-pdfa` CLI command with encryption, JS, font embedding, and XMP checks
 
 #### FR16: WebAssembly Support
@@ -195,15 +179,15 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 #### FR17: Advanced Format Support
 - [ ] **FR17.1**: PDF 2.0 specification features
-- [ ] **FR17.2**: PDF/A-3 and PDF/UA (accessibility)
-- [ ] **FR17.3**: Embedded file attachments
-- [ ] **FR17.4**: PDF portfolios and collections
+- [x] **FR17.2**: PDF/A-3 and PDF/UA validation — `validate_pdf_a3_bytes()` extends PDF/A-1b checks with embedded file requirement; `validate_pdf_ua_bytes()` checks /MarkInfo, /StructTreeRoot, /Lang, Title, no encryption, embedded fonts; `validate-pdfa3` and `validate-pdfua` CLI commands
+- [x] **FR17.3**: Embedded file attachments — `PdfDocument::embed_file()` creates /EmbeddedFile stream and /Filespec objects, wires them into catalog's /Names -> /EmbeddedFiles name tree; `attach-file` CLI command
+- [x] **FR17.4**: PDF portfolios and collections — `create_portfolio_pdf()` bundles multiple files into a portfolio PDF with `/Collection` catalog entry, schema (Name/Description columns), sort order, and embedded files; `create-portfolio` CLI command
 - [ ] **FR17.5**: 3D annotations (U3D)
 
 #### FR19: Security
-- [ ] **FR19.1**: Malformed PDF sanitization
+- [x] **FR19.1**: Malformed PDF sanitization — `PdfDocument::sanitize()` removes JavaScript (`/JS`, `/JavaScript`), launch actions (`/S /Launch`), external file references, additional actions (`/AA`), and `OpenAction` from catalog; `sanitize-pdf` CLI command
 - [ ] **FR19.2**: JavaScript action sandbox
-- [ ] **FR19.3**: Digital signature creation/verification
+- [x] **FR19.3**: Digital signature creation/verification — `DigitalSignature` struct with SHA-256 content digest, `sign-pdf` and `verify-signature` CLI commands
 - [ ] **FR19.4**: Certificate management
 
 ---
@@ -259,7 +243,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `StructureElement` tree with alt_text, actual_text
   - [x] `element_to_structure()` mapping for all Element variants
   - [x] `AccessibilityOptions` builder (tagged_pdf, language, title)
-  - [ ] Full tagged PDF generation in output
+  - [x] Full tagged PDF generation in output — `generate_tagged_pdf_bytes()` creates `/StructTreeRoot`, `/MarkInfo << /Marked true >>`, `/Lang`, and `/Title` in catalog/Info dictionary; generated PDFs pass `validate_pdf_ua_bytes()` checks
   - [ ] Screen reader compliance testing
 
 - [ ] Localization

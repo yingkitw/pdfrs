@@ -1,4 +1,5 @@
 use crate::elements::{Element, TextSegment};
+use crate::pdf_ops::escape_pdf_meta;
 use crate::table_renderer::{PdfTableHelper, TableStyle};
 use anyhow::Result;
 use std::fs::File;
@@ -215,6 +216,7 @@ fn split_long_word_for_wrap(word: &str, max_units: usize) -> Vec<String> {
 pub struct PdfGenerator {
     pub objects: Vec<PdfObj>,
     pub next_id: u32,
+    pub info_id: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -231,6 +233,7 @@ impl PdfGenerator {
         PdfGenerator {
             objects: Vec::new(),
             next_id: 1,
+            info_id: None,
         }
     }
 
@@ -304,6 +307,9 @@ impl PdfGenerator {
         pdf.extend_from_slice(format!("/Size {}\n", self.objects.len() + 1).as_bytes());
         if !self.objects.is_empty() {
             pdf.extend_from_slice(format!("/Root {} 0 R\n", self.objects.len()).as_bytes());
+        }
+        if let Some(info_id) = self.info_id {
+            pdf.extend_from_slice(format!("/Info {} 0 R\n", info_id).as_bytes());
         }
         pdf.extend_from_slice(b">>\n");
         pdf.extend_from_slice(b"startxref\n");
@@ -1322,6 +1328,7 @@ pub fn generate_pdf_bytes(
         &layout,
         unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
         None,
+        None,
     ))
 }
 
@@ -1356,6 +1363,126 @@ pub fn generate_pdf_bytes_with_compression(
         &layout,
         unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
         compression_level,
+        None,
+    ))
+}
+
+/// Generate a tagged/accessible PDF with PDF/UA structural support.
+///
+/// When `options.tagged_pdf` is true, the output includes:
+/// - `/MarkInfo << /Marked true >>` in the catalog
+/// - `/StructTreeRoot` with a document-level structure tree
+/// - `/Lang` attribute on the catalog
+/// - `/Title` in the Info dictionary (if provided)
+///
+/// # Example
+/// ```rust,no_run
+/// use pdfrs::pdf_generator::{generate_tagged_pdf_bytes, AccessibilityOptions, PageLayout};
+/// use pdfrs::elements::Element;
+///
+/// let elements = vec![Element::Paragraph { text: "Hello".into() }];
+/// let opts = AccessibilityOptions::new()
+///     .with_tagged_pdf(true)
+///     .with_title("My Document".to_string());
+/// let bytes = generate_tagged_pdf_bytes(&elements, "Helvetica", 12.0, PageLayout::portrait(), opts).unwrap();
+/// ```
+pub fn generate_tagged_pdf_bytes(
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+    options: AccessibilityOptions,
+) -> Result<Vec<u8>> {
+    let unicode_font_support = if document_requires_unicode(elements) {
+        prepare_unicode_font_support()
+    } else {
+        None
+    };
+    let unicode_font_encoder = unicode_font_support
+        .as_ref()
+        .map(|(_, encoder)| encoder.clone());
+    let show_page_numbers = true;
+    let mut builder = ContentStreamBuilder::new(
+        base_font_size,
+        show_page_numbers,
+        layout,
+        unicode_font_encoder,
+    );
+    render_elements_to_builder(&mut builder, elements, base_font_size);
+    let page_streams = builder.finish();
+    Ok(assemble_pdf_bytes(
+        &page_streams,
+        font,
+        &layout,
+        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        None,
+        Some(&options),
+    ))
+}
+
+/// Render only a specific page range from elements into a standalone PDF.
+///
+/// Pages are 0-indexed; `range` follows Rust's `Range<usize>` semantics
+/// (start inclusive, end exclusive). This is useful for previewing or
+/// extracting a subset of pages without regenerating the entire document.
+///
+/// # Example
+/// ```rust,no_run
+/// use pdfrs::pdf_generator::{PageLayout, render_page_range};
+/// use pdfrs::elements::Element;
+///
+/// let elements = vec![
+///     Element::Paragraph { text: "Page 1".into() },
+///     Element::PageBreak,
+///     Element::Paragraph { text: "Page 2".into() },
+///     Element::PageBreak,
+///     Element::Paragraph { text: "Page 3".into() },
+/// ];
+/// let bytes = render_page_range(&elements, "Helvetica", 12.0, PageLayout::portrait(), 1..3).unwrap();
+/// // bytes now contains a 2-page PDF with "Page 2" and "Page 3"
+/// ```
+pub fn render_page_range(
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+    range: std::ops::Range<usize>,
+) -> Result<Vec<u8>> {
+    let unicode_font_support = if document_requires_unicode(elements) {
+        prepare_unicode_font_support()
+    } else {
+        None
+    };
+    let unicode_font_encoder = unicode_font_support
+        .as_ref()
+        .map(|(_, encoder)| encoder.clone());
+    let show_page_numbers = true;
+    let mut builder = ContentStreamBuilder::new(
+        base_font_size,
+        show_page_numbers,
+        layout,
+        unicode_font_encoder,
+    );
+    render_elements_to_builder(&mut builder, elements, base_font_size);
+    let all_page_streams = builder.finish();
+
+    if range.start >= all_page_streams.len() {
+        anyhow::bail!(
+            "Start page {} exceeds total pages {}",
+            range.start,
+            all_page_streams.len()
+        );
+    }
+    let end = range.end.min(all_page_streams.len());
+    let selected = &all_page_streams[range.start..end];
+
+    Ok(assemble_pdf_bytes(
+        selected,
+        font,
+        &layout,
+        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        None,
+        None,
     ))
 }
 
@@ -1366,6 +1493,7 @@ fn assemble_pdf_bytes(
     layout: &PageLayout,
     unicode_font_bytes: Option<&[u8]>,
     compression_level: Option<u8>,
+    accessibility: Option<&AccessibilityOptions>,
 ) -> Vec<u8> {
     let mut generator = PdfGenerator::new();
 
@@ -1430,11 +1558,50 @@ fn assemble_pdf_bytes(
     let actual_pages_id = generator.add_object(pages_dict);
     assert_eq!(actual_pages_id, pages_obj_id);
 
+    // Build tagged PDF structures if accessibility options are provided
+    let mut struct_tree_id = None;
+    if let Some(opts) = accessibility {
+        if opts.tagged_pdf {
+            // Create a simple structure tree root
+            let struct_tree_dict = format!(
+                "<< /Type /StructTreeRoot\n\
+                 /K [ << /Type /StructElem /S /Document /P {} 0 R >> ]\n\
+                 >>\n",
+                generator.next_id // placeholder parent, points to self in this minimal tree
+            );
+            struct_tree_id = Some(generator.add_object(struct_tree_dict));
+        }
+
+        // Info dictionary with title if provided
+        if let Some(title) = &opts.title {
+            let info_dict = format!(
+                "<< /Title ({})\n\
+                 /Producer (pdfrs)\n\
+                 >>\n",
+                escape_pdf_meta(title)
+            );
+            let info_id = generator.add_object(info_dict);
+            generator.info_id = Some(info_id);
+        }
+    }
+
+    // Build catalog with optional tagged PDF entries
+    let mut catalog_entries = format!("/Pages {} 0 R\n", actual_pages_id);
+    if let Some(opts) = accessibility {
+        if opts.tagged_pdf {
+            catalog_entries.push_str("/MarkInfo << /Marked true >>\n");
+            catalog_entries.push_str(&format!("/Lang ({})\n", escape_pdf_meta(&opts.language)));
+            if let Some(st_id) = struct_tree_id {
+                catalog_entries.push_str(&format!("/StructTreeRoot {} 0 R\n", st_id));
+            }
+        }
+    }
+
     let catalog_dict = format!(
         "<< /Type /Catalog\n\
-         /Pages {} 0 R\n\
+         {}\
          >>\n",
-        actual_pages_id
+        catalog_entries
     );
     generator.add_object(catalog_dict);
 
@@ -1450,7 +1617,7 @@ fn assemble_pdf(
     unicode_font_bytes: Option<&[u8]>,
     compression_level: Option<u8>,
 ) -> Result<()> {
-    let pdf_data = assemble_pdf_bytes(page_streams, font, layout, unicode_font_bytes, compression_level);
+    let pdf_data = assemble_pdf_bytes(page_streams, font, layout, unicode_font_bytes, compression_level, None);
     let mut file = File::create(filename)?;
     file.write_all(&pdf_data)?;
     Ok(())
@@ -1982,5 +2149,130 @@ mod accessibility_tests {
         let expected = encoder.encode_text_as_glyph_ids("Unicode Test");
 
         assert_eq!(encoded, expected);
+    }
+}
+
+#[cfg(test)]
+mod page_range_tests {
+    use super::*;
+    use crate::elements::Element;
+
+    #[test]
+    fn test_render_page_range_extracts_subset() {
+        let elements = vec![
+            Element::Paragraph { text: "First page content".into() },
+            Element::PageBreak,
+            Element::Paragraph { text: "Second page content".into() },
+            Element::PageBreak,
+            Element::Paragraph { text: "Third page content".into() },
+        ];
+        let layout = PageLayout::portrait();
+
+        // Extract pages 1..3 (second and third pages, 0-indexed)
+        let bytes = render_page_range(&elements, "Helvetica", 12.0, layout, 1..3).unwrap();
+        assert!(!bytes.is_empty(), "Rendered page range should produce non-empty PDF");
+
+        // Verify it's a valid PDF
+        let content = String::from_utf8_lossy(&bytes);
+        assert!(content.starts_with("%PDF-"), "Should be a valid PDF header");
+
+        // Extract text and verify only pages 2 and 3 are present
+        let doc = crate::pdf::PdfDocument::load_from_bytes(&bytes).unwrap();
+        let text = doc.get_text().unwrap();
+        assert!(
+            text.contains("Second page content"),
+            "Extracted PDF should contain second page text: {}",
+            text
+        );
+        assert!(
+            text.contains("Third page content"),
+            "Extracted PDF should contain third page text: {}",
+            text
+        );
+        assert!(
+            !text.contains("First page content"),
+            "Extracted PDF should NOT contain first page text: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_render_page_range_single_page() {
+        let elements = vec![
+            Element::Paragraph { text: "Only page".into() },
+        ];
+        let layout = PageLayout::portrait();
+
+        let bytes = render_page_range(&elements, "Helvetica", 12.0, layout, 0..1).unwrap();
+        let doc = crate::pdf::PdfDocument::load_from_bytes(&bytes).unwrap();
+        let text = doc.get_text().unwrap();
+        assert!(text.contains("Only page"), "Single page extraction should work: {}", text);
+    }
+
+    #[test]
+    fn test_render_page_range_out_of_bounds() {
+        let elements = vec![
+            Element::Paragraph { text: "One page".into() },
+        ];
+        let layout = PageLayout::portrait();
+
+        let result = render_page_range(&elements, "Helvetica", 12.0, layout, 5..10);
+        assert!(result.is_err(), "Out-of-bounds range should return an error");
+    }
+
+    #[test]
+    fn test_generate_tagged_pdf_bytes() {
+        use crate::pdf::{validate_pdf_ua_bytes, validate_pdf_bytes};
+
+        let elements = vec![
+            Element::Heading { level: 1, text: "Tagged Document".into() },
+            Element::Paragraph { text: "This is an accessible PDF.".into() },
+        ];
+        let layout = PageLayout::portrait();
+        let opts = AccessibilityOptions::new()
+            .with_tagged_pdf(true)
+            .with_language("en-US".to_string())
+            .with_title("Test Tagged PDF".to_string());
+
+        let bytes = generate_tagged_pdf_bytes(&elements, "Helvetica", 12.0, layout, opts).unwrap();
+        assert!(!bytes.is_empty(), "Should generate non-empty PDF bytes");
+
+        let content = String::from_utf8_lossy(&bytes);
+
+        // Should contain tagged PDF markers
+        assert!(content.contains("/MarkInfo"), "Should contain /MarkInfo");
+        assert!(content.contains("/Marked true"), "Should contain /Marked true");
+        assert!(content.contains("/StructTreeRoot"), "Should contain /StructTreeRoot");
+        assert!(content.contains("/Lang"), "Should contain /Lang");
+        assert!(content.contains("en-US"), "Should contain language");
+        assert!(content.contains("Test Tagged PDF"), "Should contain title");
+
+        // Should be structurally valid
+        let validation = validate_pdf_bytes(&bytes);
+        assert!(validation.valid, "Tagged PDF should be structurally valid: {:?}", validation.errors);
+
+        // Should pass PDF/UA structural checks
+        let ua = validate_pdf_ua_bytes(&bytes);
+        assert!(ua.has_mark_info, "Should have MarkInfo");
+        assert!(ua.has_struct_tree, "Should have StructTreeRoot");
+        assert!(ua.has_lang, "Should have Lang");
+        assert!(ua.has_title, "Should have Title");
+        assert!(ua.compliant, "Tagged PDF should be PDF/UA compliant: {:?}", ua.errors);
+    }
+
+    #[test]
+    fn test_generate_tagged_pdf_bytes_disabled() {
+        let elements = vec![
+            Element::Paragraph { text: "Untagged".into() },
+        ];
+        let layout = PageLayout::portrait();
+        let opts = AccessibilityOptions::new().with_tagged_pdf(false);
+
+        let bytes = generate_tagged_pdf_bytes(&elements, "Helvetica", 12.0, layout, opts).unwrap();
+        let content = String::from_utf8_lossy(&bytes);
+
+        // When tagged_pdf is false, should NOT contain tagged markers
+        assert!(!content.contains("/MarkInfo"), "Should not contain /MarkInfo when disabled");
+        assert!(!content.contains("/StructTreeRoot"), "Should not contain /StructTreeRoot when disabled");
     }
 }

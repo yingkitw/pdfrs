@@ -384,19 +384,45 @@ pub fn optimize_pdf_bytes(
 
     for obj in doc.objects.values_mut() {
         if let PdfObject::Stream { dictionary, data } = obj {
-            // Determine if the stream is currently compressed
-            let is_compressed = dictionary
+            // Extract the filter name for content-aware decisions
+            let filter = dictionary
                 .get("Filter")
-                .map(|v| match v {
-                    PdfValue::Object(PdfObject::String(s)) => {
-                        s.contains("FlateDecode") || s.contains("flate")
-                    }
-                    _ => false,
+                .and_then(|v| match v {
+                    PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
+                    _ => None,
+                });
+
+            // Check if this is an image XObject
+            let is_image = dictionary
+                .get("Subtype")
+                .and_then(|v| match v {
+                    PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
+                    _ => None,
                 })
+                .map(|s| s == "/Image" || s == "Image")
+                .unwrap_or(false);
+
+            // Content-aware image compression: skip already-compressed image formats
+            // DCTDecode (JPEG), JPXDecode (JPEG2000), and JBIG2Decode are already
+            // optimized with codecs designed for images; re-wrapping them in
+            // FlateDecode usually increases file size and adds decode overhead.
+            let is_already_compressed_image = is_image
+                && filter.map(|f| {
+                    f.contains("DCTDecode") || f.contains("JPXDecode") || f.contains("JBIG2Decode")
+                }).unwrap_or(false);
+
+            if is_already_compressed_image {
+                // Preserve JPEG/JPEG2000/JBIG2 images as-is
+                continue;
+            }
+
+            // Determine if the stream is currently FlateDecode-compressed
+            let is_flate_compressed = filter
+                .map(|f| f.contains("FlateDecode") || f.contains("flate"))
                 .unwrap_or(false);
 
             // Get the raw uncompressed data
-            let raw_data = if is_compressed {
+            let raw_data = if is_flate_compressed {
                 crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.clone())
             } else {
                 data.clone()
@@ -424,6 +450,9 @@ pub fn optimize_pdf_bytes(
             );
         }
     }
+
+    // Deduplicate identical objects (most effective after stream normalization)
+    doc.deduplicate_objects();
 
     Ok(doc.to_bytes())
 }
@@ -497,5 +526,56 @@ mod tests {
         assert_eq!(generator.settings().compression_level, CompressionLevel::High);
         assert_eq!(generator.font, "Courier");
         assert_eq!(generator.font_size, 10.0);
+    }
+
+    #[test]
+    fn test_preserve_dctdecode_images() {
+        use crate::pdf::{PdfDocument, PdfObject, PdfValue};
+        use std::collections::HashMap;
+
+        // Build a minimal PDF with a DCTDecode image XObject
+        let mut doc = PdfDocument::new();
+
+        // Catalog
+        let mut catalog = HashMap::new();
+        catalog.insert("Type".to_string(), PdfValue::Object(PdfObject::String("/Catalog".to_string())));
+        doc.objects.insert(1, PdfObject::Dictionary(catalog));
+        doc.catalog = 1;
+
+        // DCTDecode image stream (minimal JPEG markers)
+        let mut img_dict = HashMap::new();
+        img_dict.insert("Type".to_string(), PdfValue::Object(PdfObject::String("/XObject".to_string())));
+        img_dict.insert("Subtype".to_string(), PdfValue::Object(PdfObject::String("/Image".to_string())));
+        img_dict.insert("Width".to_string(), PdfValue::Object(PdfObject::Number(1.0)));
+        img_dict.insert("Height".to_string(), PdfValue::Object(PdfObject::Number(1.0)));
+        img_dict.insert("ColorSpace".to_string(), PdfValue::Object(PdfObject::String("/DeviceRGB".to_string())));
+        img_dict.insert("BitsPerComponent".to_string(), PdfValue::Object(PdfObject::Number(8.0)));
+        img_dict.insert("Filter".to_string(), PdfValue::Object(PdfObject::String("/DCTDecode".to_string())));
+
+        doc.objects.insert(5, PdfObject::Stream {
+            dictionary: img_dict,
+            data: b"\xFF\xD8\xFF\xD9".to_vec(), // Minimal JPEG SOI + EOI
+        });
+
+        // Also add an uncompressed text stream to ensure non-images still get compressed
+        let mut text_dict = HashMap::new();
+        text_dict.insert("Length".to_string(), PdfValue::Object(PdfObject::Number(12.0)));
+        doc.objects.insert(10, PdfObject::Stream {
+            dictionary: text_dict,
+            data: b"BT /F1 12 Tf ET".to_vec(),
+        });
+
+        let pdf_bytes = doc.to_bytes();
+
+        // Optimize with Web profile (high compression)
+        let settings = OptimizationProfile::Web.settings();
+        let optimized = optimize_pdf_bytes(&pdf_bytes, settings).unwrap();
+
+        // Verify DCTDecode is preserved for the image
+        let content = String::from_utf8_lossy(&optimized);
+        assert!(content.contains("/DCTDecode"), "DCTDecode filter should be preserved for image streams");
+
+        // Verify the text stream got compressed (should now have FlateDecode)
+        assert!(content.contains("/FlateDecode"), "Non-image streams should be FlateDecode-compressed");
     }
 }

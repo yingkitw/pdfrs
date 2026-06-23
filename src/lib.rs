@@ -142,6 +142,9 @@ pub mod security;
 pub mod streaming;
 pub mod table_renderer;
 
+#[cfg(feature = "async")]
+pub mod async_api;
+
 #[cfg(test)]
 mod tests {
     use crate::markdown::markdown_to_text;

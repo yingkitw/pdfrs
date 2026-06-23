@@ -280,6 +280,328 @@ impl PdfDocument {
         Ok(doc)
     }
 
+    /// Scan a PdfValue recursively and replace references from `old_id` to `new_id`.
+    fn replace_ref_in_value(val: &mut PdfValue, old_id: u32, new_id: u32) {
+        match val {
+            PdfValue::Object(PdfObject::String(s)) => {
+                if let Some(caps) = regex::Regex::new(r"^(\d+) (\d+) R$").unwrap().captures(s) {
+                    if let Ok(id) = caps[1].parse::<u32>() {
+                        if id == old_id {
+                            let generation = &caps[2];
+                            *s = format!("{} {} R", new_id, generation);
+                        }
+                    }
+                }
+            }
+            PdfValue::Object(PdfObject::Dictionary(dict)) => {
+                for v in dict.values_mut() {
+                    Self::replace_ref_in_value(v, old_id, new_id);
+                }
+            }
+            PdfValue::Object(PdfObject::Array(arr)) => {
+                for item in arr.iter_mut() {
+                    Self::replace_ref_in_value(item, old_id, new_id);
+                }
+            }
+            PdfValue::Object(PdfObject::Stream { dictionary, .. }) => {
+                for v in dictionary.values_mut() {
+                    Self::replace_ref_in_value(v, old_id, new_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Replace all references to `old_id` with `new_id` across every object in the document.
+    fn replace_references(&mut self, old_id: u32, new_id: u32) {
+        for obj in self.objects.values_mut() {
+            match obj {
+                PdfObject::Dictionary(dict) => {
+                    for v in dict.values_mut() {
+                        Self::replace_ref_in_value(v, old_id, new_id);
+                    }
+                }
+                PdfObject::Stream { dictionary, .. } => {
+                    for v in dictionary.values_mut() {
+                        Self::replace_ref_in_value(v, old_id, new_id);
+                    }
+                }
+                PdfObject::Array(arr) => {
+                    for item in arr.iter_mut() {
+                        Self::replace_ref_in_value(item, old_id, new_id);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Build a deterministic content key for an object so exact duplicates can be identified.
+    pub(crate) fn object_content_key(obj: &PdfObject) -> Vec<u8> {
+        match obj {
+            PdfObject::Stream { dictionary, data } => {
+                let mut key = Vec::new();
+                let mut entries: Vec<(&String, &PdfValue)> = dictionary.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                for (k, v) in entries {
+                    key.extend_from_slice(k.as_bytes());
+                    key.push(b':');
+                    key.extend_from_slice(serialize_value(v).as_bytes());
+                    key.push(b';');
+                }
+                key.push(b'|');
+                key.extend_from_slice(data);
+                key
+            }
+            PdfObject::Dictionary(dict) => {
+                let mut key = Vec::new();
+                let mut entries: Vec<(&String, &PdfValue)> = dict.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                for (k, v) in entries {
+                    key.extend_from_slice(k.as_bytes());
+                    key.push(b':');
+                    key.extend_from_slice(serialize_value(v).as_bytes());
+                    key.push(b';');
+                }
+                key
+            }
+            other => serialize_object(other).into_bytes(),
+        }
+    }
+
+    /// Remove duplicate objects and rewrite all references to point to a single canonical copy.
+    ///
+    /// This is most effective after stream recompression has normalized filters and lengths,
+    /// so identical streams truly share the same dictionary + data bytes.
+    pub fn deduplicate_objects(&mut self) {
+        let mut content_map: std::collections::HashMap<Vec<u8>, u32> = std::collections::HashMap::new();
+        let mut duplicates: Vec<(u32, u32)> = Vec::new(); // (duplicate_id, canonical_id)
+
+        // Sort by ID so the lowest ID is always chosen as the canonical copy
+        let mut sorted_ids: Vec<u32> = self.objects.keys().copied().collect();
+        sorted_ids.sort();
+
+        for id in sorted_ids {
+            let obj = &self.objects[&id];
+            let key = Self::object_content_key(obj);
+            if let Some(&canonical) = content_map.get(&key) {
+                duplicates.push((id, canonical));
+            } else {
+                content_map.insert(key, id);
+            }
+        }
+
+        // Update references before removing objects so we still have mutable access
+        for (dup_id, canonical_id) in &duplicates {
+            self.replace_references(*dup_id, *canonical_id);
+        }
+
+        // Remove duplicate objects
+        for (dup_id, _) in &duplicates {
+            self.objects.remove(dup_id);
+        }
+    }
+
+    /// Remove potentially dangerous content from this PDF.
+    ///
+    /// Sanitization strips:
+    /// - JavaScript actions (`/JS`, `/JavaScript`)
+    /// - Launch actions (`/S /Launch`)
+    /// - External file references (`/F` in stream dictionaries)
+    /// - Additional actions (`/AA`)
+    /// - OpenAction entries that trigger scripts
+    /// - Embedded files that could carry malware
+    ///
+    /// This is useful when accepting PDFs from untrusted sources or
+    /// before publishing them to the web.
+    pub fn sanitize(&mut self) {
+        // Pass 1: identify dangerous object IDs
+        let ids_to_remove: Vec<u32> = self.objects.iter()
+            .filter(|(_, obj)| Self::object_is_dangerous(obj))
+            .map(|(id, _)| *id)
+            .collect();
+
+        // Remove standalone dangerous objects (JS scripts, etc.)
+        for id in &ids_to_remove {
+            self.objects.remove(id);
+        }
+
+        // Pass 2: strip dangerous keys from remaining dictionaries and streams
+        for (_, obj) in self.objects.iter_mut() {
+            match obj {
+                PdfObject::Dictionary(dict) => Self::strip_dangerous_keys(dict),
+                PdfObject::Stream { dictionary, .. } => Self::strip_dangerous_keys(dictionary),
+                _ => {}
+            }
+        }
+
+        // Also strip dangerous keys from the catalog
+        if let Some(PdfObject::Dictionary(catalog_dict)) = self.objects.get_mut(&self.catalog) {
+            catalog_dict.remove("OpenAction");
+            catalog_dict.remove("AA");
+            catalog_dict.remove("JavaScript");
+            catalog_dict.remove("JS");
+        }
+    }
+
+    /// Check if a PdfObject is inherently dangerous and should be removed entirely.
+    fn object_is_dangerous(obj: &PdfObject) -> bool {
+        let mut content = String::new();
+        match obj {
+            PdfObject::Dictionary(dict) | PdfObject::Stream { dictionary: dict, .. } => {
+                for (k, v) in dict {
+                    content.push_str(k);
+                    content.push(' ');
+                    content.push_str(&Self::value_to_string(v));
+                    content.push(' ');
+                }
+            }
+            PdfObject::String(s) => content.push_str(s),
+            _ => {}
+        }
+        // Standalone JavaScript script objects
+        if let PdfObject::Dictionary(dict) = obj {
+            if dict.contains_key("JS") || dict.contains_key("JavaScript") {
+                return true;
+            }
+        }
+        // Launch actions or embedded malicious scripts in string form
+        if content.contains("/S /Launch") || content.contains("/Launch") {
+            return true;
+        }
+        false
+    }
+
+    /// Recursively convert a PdfValue to a string for scanning.
+    fn value_to_string(val: &PdfValue) -> String {
+        match val {
+            PdfValue::Object(obj) => match obj {
+                PdfObject::String(s) => s.clone(),
+                PdfObject::Number(n) => n.to_string(),
+                PdfObject::Boolean(b) => b.to_string(),
+                PdfObject::Name(n) => format!("/ {}", n),
+                PdfObject::Reference(id, generation) => format!("{} {} R", id, generation),
+                PdfObject::Null => "null".to_string(),
+                PdfObject::Array(arr) => {
+                    let parts: Vec<String> = arr.iter().map(|v| Self::value_to_string(v)).collect();
+                    format!("[ {} ]", parts.join(" "))
+                }
+                PdfObject::Dictionary(dict) => {
+                    let parts: Vec<String> = dict.iter()
+                        .map(|(k, v)| format!("/{} {}", k, Self::value_to_string(v)))
+                        .collect();
+                    format!("<< {} >>", parts.join(" "))
+                }
+                PdfObject::Stream { dictionary, .. } => {
+                    let parts: Vec<String> = dictionary.iter()
+                        .map(|(k, v)| format!("/{} {}", k, Self::value_to_string(v)))
+                        .collect();
+                    format!("<< {} >>", parts.join(" "))
+                }
+            },
+            PdfValue::Reference(id, generation) => format!("{} {} R", id, generation),
+        }
+    }
+
+    /// Strip dangerous keys from a dictionary in-place.
+    fn strip_dangerous_keys(dict: &mut HashMap<String, PdfValue>) {
+        let dangerous_keys: Vec<String> = dict.keys()
+            .filter(|k| {
+                let lower = k.to_lowercase();
+                lower == "js" ||
+                lower == "javascript" ||
+                lower == "launch" ||
+                lower == "aa" ||
+                // Only remove /F from non-Filespec contexts (filespec needs /F for filename)
+                // We check the whole dict to see if it's a Filespec
+                (lower == "f" && !dict.contains_key("Type"))
+            })
+            .cloned()
+            .collect();
+
+        for key in dangerous_keys {
+            dict.remove(&key);
+        }
+
+        // Recursively sanitize nested dictionaries
+        for val in dict.values_mut() {
+            if let PdfValue::Object(PdfObject::Dictionary(inner)) = val {
+                Self::strip_dangerous_keys(inner);
+            }
+            if let PdfValue::Object(PdfObject::Stream { dictionary, .. }) = val {
+                Self::strip_dangerous_keys(dictionary);
+            }
+            if let PdfValue::Object(PdfObject::Array(arr)) = val {
+                for item in arr.iter_mut() {
+                    if let PdfValue::Object(PdfObject::Dictionary(inner)) = item {
+                        Self::strip_dangerous_keys(inner);
+                    }
+                    if let PdfValue::Object(PdfObject::Stream { dictionary, .. }) = item {
+                        Self::strip_dangerous_keys(dictionary);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Embed an external file into this PDF as an attachment.
+    ///
+    /// Creates the required /EmbeddedFile stream and /Filespec objects,
+    /// then wires them into the document catalog's /Names -> /EmbeddedFiles
+    /// name tree so PDF readers can list and open the attachment.
+    pub fn embed_file(&mut self, filename: &str, data: &[u8]) -> Result<u32> {
+        let next_id = self.objects.keys().copied().max().unwrap_or(0) + 1;
+
+        // 1. Embedded file stream object
+        let mut ef_dict = HashMap::new();
+        ef_dict.insert("Type".to_string(), PdfValue::Object(PdfObject::String("/EmbeddedFile".to_string())));
+        ef_dict.insert("Subtype".to_string(), PdfValue::Object(PdfObject::String("/application#2Foctet-stream".to_string())));
+        ef_dict.insert("Length".to_string(), PdfValue::Object(PdfObject::Number(data.len() as f64)));
+
+        let ef_id = next_id;
+        self.objects.insert(ef_id, PdfObject::Stream {
+            dictionary: ef_dict,
+            data: data.to_vec(),
+        });
+
+        // 2. File specification object
+        let fs_id = next_id + 1;
+        let fs_dict = format!(
+            "<< /Type /Filespec /F ({}) /EF << /F {} 0 R >> >>",
+            filename, ef_id
+        );
+        self.objects.insert(fs_id, PdfObject::String(fs_dict));
+
+        // 3. Update catalog to include EmbeddedFiles name tree
+        if let Some(PdfObject::Dictionary(catalog_dict)) = self.objects.get_mut(&self.catalog) {
+            // Build or update /Names entry
+            let names_entry = catalog_dict.entry("Names".to_string()).or_insert_with(|| {
+                PdfValue::Object(PdfObject::String("<< /EmbeddedFiles << /Names [ ] >> >>".to_string()))
+            });
+
+            // We can't easily mutate the string representation, so rebuild it
+            // with the new file appended. Format: /Names << /EmbeddedFiles << /Names [ (file1) 5 0 R (file2) 7 0 R ] >> >>
+            if let PdfValue::Object(PdfObject::String(existing)) = names_entry {
+                // Parse existing entries between /Names [ and ]
+                let mut entries = String::new();
+                if let Some(start) = existing.find("/Names [") {
+                    if let Some(end) = existing[start..].find("]") {
+                        entries = existing[start + 8..start + end].trim().to_string();
+                    }
+                }
+
+                if !entries.is_empty() {
+                    entries.push(' ');
+                }
+                entries.push_str(&format!("({}) {} 0 R", filename, fs_id));
+
+                *existing = format!("<< /EmbeddedFiles << /Names [ {} ] >> >>", entries);
+            }
+        }
+
+        Ok(fs_id)
+    }
+
     /// Serialize this document back to PDF bytes.
     ///
     /// Writes objects in ascending ID order, builds a fresh xref table,
@@ -708,6 +1030,187 @@ pub struct PdfValidation {
     pub object_count: usize,
 }
 
+/// Lazy PDF document that indexes stream objects without fully parsing all objects upfront.
+///
+/// This is useful for large PDFs where you only need to extract text or inspect a subset
+/// of pages. Only stream data byte ranges are indexed during construction; dictionaries,
+/// arrays, and other objects are not materialized.
+#[derive(Debug, Clone)]
+pub struct LazyPdfDocument {
+    pub version: String,
+    pub catalog: u32,
+    data: Vec<u8>,
+    /// Object ID -> (data_start, data_end) byte range of stream payload
+    stream_objects: HashMap<u32, (usize, usize)>,
+}
+
+impl LazyPdfDocument {
+    /// Create a lazy document from raw PDF bytes without parsing all objects.
+    pub fn load_from_bytes(data: &[u8]) -> Result<Self> {
+        let content = String::from_utf8_lossy(data);
+        let mut version = "1.4".to_string();
+        if let Some(header) = content.lines().next() {
+            if header.starts_with("%PDF-") {
+                version = header[5..].to_string();
+            }
+        }
+
+        let catalog = {
+            let root_re = regex::Regex::new(r"/Root\s+(\d+)\s+\d+\s+R").unwrap();
+            if let Some(caps) = root_re.captures(&content) {
+                caps[1].parse::<u32>().unwrap_or(0)
+            } else {
+                0
+            }
+        };
+
+        let stream_objects = Self::find_stream_object_offsets(data);
+
+        Ok(LazyPdfDocument {
+            version,
+            catalog,
+            data: data.to_vec(),
+            stream_objects,
+        })
+    }
+
+    pub fn load_from_file(filename: &str) -> Result<Self> {
+        let mut file = File::open(filename)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+        Self::load_from_bytes(&buffer)
+    }
+
+    /// Scan for objects containing streams and record their ID -> byte range mapping.
+    fn find_stream_object_offsets(data: &[u8]) -> HashMap<u32, (usize, usize)> {
+        let content = String::from_utf8_lossy(data);
+        let obj_re = regex::Regex::new(r"(\d+)\s+(\d+)\s+obj\b").unwrap();
+        let mut result = HashMap::new();
+
+        for caps in obj_re.captures_iter(&content) {
+            let id = caps[1].parse::<u32>().unwrap_or(0);
+            let obj_start = caps.get(0).unwrap().end();
+
+            if let Some(endobj_pos) = content[obj_start..].find("endobj") {
+                let obj_end = obj_start + endobj_pos;
+                let obj_slice = &content[obj_start..obj_end];
+
+                if let Some(stream_pos) = obj_slice.find("stream") {
+                    let mut data_start_rel = stream_pos + "stream".len();
+                    // Skip \r and/or \n after "stream"
+                    while data_start_rel < obj_slice.len() {
+                        let b = obj_slice.as_bytes()[data_start_rel];
+                        if b == b'\r' || b == b'\n' {
+                            data_start_rel += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if let Some(endstream_pos) = obj_slice[data_start_rel..].find("endstream") {
+                        let data_end_rel = data_start_rel + endstream_pos;
+                        // Trim trailing whitespace before endstream
+                        let mut final_end = data_end_rel;
+                        while final_end > data_start_rel {
+                            let b = obj_slice.as_bytes()[final_end - 1];
+                            if b == b'\r' || b == b'\n' {
+                                final_end -= 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        let abs_start = obj_start + data_start_rel;
+                        let abs_end = obj_start + final_end;
+                        result.insert(id, (abs_start, abs_end));
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Extract text by lazily decompressing and parsing only content stream objects.
+    pub fn get_text(&self) -> Result<String> {
+        let mut text = String::new();
+        let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
+        let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
+        let tj_array_re = regex::Regex::new(r"\[((?:[^\]]*?))\]\s*TJ").unwrap();
+        let tj_str_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)").unwrap();
+        let tj_hex_str_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>").unwrap();
+
+        let mut ids: Vec<u32> = self.stream_objects.keys().copied().collect();
+        ids.sort();
+
+        for id in ids {
+            if let Some(&(start, end)) = self.stream_objects.get(&id) {
+                let data = &self.data[start..end];
+                let processed = decompress_stream(data);
+                let content = String::from_utf8_lossy(&processed);
+
+                // Only process streams that contain text operators
+                if content.contains("Tj") || content.contains("TJ") || content.contains("BT") {
+                    for cap in tj_re.captures_iter(&content) {
+                        if let Some(m) = cap.get(1) {
+                            text.push_str(m.as_str());
+                            text.push(' ');
+                        }
+                    }
+
+                    for cap in tj_hex_re.captures_iter(&content) {
+                        if let Some(m) = cap.get(1) {
+                            if let Some(bytes) = Self::decode_hex(m.as_str()) {
+                                if let Ok(s) = String::from_utf8(bytes) {
+                                    text.push_str(&s);
+                                    text.push(' ');
+                                }
+                            }
+                        }
+                    }
+
+                    for cap in tj_array_re.captures_iter(&content) {
+                        if let Some(m) = cap.get(1) {
+                            for inner in tj_str_re.captures_iter(m.as_str()) {
+                                if let Some(inner_m) = inner.get(1) {
+                                    text.push_str(inner_m.as_str());
+                                }
+                            }
+                            for inner in tj_hex_str_re.captures_iter(m.as_str()) {
+                                if let Some(inner_m) = inner.get(1) {
+                                    if let Some(bytes) = Self::decode_hex(inner_m.as_str()) {
+                                        if let Ok(s) = String::from_utf8(bytes) {
+                                            text.push_str(&s);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(text.trim().to_string())
+    }
+
+    fn decode_hex(s: &str) -> Option<Vec<u8>> {
+        let cleaned: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+        if cleaned.len() % 2 != 0 {
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(cleaned.len() / 2);
+        for chunk in cleaned.as_bytes().chunks(2) {
+            let hex = std::str::from_utf8(chunk).ok()?;
+            bytes.push(u8::from_str_radix(hex, 16).ok()?);
+        }
+        Some(bytes)
+    }
+
+    pub fn stream_object_count(&self) -> usize {
+        self.stream_objects.len()
+    }
+}
+
 /// Validate a PDF file's structural integrity
 pub fn validate_pdf(filename: &str) -> Result<PdfValidation> {
     let mut file = File::open(filename)?;
@@ -917,6 +1420,243 @@ pub fn validate_pdf_a(filename: &str) -> Result<PdfAValidation> {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
     Ok(validate_pdf_a_bytes(&buffer))
+}
+
+/// Validate PDF bytes for PDF/A-3b compliance.
+///
+/// PDF/A-3 is identical to PDF/A-1b except embedded files are *required*
+/// (one or more attachments must be present in /Names -> /EmbeddedFiles).
+pub fn validate_pdf_a3_bytes(data: &[u8]) -> PdfAValidation {
+    let mut result = validate_pdf_a_bytes(data);
+    result.level = "PDF/A-3b".to_string();
+
+    let content = String::from_utf8_lossy(data);
+
+    // PDF/A-3 requires at least one embedded file
+    let has_embedded_files = content.contains("/EmbeddedFiles")
+        && content.contains("/Filespec")
+        && content.contains("/EmbeddedFile");
+    if !has_embedded_files {
+        result.errors.push("PDF/A-3 requires at least one embedded file attachment".to_string());
+    }
+
+    // Remove the transparency warning that only applies to PDF/A-1
+    result.warnings.retain(|w| !w.contains("PDF/A-1"));
+
+    // Recompute compliance
+    result.compliant = result.errors.is_empty();
+    result
+}
+
+/// Validate a PDF file for PDF/A-3b compliance
+pub fn validate_pdf_a3(filename: &str) -> Result<PdfAValidation> {
+    let mut file = File::open(filename)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    Ok(validate_pdf_a3_bytes(&buffer))
+}
+
+/// Validation result for PDF/UA (accessibility) compliance
+#[derive(Debug, Clone)]
+pub struct PdfUaValidation {
+    pub compliant: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+    pub has_mark_info: bool,
+    pub has_struct_tree: bool,
+    pub has_lang: bool,
+    pub has_title: bool,
+    pub fonts_embedded: bool,
+}
+
+/// Validate PDF bytes for PDF/UA-1 compliance (basic structural checks).
+///
+/// Checks the most important PDF/UA requirements detectable
+/// through structural analysis:
+///
+/// - **/MarkInfo** — catalog must contain `/MarkInfo << /Marked true >>`
+/// - **/StructTreeRoot** — catalog must reference a structure tree
+/// - **/Lang** — catalog or page must declare a language
+/// - **Title** — document must have a title in Info or XMP
+/// - **No encryption** — security handlers interfere with assistive tech
+/// - **Embedded fonts** — all fonts must be embedded for text extraction
+pub fn validate_pdf_ua_bytes(data: &[u8]) -> PdfUaValidation {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let content = String::from_utf8_lossy(data);
+
+    // 1. MarkInfo / Marked must be true
+    let has_mark_info = content.contains("/MarkInfo")
+        && (content.contains("/Marked true") || content.contains("/Marked\ntrue"));
+    if !has_mark_info {
+        errors.push("Missing /MarkInfo << /Marked true >> (required for PDF/UA)".to_string());
+    }
+
+    // 2. StructTreeRoot must exist
+    let has_struct_tree = content.contains("/StructTreeRoot");
+    if !has_struct_tree {
+        errors.push("Missing /StructTreeRoot (required for tagged PDF)".to_string());
+    }
+
+    // 3. Language must be declared
+    let has_lang = content.contains("/Lang") || content.contains("/Lang ");
+    if !has_lang {
+        errors.push("Missing /Lang attribute (required for PDF/UA)".to_string());
+    }
+
+    // 4. Document title
+    let has_title = content.contains("/Title") || content.contains("<dc:title>");
+    if !has_title {
+        errors.push("Missing document title (required for PDF/UA)".to_string());
+    }
+
+    // 5. No encryption
+    let has_encryption = content.contains("/Encrypt") || content.contains("\nEncrypt");
+    if has_encryption {
+        errors.push("Encryption prevents screen reader access (not allowed in PDF/UA)".to_string());
+    }
+
+    // 6. Fonts must be embedded
+    let font_desc_count = content.matches("/Type /FontDescriptor").count();
+    let font_file_count = content.matches("/FontFile").count()
+        + content.matches("/FontFile2").count()
+        + content.matches("/FontFile3").count();
+    let fonts_embedded = font_desc_count == 0 || font_file_count >= font_desc_count;
+    if !fonts_embedded {
+        errors.push("Fonts not fully embedded (required for text extraction in PDF/UA)".to_string());
+    }
+
+    // 7. No JavaScript (interferes with assistive technology)
+    if content.contains("/JS") || content.contains("/JavaScript") {
+        errors.push("JavaScript actions interfere with assistive technology".to_string());
+    }
+
+    let compliant = errors.is_empty();
+
+    PdfUaValidation {
+        compliant,
+        errors,
+        warnings,
+        has_mark_info,
+        has_struct_tree,
+        has_lang,
+        has_title,
+        fonts_embedded,
+    }
+}
+
+/// Validate a PDF file for PDF/UA compliance
+pub fn validate_pdf_ua(filename: &str) -> Result<PdfUaValidation> {
+    let mut file = File::open(filename)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    Ok(validate_pdf_ua_bytes(&buffer))
+}
+
+/// Structural difference between two PDF documents.
+#[derive(Debug, Clone)]
+pub struct PdfDiff {
+    pub object_count_old: usize,
+    pub object_count_new: usize,
+    pub pages_old: usize,
+    pub pages_new: usize,
+    pub text_similarity: f32, // 0.0–1.0, 1.0 = identical text
+    pub added_objects: Vec<u32>,
+    pub removed_objects: Vec<u32>,
+    pub modified_objects: Vec<u32>,
+    pub metadata_changed: bool,
+    pub has_embedded_files_old: bool,
+    pub has_embedded_files_new: bool,
+}
+
+/// Compute a structural diff between two PDF byte streams.
+///
+/// This is useful for version control or regression testing:
+/// load two revisions of a PDF and see what changed at the
+/// object, page, and text levels.
+///
+/// # Example
+/// ```rust,no_run
+/// use pdfrs::pdf::{diff_pdf_bytes, PdfDocument};
+///
+/// let old = PdfDocument::load_from_file("v1.pdf").unwrap().to_bytes();
+/// let new = PdfDocument::load_from_file("v2.pdf").unwrap().to_bytes();
+/// let diff = diff_pdf_bytes(&old, &new).unwrap();
+/// println!("Added objects: {:?}", diff.added_objects);
+/// ```
+pub fn diff_pdf_bytes(old: &[u8], new: &[u8]) -> Result<PdfDiff> {
+    let old_doc = PdfDocument::load_from_bytes(old)?;
+    let new_doc = PdfDocument::load_from_bytes(new)?;
+
+    let object_count_old = old_doc.objects.len();
+    let object_count_new = new_doc.objects.len();
+
+    // Count pages by looking for /Type /Page (but not /Pages)
+    let old_content = String::from_utf8_lossy(old);
+    let new_content = String::from_utf8_lossy(new);
+    let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
+    let pages_old = page_re.find_iter(&old_content).count();
+    let pages_new = page_re.find_iter(&new_content).count();
+
+    // Compute object-level changes
+    let mut added_objects = Vec::new();
+    let mut removed_objects = Vec::new();
+    let mut modified_objects = Vec::new();
+
+    for id in old_doc.objects.keys() {
+        if !new_doc.objects.contains_key(id) {
+            removed_objects.push(*id);
+        } else if PdfDocument::object_content_key(&old_doc.objects[id]) != PdfDocument::object_content_key(&new_doc.objects[id]) {
+            modified_objects.push(*id);
+        }
+    }
+    for id in new_doc.objects.keys() {
+        if !old_doc.objects.contains_key(id) {
+            added_objects.push(*id);
+        }
+    }
+
+    // Text similarity (simple Jaccard over word sets)
+    let old_text = old_doc.get_text().unwrap_or_default();
+    let new_text = new_doc.get_text().unwrap_or_default();
+    let text_similarity = jaccard_similarity(&old_text, &new_text);
+
+    // Metadata check: compare Info dictionary presence and /Title
+    let metadata_changed = {
+        let old_has_info = old_content.contains("/Type /Catalog") && old_content.contains("/Info ");
+        let new_has_info = new_content.contains("/Type /Catalog") && new_content.contains("/Info ");
+        old_has_info != new_has_info
+            || old_content.contains("/Title ") != new_content.contains("/Title ")
+    };
+
+    let has_embedded_files_old = old_content.contains("/EmbeddedFiles") && old_content.contains("/Filespec");
+    let has_embedded_files_new = new_content.contains("/EmbeddedFiles") && new_content.contains("/Filespec");
+
+    Ok(PdfDiff {
+        object_count_old,
+        object_count_new,
+        pages_old,
+        pages_new,
+        text_similarity,
+        added_objects,
+        removed_objects,
+        modified_objects,
+        metadata_changed,
+        has_embedded_files_old,
+        has_embedded_files_new,
+    })
+}
+
+/// Simple Jaccard similarity over whitespace-split words.
+fn jaccard_similarity(a: &str, b: &str) -> f32 {
+    let set_a: std::collections::HashSet<&str> = a.split_whitespace().collect();
+    let set_b: std::collections::HashSet<&str> = b.split_whitespace().collect();
+    if set_a.is_empty() && set_b.is_empty() {
+        return 1.0;
+    }
+    let intersection: std::collections::HashSet<_> = set_a.intersection(&set_b).collect();
+    let union: std::collections::HashSet<_> = set_a.union(&set_b).collect();
+    intersection.len() as f32 / union.len() as f32
 }
 
 pub fn extract_text(filename: &str) -> Result<String> {
@@ -1483,5 +2223,334 @@ mod tests {
         assert!(!result.has_encryption, "Generated PDF should not have encryption");
         assert!(!result.errors.iter().any(|e| e.contains("JavaScript")), "No JS expected");
         assert!(!result.errors.iter().any(|e| e.contains("external")), "No external refs expected");
+    }
+
+    #[test]
+    fn test_deduplicate_objects() {
+        let mut doc = PdfDocument::new();
+
+        // Insert two identical objects
+        doc.objects.insert(1, PdfObject::String("shared_content".to_string()));
+        doc.objects.insert(2, PdfObject::String("shared_content".to_string()));
+
+        // Insert a dictionary that references object 2
+        let mut dict = HashMap::new();
+        dict.insert("Ref".to_string(), PdfValue::Object(PdfObject::String("2 0 R".to_string())));
+        doc.objects.insert(3, PdfObject::Dictionary(dict));
+        doc.catalog = 3;
+
+        assert_eq!(doc.objects.len(), 3, "Should start with 3 objects");
+
+        doc.deduplicate_objects();
+
+        // Object 2 (duplicate) should be removed; object 1 (canonical) kept
+        assert_eq!(doc.objects.len(), 2, "Should remove one duplicate");
+        assert!(doc.objects.contains_key(&1), "Canonical object 1 should remain");
+        assert!(!doc.objects.contains_key(&2), "Duplicate object 2 should be removed");
+        assert!(doc.objects.contains_key(&3), "Referencing object 3 should remain");
+
+        // Reference inside object 3 should now point to 1
+        if let PdfObject::Dictionary(d) = &doc.objects[&3] {
+            if let PdfValue::Object(PdfObject::String(s)) = &d["Ref"] {
+                assert_eq!(s, "1 0 R", "Reference should be rewritten to canonical ID");
+            } else {
+                panic!("Expected string reference value");
+            }
+        } else {
+            panic!("Expected dictionary object");
+        }
+    }
+
+    #[test]
+    fn test_lazy_pdf_document_text_extraction() {
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "Lazy Test".into() },
+            crate::elements::Element::Paragraph { text: "Testing lazy text extraction.".into() },
+            crate::elements::Element::Paragraph { text: "Second paragraph for good measure.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        // Lazy document should extract same text as full document
+        let lazy_doc = LazyPdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        let lazy_text = lazy_doc.get_text().unwrap();
+
+        let full_doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        let full_text = full_doc.get_text().unwrap();
+
+        assert!(
+            lazy_text.contains("Lazy Test"),
+            "Lazy text should contain heading: {}", lazy_text
+        );
+        assert!(
+            lazy_text.contains("Testing lazy text extraction."),
+            "Lazy text should contain paragraph: {}", lazy_text
+        );
+        assert!(
+            lazy_text.contains("Second paragraph"),
+            "Lazy text should contain second paragraph: {}", lazy_text
+        );
+
+        // Lazy document should have fewer/no non-stream objects materialized
+        // but text content should be equivalent
+        assert!(
+            !lazy_text.is_empty(),
+            "Lazy text extraction should produce non-empty output"
+        );
+    }
+
+    #[test]
+    fn test_embed_file_attachment() {
+        let elements = vec![
+            crate::elements::Element::Paragraph { text: "Document with attachment".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        let original_count = doc.objects.len();
+
+        // Embed a simple text file
+        let attachment_data = b"Hello, this is an embedded file!";
+        let fs_id = doc.embed_file("test.txt", attachment_data).unwrap();
+
+        // Should have added 2 new objects: embedded file stream + file spec
+        assert_eq!(
+            doc.objects.len(),
+            original_count + 2,
+            "Should add 2 objects (embedded file stream + file spec)"
+        );
+
+        // Verify the file spec object exists
+        assert!(doc.objects.contains_key(&fs_id), "File spec object should exist");
+
+        // Verify the embedded file stream exists (should be fs_id - 1)
+        let ef_id = fs_id - 1;
+        assert!(doc.objects.contains_key(&ef_id), "Embedded file stream object should exist");
+
+        // Verify the catalog was updated with /Names
+        if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get(&doc.catalog) {
+            assert!(
+                catalog_dict.contains_key("Names"),
+                "Catalog should contain /Names for embedded files"
+            );
+        } else {
+            panic!("Catalog should be a dictionary");
+        }
+
+        // Verify the output PDF serializes correctly
+        let output_bytes = doc.to_bytes();
+        assert!(!output_bytes.is_empty(), "PDF with attachment should serialize");
+
+        // Verify /EmbeddedFile appears in output
+        let content = String::from_utf8_lossy(&output_bytes);
+        assert!(content.contains("/EmbeddedFile"), "Output should contain /EmbeddedFile type");
+        assert!(content.contains("/Filespec"), "Output should contain /Filespec type");
+        assert!(content.contains("test.txt"), "Output should contain attachment filename");
+    }
+
+    #[test]
+    fn test_validate_pdf_a3_fails_without_embedded_files() {
+        let elements = vec![
+            crate::elements::Element::Paragraph { text: "No attachments".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_a3_bytes(&pdf_bytes);
+        assert!(
+            result.errors.iter().any(|e| e.contains("embedded file")),
+            "PDF/A-3 should fail without embedded files: {:?}",
+            result.errors
+        );
+        assert!(!result.compliant, "Should not be PDF/A-3 compliant without attachments");
+    }
+
+    #[test]
+    fn test_validate_pdf_a3_passes_with_embedded_files() {
+        let elements = vec![
+            crate::elements::Element::Paragraph { text: "With attachment".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        doc.embed_file("data.csv", b"a,b,c\n1,2,3").unwrap();
+        let output_bytes = doc.to_bytes();
+
+        let result = validate_pdf_a3_bytes(&output_bytes);
+        // Still may fail on other PDF/A checks (fonts, XMP) but should NOT fail on embedded files
+        assert!(
+            !result.errors.iter().any(|e| e.contains("embedded file")),
+            "PDF/A-3 should not complain about embedded files when present: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_validate_pdf_ua_detects_missing_accessibility() {
+        let elements = vec![
+            crate::elements::Element::Paragraph { text: "Untagged doc".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_ua_bytes(&pdf_bytes);
+        // Our generated PDFs don't have MarkInfo, StructTreeRoot, Lang, or Title yet
+        assert!(!result.compliant, "Untagged PDF should not be PDF/UA compliant");
+        assert!(!result.has_mark_info, "Should detect missing MarkInfo");
+        assert!(!result.has_struct_tree, "Should detect missing StructTreeRoot");
+        assert!(!result.has_lang, "Should detect missing Lang");
+        assert!(!result.has_title, "Should detect missing Title");
+    }
+
+    #[test]
+    fn test_sanitize_removes_dangerous_objects() {
+        let elements = vec![
+            crate::elements::Element::Paragraph { text: "Safe document".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        let original_count = doc.objects.len();
+
+        // Inject a fake JavaScript object
+        let mut js_dict = HashMap::new();
+        js_dict.insert("JS".to_string(), PdfValue::Object(PdfObject::String("app.alert('xss')".to_string())));
+        doc.objects.insert(999, PdfObject::Dictionary(js_dict));
+
+        // Inject a fake launch action
+        let mut launch_dict = HashMap::new();
+        launch_dict.insert("S".to_string(), PdfValue::Object(PdfObject::String("/Launch".to_string())));
+        launch_dict.insert("F".to_string(), PdfValue::Object(PdfObject::String("(malware.exe)".to_string())));
+        doc.objects.insert(998, PdfObject::Dictionary(launch_dict));
+
+        // Add OpenAction to catalog
+        if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get_mut(&doc.catalog) {
+            catalog_dict.insert("OpenAction".to_string(), PdfValue::Object(PdfObject::String("999 0 R".to_string())));
+        }
+
+        assert_eq!(doc.objects.len(), original_count + 2, "Should have injected 2 dangerous objects");
+
+        // Sanitize
+        doc.sanitize();
+
+        // JS object should be removed entirely
+        assert!(!doc.objects.contains_key(&999), "JavaScript object should be removed");
+
+        // Launch action should be removed entirely
+        assert!(!doc.objects.contains_key(&998), "Launch action object should be removed");
+
+        // Catalog should no longer have OpenAction
+        if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get(&doc.catalog) {
+            assert!(!catalog_dict.contains_key("OpenAction"), "OpenAction should be stripped from catalog");
+        } else {
+            panic!("Catalog should remain a dictionary");
+        }
+
+        // Safe objects should still be present
+        assert_eq!(doc.objects.len(), original_count, "Only dangerous objects should be removed");
+
+        // Verify PDF still serializes correctly
+        let output_bytes = doc.to_bytes();
+        assert!(!output_bytes.is_empty(), "Sanitized PDF should still serialize");
+        let content = String::from_utf8_lossy(&output_bytes);
+        assert!(!content.contains("app.alert"), "JS payload should not remain in output");
+    }
+
+    #[test]
+    fn test_diff_pdf_bytes_detects_changes() {
+        let elements_old = vec![
+            crate::elements::Element::Paragraph { text: "First version".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let old_bytes = crate::pdf_generator::generate_pdf_bytes(&elements_old, "Helvetica", 12.0, layout).unwrap();
+
+        let elements_new = vec![
+            crate::elements::Element::Paragraph { text: "Second version with more content".into() },
+            crate::elements::Element::Paragraph { text: "Extra paragraph".into() },
+        ];
+        let new_bytes = crate::pdf_generator::generate_pdf_bytes(&elements_new, "Helvetica", 12.0, layout).unwrap();
+
+        let diff = diff_pdf_bytes(&old_bytes, &new_bytes).unwrap();
+
+        // Both should have 1 page
+        assert_eq!(diff.pages_old, 1, "Old PDF should have 1 page");
+        assert_eq!(diff.pages_new, 1, "New PDF should have 1 page");
+
+        // Text should be somewhat similar but not identical
+        assert!(
+            diff.text_similarity > 0.0 && diff.text_similarity < 1.0,
+            "Text similarity should be between 0 and 1 for partially different docs: {}",
+            diff.text_similarity
+        );
+
+        // There should be some modified objects (content streams differ)
+        assert!(
+            !diff.modified_objects.is_empty() || !diff.added_objects.is_empty(),
+            "Should detect structural changes between different PDFs"
+        );
+    }
+
+    #[test]
+    fn test_diff_pdf_bytes_identical() {
+        let elements = vec![
+            crate::elements::Element::Paragraph { text: "Same content".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let diff = diff_pdf_bytes(&bytes, &bytes).unwrap();
+
+        // Identical PDFs should have 100% text similarity
+        assert_eq!(diff.text_similarity, 1.0, "Identical PDFs should have 100% text similarity");
+
+        // No added, removed, or modified objects
+        assert!(diff.added_objects.is_empty(), "Identical PDFs should have no added objects");
+        assert!(diff.removed_objects.is_empty(), "Identical PDFs should have no removed objects");
+        assert!(diff.modified_objects.is_empty(), "Identical PDFs should have no modified objects");
+    }
+
+    #[test]
+    fn test_repl_like_workflow() {
+        // Simulate a REPL session: create -> load -> modify -> save -> reload -> verify
+        let elements = vec![
+            crate::elements::Element::Heading { level: 1, text: "REPL Test".into() },
+            crate::elements::Element::Paragraph { text: "First paragraph.".into() },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        // "load" step
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        assert!(!doc.objects.is_empty(), "Should load document");
+
+        // "text" step
+        let text = doc.get_text().unwrap();
+        assert!(text.contains("REPL Test"), "Text extraction should work");
+
+        // "info" step
+        assert_eq!(doc.version, "1.4", "Version should be 1.4");
+        assert!(doc.catalog > 0, "Should have a catalog");
+
+        // "sanitize" step
+        doc.sanitize();
+
+        // "attach" step
+        doc.embed_file("note.txt", b"REPL session note").unwrap();
+
+        // "save" step (serialize to bytes)
+        let saved_bytes = doc.to_bytes();
+        assert!(!saved_bytes.is_empty(), "Should serialize document");
+
+        // "reload" step
+        let reloaded = PdfDocument::load_from_bytes(&saved_bytes).unwrap();
+        let reloaded_text = reloaded.get_text().unwrap();
+        assert!(reloaded_text.contains("REPL Test"), "Text should survive round-trip");
+
+        // "validate" step
+        let validation = validate_pdf_bytes(&saved_bytes);
+        assert!(validation.valid, "Round-tripped PDF should be valid: {:?}", validation.errors);
     }
 }

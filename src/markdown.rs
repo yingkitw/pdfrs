@@ -179,3 +179,125 @@ pub fn markdown_to_pdf_full(
 
     Ok(())
 }
+
+/// Watch a markdown file for changes and regenerate the PDF automatically.
+///
+/// Polls the file's modification time every `interval_ms` milliseconds (default 1000).
+/// Whenever the file changes, it is re-parsed and a new PDF is generated.
+/// Press Ctrl+C to stop watching.
+///
+/// # Example
+/// ```no_run
+/// use pdfrs::markdown::watch_markdown_to_pdf;
+/// use pdfrs::pdf_generator::PageOrientation;
+///
+/// watch_markdown_to_pdf("doc.md", "doc.pdf", "Helvetica", 12.0, PageOrientation::Portrait, Some(500)).unwrap();
+/// ```
+pub fn watch_markdown_to_pdf(
+    markdown_file: &str,
+    pdf_file: &str,
+    font: &str,
+    font_size: f32,
+    orientation: crate::pdf_generator::PageOrientation,
+    interval_ms: Option<u64>,
+) -> Result<()> {
+    use std::time::Duration;
+    use std::thread;
+
+    let interval = Duration::from_millis(interval_ms.unwrap_or(1000));
+    let mut last_modified = std::fs::metadata(markdown_file)?.modified()?;
+
+    // Generate initial PDF
+    println!("[watch] Generating initial PDF from {}", markdown_file);
+    markdown_to_pdf_full(markdown_file, pdf_file, font, font_size, orientation)?;
+    println!("[watch] Watching {} for changes (interval: {:?}). Press Ctrl+C to stop.", markdown_file, interval);
+
+    loop {
+        thread::sleep(interval);
+
+        let metadata = match std::fs::metadata(markdown_file) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[watch] Error reading file metadata: {}", e);
+                continue;
+            }
+        };
+
+        let current_modified = match metadata.modified() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[watch] Error reading modification time: {}", e);
+                continue;
+            }
+        };
+
+        if current_modified > last_modified {
+            last_modified = current_modified;
+            println!("[watch] Change detected at {:?}, regenerating PDF...", current_modified);
+            match markdown_to_pdf_full(markdown_file, pdf_file, font, font_size, orientation) {
+                Ok(_) => println!("[watch] PDF updated: {}", pdf_file),
+                Err(e) => eprintln!("[watch] Error regenerating PDF: {}", e),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_markdown_to_pdf_full_roundtrip() {
+        let tmp_dir = std::env::temp_dir();
+        let md_path = tmp_dir.join("test_watch.md");
+        let pdf_path = tmp_dir.join("test_watch.pdf");
+
+        // Write initial markdown
+        {
+            let mut f = std::fs::File::create(&md_path).unwrap();
+            f.write_all(b"# Hello\n\nWorld.").unwrap();
+        }
+
+        // Generate PDF
+        markdown_to_pdf_full(
+            &md_path.to_string_lossy(),
+            &pdf_path.to_string_lossy(),
+            "Helvetica",
+            12.0,
+            crate::pdf_generator::PageOrientation::Portrait,
+        ).unwrap();
+
+        assert!(pdf_path.exists(), "PDF should be created");
+        let bytes1 = std::fs::read(&pdf_path).unwrap();
+        assert!(!bytes1.is_empty(), "PDF should not be empty");
+
+        // Modify markdown
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        {
+            let mut f = std::fs::File::create(&md_path).unwrap();
+            f.write_all(b"# Updated\n\nNew content here.").unwrap();
+        }
+
+        // Regenerate PDF
+        markdown_to_pdf_full(
+            &md_path.to_string_lossy(),
+            &pdf_path.to_string_lossy(),
+            "Helvetica",
+            12.0,
+            crate::pdf_generator::PageOrientation::Portrait,
+        ).unwrap();
+
+        let bytes2 = std::fs::read(&pdf_path).unwrap();
+        assert!(!bytes2.is_empty(), "Regenerated PDF should not be empty");
+
+        // PDF content should reflect the update
+        let content = String::from_utf8_lossy(&bytes2);
+        assert!(content.contains("Updated") || content.contains("New content"),
+            "Updated PDF should contain new content");
+
+        // Cleanup
+        let _ = std::fs::remove_file(&md_path);
+        let _ = std::fs::remove_file(&pdf_path);
+    }
+}
