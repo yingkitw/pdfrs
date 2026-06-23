@@ -338,7 +338,7 @@ impl PdfTableHelper {
 
 impl Default for PdfTableHelper {
     fn default() -> Self {
-        Self::new(Box::new(DefaultTableRenderer::default()))
+        Self::new(Box::new(DefaultTableRenderer))
     }
 }
 

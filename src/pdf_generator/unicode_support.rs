@@ -49,11 +49,10 @@ impl UnicodeFontEncoder {
 }
 
 fn resolve_unicode_ttf_path() -> Option<String> {
-    if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH") {
-        if !path.trim().is_empty() && Path::new(&path).exists() {
+    if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH")
+        && !path.trim().is_empty() && Path::new(&path).exists() {
             return Some(path);
         }
-    }
 
     // macOS-first defaults (current project target environment).
     let candidates = [

@@ -84,8 +84,8 @@ pub(super) fn highlight_code(code: &str, language: &str) -> Vec<CodeToken> {
 
     while !remaining.is_empty() {
         // Check for string literals
-        if remaining.starts_with('"') {
-            if let Some(end) = remaining[1..].find('"') {
+        if remaining.starts_with('"')
+            && let Some(end) = remaining[1..].find('"') {
                 let token = &remaining[..end + 2];
                 tokens.push(CodeToken {
                     text: token.to_string(),
@@ -94,11 +94,10 @@ pub(super) fn highlight_code(code: &str, language: &str) -> Vec<CodeToken> {
                 remaining = remaining[end + 2..].to_string();
                 continue;
             }
-        }
 
         // Check for single quotes
-        if remaining.starts_with('\'') {
-            if let Some(end) = remaining[1..].find('\'') {
+        if remaining.starts_with('\'')
+            && let Some(end) = remaining[1..].find('\'') {
                 let token = &remaining[..end + 2];
                 tokens.push(CodeToken {
                     text: token.to_string(),
@@ -107,7 +106,6 @@ pub(super) fn highlight_code(code: &str, language: &str) -> Vec<CodeToken> {
                 remaining = remaining[end + 2..].to_string();
                 continue;
             }
-        }
 
         // Check for comments
         if remaining.starts_with("//") {
@@ -194,8 +192,8 @@ pub(super) fn highlight_code(code: &str, language: &str) -> Vec<CodeToken> {
         // Take a run of plain characters (identifiers, whitespace, punctuation)
         // until we hit something that could start a special token
         let mut end = 0;
-        let mut chars_iter = remaining.chars();
-        while let Some(c) = chars_iter.next() {
+        let chars_iter = remaining.chars();
+        for c in chars_iter {
             let rest = &remaining[end..];
             // Stop if we see the start of a string, comment, number-at-word-boundary, or keyword
             if end > 0

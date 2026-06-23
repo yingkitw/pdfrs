@@ -219,6 +219,12 @@ impl TextPositionTracker {
 
 // --- Document implementation ---
 
+impl Default for PdfDocument {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PdfDocument {
     pub fn new() -> Self {
         PdfDocument {
@@ -242,11 +248,10 @@ impl PdfDocument {
         let mut doc = PdfDocument::new();
 
         // Parse PDF header
-        if let Some(header_line) = content.lines().next() {
-            if header_line.starts_with("%PDF-") {
+        if let Some(header_line) = content.lines().next()
+            && header_line.starts_with("%PDF-") {
                 doc.version = header_line[5..].to_string();
             }
-        }
 
         // Find all stream data ranges in raw bytes before string parsing corrupts them
         let stream_ranges = find_stream_ranges(buffer);
@@ -271,11 +276,10 @@ impl PdfDocument {
 
         // Parse catalog reference from trailer so to_bytes() can write the correct /Root
         let root_re = regex::Regex::new(r"/Root\s+(\d+)\s+\d+\s+R").unwrap();
-        if let Some(caps) = root_re.captures(&content) {
-            if let Ok(id) = caps[1].parse::<u32>() {
+        if let Some(caps) = root_re.captures(&content)
+            && let Ok(id) = caps[1].parse::<u32>() {
                 doc.catalog = id;
             }
-        }
 
         Ok(doc)
     }
@@ -284,14 +288,12 @@ impl PdfDocument {
     fn replace_ref_in_value(val: &mut PdfValue, old_id: u32, new_id: u32) {
         match val {
             PdfValue::Object(PdfObject::String(s)) => {
-                if let Some(caps) = regex::Regex::new(r"^(\d+) (\d+) R$").unwrap().captures(s) {
-                    if let Ok(id) = caps[1].parse::<u32>() {
-                        if id == old_id {
+                if let Some(caps) = regex::Regex::new(r"^(\d+) (\d+) R$").unwrap().captures(s)
+                    && let Ok(id) = caps[1].parse::<u32>()
+                        && id == old_id {
                             let generation = &caps[2];
                             *s = format!("{} {} R", new_id, generation);
                         }
-                    }
-                }
             }
             PdfValue::Object(PdfObject::Dictionary(dict)) => {
                 for v in dict.values_mut() {
@@ -460,11 +462,10 @@ impl PdfDocument {
             _ => {}
         }
         // Standalone JavaScript script objects
-        if let PdfObject::Dictionary(dict) = obj {
-            if dict.contains_key("JS") || dict.contains_key("JavaScript") {
+        if let PdfObject::Dictionary(dict) = obj
+            && (dict.contains_key("JS") || dict.contains_key("JavaScript")) {
                 return true;
             }
-        }
         // Launch actions or embedded malicious scripts in string form
         if content.contains("/S /Launch") || content.contains("/Launch") {
             return true;
@@ -483,7 +484,7 @@ impl PdfDocument {
                 PdfObject::Reference(id, generation) => format!("{} {} R", id, generation),
                 PdfObject::Null => "null".to_string(),
                 PdfObject::Array(arr) => {
-                    let parts: Vec<String> = arr.iter().map(|v| Self::value_to_string(v)).collect();
+                    let parts: Vec<String> = arr.iter().map(Self::value_to_string).collect();
                     format!("[ {} ]", parts.join(" "))
                 }
                 PdfObject::Dictionary(dict) => {
@@ -584,11 +585,10 @@ impl PdfDocument {
             if let PdfValue::Object(PdfObject::String(existing)) = names_entry {
                 // Parse existing entries between /Names [ and ]
                 let mut entries = String::new();
-                if let Some(start) = existing.find("/Names [") {
-                    if let Some(end) = existing[start..].find("]") {
+                if let Some(start) = existing.find("/Names [")
+                    && let Some(end) = existing[start..].find("]") {
                         entries = existing[start + 8..start + end].trim().to_string();
                     }
-                }
 
                 if !entries.is_empty() {
                     entries.push(' ');
@@ -706,26 +706,22 @@ impl PdfDocument {
                     let line = line.trim();
 
                     // Check for Td/TD positioning BEFORE extracting text on this line
-                    if let Some(caps) = td_re.captures(line) {
-                        if let Ok(y) = caps[2].parse::<f32>() {
-                            if tracker.moved_to_new_line(y) && !text.ends_with('\n') {
+                    if let Some(caps) = td_re.captures(line)
+                        && let Ok(y) = caps[2].parse::<f32>()
+                            && tracker.moved_to_new_line(y) && !text.ends_with('\n') {
                                 // Y changed significantly — likely a new line
                                 text.push('\n');
                                 first_item_on_line = true;
                             }
-                        }
-                    }
 
                     // Check for Tm text matrix BEFORE extracting text on this line
-                    if let Some(caps) = tm_re.captures(line) {
-                        if let Ok(y) = caps[2].parse::<f32>() {
-                            if tracker.moved_to_new_line(y) && !text.ends_with('\n') {
+                    if let Some(caps) = tm_re.captures(line)
+                        && let Ok(y) = caps[2].parse::<f32>()
+                            && tracker.moved_to_new_line(y) && !text.ends_with('\n') {
                                 // Y changed significantly
                                 text.push('\n');
                                 first_item_on_line = true;
                             }
-                        }
-                    }
 
                     // Extract (text) Tj
                     for caps in tj_re.captures_iter(line) {
@@ -790,7 +786,7 @@ impl PdfDocument {
 
 /// Check if bytes form a valid zlib header (CMF=0x78, FLG satisfies checksum)
 fn is_zlib_header(b0: u8, b1: u8) -> bool {
-    b0 == 0x78 && ((b0 as u16) * 256 + (b1 as u16)) % 31 == 0
+    b0 == 0x78 && ((b0 as u16) * 256 + (b1 as u16)).is_multiple_of(31)
 }
 
 /// Decompress stream data if it appears to be deflate-compressed
@@ -818,8 +814,8 @@ fn parse_objects(content: &str, doc: &mut PdfDocument) -> Result<()> {
         if let Some(caps) = obj_re.captures(line) {
             // Only match if the line is exactly "N G obj" (possibly with trailing whitespace)
             let full_match = caps.get(0).unwrap().as_str();
-            if line == full_match || line.starts_with(full_match) {
-                if let (Ok(obj_num), Ok(_gen_num)) =
+            if (line == full_match || line.starts_with(full_match))
+                && let (Ok(obj_num), Ok(_gen_num)) =
                     (caps[1].parse::<u32>(), caps[2].parse::<u32>())
                 {
                     i += 1;
@@ -834,7 +830,6 @@ fn parse_objects(content: &str, doc: &mut PdfDocument) -> Result<()> {
                     let obj = parse_object_content(&obj_content)?;
                     doc.objects.insert(obj_num, obj);
                 }
-            }
         }
         i += 1;
     }
@@ -1049,11 +1044,10 @@ impl LazyPdfDocument {
     pub fn load_from_bytes(data: &[u8]) -> Result<Self> {
         let content = String::from_utf8_lossy(data);
         let mut version = "1.4".to_string();
-        if let Some(header) = content.lines().next() {
-            if header.starts_with("%PDF-") {
+        if let Some(header) = content.lines().next()
+            && header.starts_with("%PDF-") {
                 version = header[5..].to_string();
             }
-        }
 
         let catalog = {
             let root_re = regex::Regex::new(r"/Root\s+(\d+)\s+\d+\s+R").unwrap();
@@ -1158,14 +1152,12 @@ impl LazyPdfDocument {
                     }
 
                     for cap in tj_hex_re.captures_iter(&content) {
-                        if let Some(m) = cap.get(1) {
-                            if let Some(bytes) = Self::decode_hex(m.as_str()) {
-                                if let Ok(s) = String::from_utf8(bytes) {
+                        if let Some(m) = cap.get(1)
+                            && let Some(bytes) = Self::decode_hex(m.as_str())
+                                && let Ok(s) = String::from_utf8(bytes) {
                                     text.push_str(&s);
                                     text.push(' ');
                                 }
-                            }
-                        }
                     }
 
                     for cap in tj_array_re.captures_iter(&content) {
@@ -1176,13 +1168,11 @@ impl LazyPdfDocument {
                                 }
                             }
                             for inner in tj_hex_str_re.captures_iter(m.as_str()) {
-                                if let Some(inner_m) = inner.get(1) {
-                                    if let Some(bytes) = Self::decode_hex(inner_m.as_str()) {
-                                        if let Ok(s) = String::from_utf8(bytes) {
+                                if let Some(inner_m) = inner.get(1)
+                                    && let Some(bytes) = Self::decode_hex(inner_m.as_str())
+                                        && let Ok(s) = String::from_utf8(bytes) {
                                             text.push_str(&s);
                                         }
-                                    }
-                                }
                             }
                         }
                     }
@@ -1195,7 +1185,7 @@ impl LazyPdfDocument {
 
     fn decode_hex(s: &str) -> Option<Vec<u8>> {
         let cleaned: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-        if cleaned.len() % 2 != 0 {
+        if !cleaned.len().is_multiple_of(2) {
             return None;
         }
         let mut bytes = Vec::with_capacity(cleaned.len() / 2);
@@ -1482,7 +1472,7 @@ pub struct PdfUaValidation {
 /// - **Embedded fonts** — all fonts must be embedded for text extraction
 pub fn validate_pdf_ua_bytes(data: &[u8]) -> PdfUaValidation {
     let mut errors = Vec::new();
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     let content = String::from_utf8_lossy(data);
 
     // 1. MarkInfo / Marked must be true
@@ -1685,7 +1675,7 @@ pub fn unescape_pdf_string(s: &str) -> String {
                     octal.push(d);
                     for _ in 0..2 {
                         if let Some(&next) = chars.peek() {
-                            if next.is_ascii_digit() && next >= '0' && next <= '7' {
+                            if next.is_ascii_digit() && ('0'..='7').contains(&next) {
                                 octal.push(chars.next().unwrap());
                             } else {
                                 break;
@@ -1744,11 +1734,10 @@ pub fn decode_pdf_hex_string(s: &str) -> String {
 }
 
 fn resolve_unicode_ttf_path_for_extraction() -> Option<String> {
-    if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH") {
-        if !path.trim().is_empty() && Path::new(&path).exists() {
+    if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH")
+        && !path.trim().is_empty() && Path::new(&path).exists() {
             return Some(path);
         }
-    }
 
     let candidates = [
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
@@ -1780,7 +1769,7 @@ fn build_unicode_gid_reverse_map() -> Option<HashMap<u16, char>> {
 }
 
 fn decode_unicode_glyph_id_bytes(bytes: &[u8]) -> Option<String> {
-    if bytes.len() < 2 || bytes.len() % 2 != 0 {
+    if bytes.len() < 2 || !bytes.len().is_multiple_of(2) {
         return None;
     }
 

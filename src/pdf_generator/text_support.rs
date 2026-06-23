@@ -249,7 +249,7 @@ pub(super) fn render_math_text(expr: &str) -> String {
     }
 
     // Strip remaining braces
-    s = s.replace('{', "").replace('}', "");
+    s = s.replace(['{', '}'], "");
 
     // Clean up multiple spaces
     let multi_space = Regex::new(r"  +").unwrap();
@@ -396,7 +396,7 @@ pub(super) fn encode_pdf_text(text: &str) -> String {
     };
 
     // Check if text contains any non-ASCII characters
-    let has_unicode = normalized.chars().any(|c| !c.is_ascii());
+    let has_unicode = !normalized.is_ascii();
 
     if !has_unicode {
         // Pure ASCII - use literal string format

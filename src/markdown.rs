@@ -43,7 +43,7 @@ fn elements_to_text(elements: &[Element]) -> String {
                             text.push_str(t);
                             text.push_str("](");
                             text.push_str(url);
-                            text.push_str(")");
+                            text.push(')');
                         }
                     }
                 }

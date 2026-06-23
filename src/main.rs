@@ -475,10 +475,10 @@ fn main() {
                         let trimmed = line.trim();
                         if trimmed.is_empty() {
                             let _ = pdf_gen.add_paragraph("");
-                        } else if trimmed.starts_with("# ") {
-                            let _ = pdf_gen.add_heading(&trimmed[2..], 1);
-                        } else if trimmed.starts_with("## ") {
-                            let _ = pdf_gen.add_heading(&trimmed[3..], 2);
+                        } else if let Some(text) = trimmed.strip_prefix("# ") {
+                            let _ = pdf_gen.add_heading(text, 1);
+                        } else if let Some(text) = trimmed.strip_prefix("## ") {
+                            let _ = pdf_gen.add_heading(text, 2);
                         } else {
                             let _ = pdf_gen.add_paragraph(trimmed);
                         }
@@ -982,7 +982,7 @@ fn main() {
                     };
                     match doc.embed_file(attachment_name, &data) {
                         Ok(_) => {
-                            match std::fs::write(&output, &doc.to_bytes()) {
+                            match std::fs::write(&output, doc.to_bytes()) {
                                 Ok(_) => println!("Attached '{}' to {} as '{}'", file, input, attachment_name),
                                 Err(e) => eprintln!("Error writing output PDF: {}", e),
                             }
@@ -1019,7 +1019,7 @@ fn main() {
             match pdf::PdfDocument::load_from_file(&input) {
                 Ok(mut doc) => {
                     doc.sanitize();
-                    match std::fs::write(&output, &doc.to_bytes()) {
+                    match std::fs::write(&output, doc.to_bytes()) {
                         Ok(_) => println!("Sanitized PDF written to {}", output),
                         Err(e) => eprintln!("Error writing sanitized PDF: {}", e),
                     }
@@ -1135,7 +1135,7 @@ fn run_repl() {
     use std::io::{self, Write};
 
     let mut doc: Option<pdf::PdfDocument> = None;
-    let mut current_path: Option<String> = None;
+    let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
 
     println!("pdfrs PDF REPL — type 'help' for commands, 'quit' to exit.");
 
@@ -1186,7 +1186,6 @@ fn run_repl() {
                     Ok(loaded) => {
                         println!("Loaded {} ({} objects)", path, loaded.objects.len());
                         doc = Some(loaded);
-                        current_path = Some(path.to_string());
                     }
                     Err(e) => println!("Error loading PDF: {}", e),
                 }
@@ -1201,7 +1200,7 @@ fn run_repl() {
                     continue;
                 };
                 let path = args[0];
-                match std::fs::write(path, &d.to_bytes()) {
+                match std::fs::write(path, d.to_bytes()) {
                     Ok(_) => println!("Saved to {}", path),
                     Err(e) => println!("Error saving PDF: {}", e),
                 }
@@ -1223,7 +1222,6 @@ fn run_repl() {
                 };
                 let bytes = d.to_bytes();
                 let content = String::from_utf8_lossy(&bytes);
-                let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
                 let count = page_re.find_iter(&content).count();
                 println!("Pages: {}", count);
             }
@@ -1321,7 +1319,6 @@ fn run_repl() {
                 };
                 let bytes = d.to_bytes();
                 let content = String::from_utf8_lossy(&bytes);
-                let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
                 let pages = page_re.find_iter(&content).count();
                 println!("Objects: {}", d.objects.len());
                 println!("Pages: {}", pages);

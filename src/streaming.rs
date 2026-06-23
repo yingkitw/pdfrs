@@ -30,7 +30,6 @@ pub struct StreamingPdfGenerator {
     file: BufWriter<File>,
     generator: PdfGenerator,
     layout: PageLayout,
-    font: String,
     base_font_size: f32,
     current_color: Color,
     current_page: Vec<u8>,
@@ -38,7 +37,6 @@ pub struct StreamingPdfGenerator {
     font_state: FontState,
     page_contents: Vec<u32>, // Object IDs of page content streams
     page_objects: Vec<u32>,    // Object IDs of page dictionaries
-    fonts_per_page: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -69,7 +67,6 @@ impl StreamingPdfGenerator {
             file,
             generator: PdfGenerator::new(),
             layout,
-            font: "Helvetica".to_string(),
             base_font_size: 12.0,
             current_color: Color::black(),
             current_page: Vec::new(),
@@ -80,7 +77,6 @@ impl StreamingPdfGenerator {
             },
             page_contents: Vec::new(),
             page_objects: Vec::new(),
-            fonts_per_page: 5,
         })
     }
 
@@ -348,36 +344,6 @@ impl StreamingPdfGenerator {
         self.file.flush()?;
 
         Ok(())
-    }
-}
-
-/// Stream pages as they're generated (useful for very large documents)
-pub struct StreamingPdfPageIterator {
-    elements: std::vec::IntoIter<Element>,
-    layout: PageLayout,
-    font: String,
-    font_size: f32,
-}
-
-impl StreamingPdfPageIterator {
-    pub fn new(elements: Vec<Element>, layout: PageLayout) -> Self {
-        Self {
-            elements: elements.into_iter(),
-            layout,
-            font: "Helvetica".to_string(),
-            font_size: 12.0,
-        }
-    }
-}
-
-impl Iterator for StreamingPdfPageIterator {
-    type Item = Result<Vec<u8>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Collect elements until we have enough for a page
-        // For simplicity, we'll return None for now
-        // A full implementation would page-break intelligently
-        None
     }
 }
 

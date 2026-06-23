@@ -13,6 +13,7 @@ use anyhow::Result;
 ///
 /// Each profile defines trade-offs between file size, quality, and performance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum OptimizationProfile {
     /// Web-optimized PDF (smallest file size, moderate quality)
     ///
@@ -39,6 +40,7 @@ pub enum OptimizationProfile {
     /// - Images at 200-300 DPI
     /// - Embed all fonts
     /// - Preserve all metadata
+    #[default]
     Archive,
 
     /// Ebook-optimized PDF (mobile-friendly, moderate compression)
@@ -124,11 +126,6 @@ impl OptimizationProfile {
     }
 }
 
-impl Default for OptimizationProfile {
-    fn default() -> Self {
-        OptimizationProfile::Archive
-    }
-}
 
 /// Detailed optimization settings for PDF generation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,12 +209,14 @@ impl OptimizationSettings {
 
 /// Compression level for PDF content streams
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum CompressionLevel {
     /// No compression (fastest, largest files)
     None,
     /// Low compression (fast, moderately sized files)
     Low,
     /// Medium compression (balanced)
+    #[default]
     Medium,
     /// High compression (slower, smallest files)
     High,
@@ -263,11 +262,6 @@ impl CompressionLevel {
     }
 }
 
-impl Default for CompressionLevel {
-    fn default() -> Self {
-        CompressionLevel::Medium
-    }
-}
 
 /// Optimized PDF generator with profile-based settings
 pub struct OptimizedPdfGenerator {

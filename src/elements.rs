@@ -189,17 +189,17 @@ fn parse_bold_italic(text: &str) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     let mut remaining = text.to_string();
 
-    loop {
-        // Bold+italic: ***text*** or ___text___ (explicit patterns)
-        let bi_stars_re = regex::Regex::new(r"\*\*\*(.+?)\*\*\*").unwrap();
-        let bi_under_re = regex::Regex::new(r"___(.+?)___").unwrap();
-        // Bold: **text** or __text__
-        let b_stars_re = regex::Regex::new(r"\*\*(.+?)\*\*").unwrap();
-        let b_under_re = regex::Regex::new(r"__(.+?)__").unwrap();
-        // Italic: *text* or _text_ (simple pattern, may have false positives but that's acceptable)
-        let i_stars_re = regex::Regex::new(r"\*([^*]+)\*").unwrap();
-        let i_under_re = regex::Regex::new(r"_([^_]+)_").unwrap();
+    // Bold+italic: ***text*** or ___text___ (explicit patterns)
+    let bi_stars_re = regex::Regex::new(r"\*\*\*(.+?)\*\*\*").unwrap();
+    let bi_under_re = regex::Regex::new(r"___(.+?)___").unwrap();
+    // Bold: **text** or __text__
+    let b_stars_re = regex::Regex::new(r"\*\*(.+?)\*\*").unwrap();
+    let b_under_re = regex::Regex::new(r"__(.+?)__").unwrap();
+    // Italic: *text* or _text_ (simple pattern, may have false positives but that's acceptable)
+    let i_stars_re = regex::Regex::new(r"\*([^*]+)\*").unwrap();
+    let i_under_re = regex::Regex::new(r"_([^_]+)_").unwrap();
 
+    loop {
         let mut found = false;
 
         if let Some(caps) = bi_stars_re.captures(&remaining) {
@@ -302,6 +302,8 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
     let mut in_math_block = false;
     let mut math_buf = String::new();
     let lines: Vec<&str> = markdown.lines().collect();
+    let img_re = regex::Regex::new(r"^!\[([^\]]*)\]\(([^\)]+)\)$").unwrap();
+    let link_re = regex::Regex::new(r"^\[([^\]]+)\]\(([^\)]+)\)$").unwrap();
     let mut i = 0;
 
     while i < lines.len() {
@@ -351,7 +353,7 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
                 in_code_block = false;
             } else {
                 in_code_block = true;
-                code_lang = trimmed[3..].trim().to_string();
+                code_lang = trimmed.strip_prefix("```").unwrap_or(trimmed).trim().to_string();
             }
             i += 1;
             continue;
@@ -400,7 +402,6 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
 
         // Image: ![alt](path)
         if trimmed.starts_with("![") {
-            let img_re = regex::Regex::new(r"^!\[([^\]]*)\]\(([^\)]+)\)$").unwrap();
             if let Some(caps) = img_re.captures(trimmed) {
                 let alt = caps[1].to_string();
                 let path = caps[2].to_string();
@@ -412,7 +413,6 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
 
         // Standalone link line: [text](url) — only if the entire line is a link
         if trimmed.starts_with('[') && !trimmed.starts_with("[^") {
-            let link_re = regex::Regex::new(r"^\[([^\]]+)\]\(([^\)]+)\)$").unwrap();
             if let Some(caps) = link_re.captures(trimmed) {
                 let text = caps[1].to_string();
                 let url = caps[2].to_string();
@@ -466,19 +466,18 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
         }
 
         // Footnote definition: [^label]: text
-        if trimmed.starts_with("[^") {
-            if let Some(close) = trimmed.find("]:") {
+        if trimmed.starts_with("[^")
+            && let Some(close) = trimmed.find("]:") {
                 let label = trimmed[2..close].to_string();
                 let text = strip_inline_formatting(trimmed[close + 2..].trim());
                 elements.push(Element::Footnote { label, text });
                 i += 1;
                 continue;
             }
-        }
 
         // Definition list: line starting with ": " after a paragraph
         if trimmed.starts_with(": ") {
-            let definition = strip_inline_formatting(&trimmed[2..]);
+            let definition = strip_inline_formatting(trimmed.strip_prefix(": ").unwrap_or(trimmed));
             // The term is the previous paragraph element
             let term = match elements.last() {
                 Some(Element::Paragraph { text }) => text.clone(),

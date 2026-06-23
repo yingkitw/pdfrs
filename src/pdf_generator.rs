@@ -25,7 +25,7 @@ pub enum PageOrientation {
 }
 
 fn text_requires_unicode(text: &str) -> bool {
-    text.chars().any(|ch| !ch.is_ascii())
+    !text.is_ascii()
 }
 
 fn document_requires_unicode(elements: &[Element]) -> bool {
@@ -228,6 +228,12 @@ pub struct PdfObj {
     pub stream_data: Option<Vec<u8>>,
 }
 
+impl Default for PdfGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PdfGenerator {
     pub fn new() -> Self {
         PdfGenerator {
@@ -280,13 +286,12 @@ impl PdfGenerator {
             pdf.extend_from_slice(obj_header.as_bytes());
             pdf.extend_from_slice(obj.content.as_bytes());
 
-            if obj.is_stream {
-                if let Some(data) = &obj.stream_data {
+            if obj.is_stream
+                && let Some(data) = &obj.stream_data {
                     pdf.extend_from_slice(b"stream\n");
                     pdf.extend_from_slice(data);
                     pdf.extend_from_slice(b"\nendstream\n");
                 }
-            }
 
             pdf.extend_from_slice(b"endobj\n");
             current_offset = pdf.len() as u32;
@@ -355,7 +360,6 @@ struct ContentStreamBuilder {
     current_font_size: f32,
     current_color: Color,
     page_number: u32,
-    total_pages: u32,
     show_page_numbers: bool,
     layout: PageLayout,
     // Font state
@@ -387,7 +391,6 @@ impl ContentStreamBuilder {
             current_font_size: base_font_size,
             current_color: Color::black(),
             page_number: 1,
-            total_pages: 0,
             show_page_numbers,
             layout,
             current_font: FONT_HELVETICA.to_string(),
@@ -458,7 +461,7 @@ impl ContentStreamBuilder {
         // Always reset to black text after drawing rectangle
         self.current_color = Color::black();
         self.current.extend_from_slice(
-            format!("0 0 0 rg\n").as_bytes()
+            "0 0 0 rg\n".to_string().as_bytes()
         );
     }
 
@@ -771,20 +774,12 @@ impl ContentStreamBuilder {
     }
 
     fn encode_text_for_current_font(&self, text: &str) -> String {
-        if self.current_font != FONT_COURIER {
-            if let Some(encoder) = &self.unicode_font_encoder {
-                if !use_base14_normalization() {
+        if self.current_font != FONT_COURIER
+            && let Some(encoder) = &self.unicode_font_encoder
+                && !use_base14_normalization() {
                     return encoder.encode_text_as_glyph_ids(text);
                 }
-            }
-        }
         encode_pdf_text(text)
-    }
-
-    fn emit_colored_line(&mut self, text: &str, font_size: f32, color: Color) {
-        self.set_color(color);
-        self.emit_line(text, font_size);
-        self.reset_color();
     }
 
     fn emit_empty_line(&mut self) {
@@ -1587,15 +1582,14 @@ fn assemble_pdf_bytes(
 
     // Build catalog with optional tagged PDF entries
     let mut catalog_entries = format!("/Pages {} 0 R\n", actual_pages_id);
-    if let Some(opts) = accessibility {
-        if opts.tagged_pdf {
+    if let Some(opts) = accessibility
+        && opts.tagged_pdf {
             catalog_entries.push_str("/MarkInfo << /Marked true >>\n");
             catalog_entries.push_str(&format!("/Lang ({})\n", escape_pdf_meta(&opts.language)));
             if let Some(st_id) = struct_tree_id {
                 catalog_entries.push_str(&format!("/StructTreeRoot {} 0 R\n", st_id));
             }
         }
-    }
 
     let catalog_dict = format!(
         "<< /Type /Catalog\n\

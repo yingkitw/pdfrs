@@ -106,7 +106,7 @@ pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> 
             let path_file = path_ref.to_str().unwrap();
 
             PdfDocument::load_from_file(path_file)
-                .and_then(|doc| {
+                .map(|doc| {
                     // Count page streams (objects that look like content streams)
                     let page_count = doc.objects.iter()
                         .filter(|(_, obj)| {
@@ -123,7 +123,7 @@ pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> 
                             }
                         })
                         .count();
-                    Ok((path_str, page_count))
+                    (path_str, page_count)
                 })
                 .map_err(|e| anyhow::anyhow!("Failed to process {:?}: {}", path_ref, e))
         })

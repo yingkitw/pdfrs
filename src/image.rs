@@ -242,31 +242,6 @@ fn parse_jpeg_dimensions(data: &[u8]) -> Result<(u32, u32)> {
     Err(anyhow!("Could not find JPEG SOF marker"))
 }
 
-/// Parse PNG IHDR chunk for width and height
-fn parse_png_dimensions(data: &[u8]) -> Result<(u32, u32)> {
-    // PNG header: 8 bytes, then IHDR chunk: 4-byte length, 4-byte type, then data
-    if data.len() < 24 {
-        return Err(anyhow!("PNG data too short"));
-    }
-    // IHDR starts at offset 8 (after signature)
-    // bytes 8..12 = chunk length, 12..16 = "IHDR", 16..20 = width, 20..24 = height
-    let width = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
-    let height = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
-    Ok((width, height))
-}
-
-/// Parse BMP header for width and height
-fn parse_bmp_dimensions(data: &[u8]) -> Result<(u32, u32)> {
-    if data.len() < 26 {
-        return Err(anyhow!("BMP data too short"));
-    }
-    // BMP info header starts at offset 14; width at +4, height at +8 (little-endian i32)
-    let width = u32::from_le_bytes([data[18], data[19], data[20], data[21]]);
-    let height_raw = i32::from_le_bytes([data[22], data[23], data[24], data[25]]);
-    let height = height_raw.unsigned_abs();
-    Ok((width, height))
-}
-
 /// Parse BMP full data: extract dimensions, bit depth, and pixel data
 /// Returns (width, height, bits_per_component, color_components, pixel_data)
 fn parse_bmp_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
@@ -289,10 +264,10 @@ fn parse_bmp_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
     };
 
     // Calculate row size (BMP rows are padded to 4-byte boundaries)
-    let row_size = ((width as usize * bytes_per_pixel + 3) / 4) * 4;
+    let row_size = (width as usize * bytes_per_pixel).div_ceil(4) * 4;
     let pixel_data_offset = u32::from_le_bytes([data[10], data[11], data[12], data[13]]) as usize;
 
-    if pixel_data_offset as usize + row_size * height as usize > data.len() {
+    if pixel_data_offset + row_size * height as usize > data.len() {
         return Err(anyhow!("BMP pixel data truncated"));
     }
 
@@ -571,20 +546,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_png_dimensions() {
-        // Minimal PNG header + IHDR
-        let mut data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]; // signature
-        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x0D]); // IHDR length
-        data.extend_from_slice(b"IHDR");
-        data.extend_from_slice(&640u32.to_be_bytes()); // width
-        data.extend_from_slice(&480u32.to_be_bytes()); // height
-
-        let (w, h) = parse_png_dimensions(&data).unwrap();
-        assert_eq!(w, 640);
-        assert_eq!(h, 480);
-    }
-
-    #[test]
     fn test_create_image_content_stream() {
         let cs = create_image_content_stream(100.0, 200.0, 300.0, 400.0, "Im1");
         let s = String::from_utf8(cs).unwrap();
@@ -594,76 +555,6 @@ mod tests {
         assert!(s.contains("Q\n"));
     }
 
-    #[test]
-    fn test_png_color_components() {
-        // Test color type 0 (grayscale)
-        assert_eq!(get_png_color_components(0), Some((1, false)));
-        // Test color type 2 (RGB)
-        assert_eq!(get_png_color_components(2), Some((3, false)));
-        // Test color type 4 (grayscale + alpha)
-        assert_eq!(get_png_color_components(4), Some((2, true)));
-        // Test color type 6 (RGB + alpha)
-        assert_eq!(get_png_color_components(6), Some((4, true)));
-        // Test invalid color types
-        assert_eq!(get_png_color_components(1), None);
-        assert_eq!(get_png_color_components(5), None);
-    }
-
-    #[test]
-    fn test_bmp_bit_depth_validation() {
-        // Test valid bit depths
-        assert!(validate_bmp_bit_depth(24).is_ok());
-        assert!(validate_bmp_bit_depth(32).is_ok());
-        // Test invalid bit depths
-        assert!(validate_bmp_bit_depth(8).is_err());
-        assert!(validate_bmp_bit_depth(16).is_err());
-        assert!(validate_bmp_bit_depth(1).is_err());
-    }
-
-    #[test]
-    fn test_bmp_row_padding() {
-        // BMP rows are padded to 4-byte boundaries
-        // Width 1 pixel, 3 bytes per pixel (24-bit) = 3 bytes, padded to 4 bytes
-        let row_size = calculate_bmp_row_size(1, 3);
-        assert_eq!(row_size, 4);
-
-        // Width 2 pixels, 3 bytes per pixel = 6 bytes, padded to 8 bytes
-        let row_size = calculate_bmp_row_size(2, 3);
-        assert_eq!(row_size, 8);
-
-        // Width 3 pixels, 3 bytes per pixel = 9 bytes, padded to 12 bytes
-        let row_size = calculate_bmp_row_size(3, 3);
-        assert_eq!(row_size, 12);
-
-        // Width 4 pixels, 3 bytes per pixel = 12 bytes, no padding needed
-        let row_size = calculate_bmp_row_size(4, 3);
-        assert_eq!(row_size, 12);
-    }
-}
-
-/// Helper function to get PNG color components from color type
-fn get_png_color_components(color_type: u8) -> Option<(u8, bool)> {
-    match color_type {
-        0 => Some((1, false)),    // grayscale
-        2 => Some((3, false)),    // RGB
-        4 => Some((2, true)),     // grayscale + alpha
-        6 => Some((4, true)),     // RGB + alpha
-        _ => None,
-    }
-}
-
-/// Helper function to validate BMP bit depth
-fn validate_bmp_bit_depth(bits_per_pixel: u16) -> Result<()> {
-    match bits_per_pixel {
-        24 | 32 => Ok(()),
-        _ => Err(anyhow!("Unsupported BMP bit depth: {}", bits_per_pixel)),
-    }
-}
-
-/// Helper function to calculate BMP row size with padding
-fn calculate_bmp_row_size(width: u32, bytes_per_pixel: u8) -> usize {
-    let row_size = width as usize * bytes_per_pixel as usize;
-    ((row_size + 3) / 4) * 4
 }
 
 #[cfg(test)]

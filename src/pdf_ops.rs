@@ -326,28 +326,23 @@ fn extract_page_streams(doc: &crate::pdf::PdfDocument) -> Vec<Vec<u8>> {
         .objects
         .iter()
         .filter_map(|(id, obj)| {
-            if let crate::pdf::PdfObject::Dictionary(dict) = obj {
-                if let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(kind))) = dict.get("Type") {
-                    if kind == "/Page" {
+            if let crate::pdf::PdfObject::Dictionary(dict) = obj
+                && let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(kind))) = dict.get("Type")
+                    && kind == "/Page" {
                         return Some(*id);
                     }
-                }
-            }
             None
         })
         .collect();
     page_ids.sort_unstable();
 
     for page_id in page_ids {
-        if let Some(crate::pdf::PdfObject::Dictionary(dict)) = doc.objects.get(&page_id) {
-            if let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(contents_id_raw))) = dict.get("Contents") {
-                if let Ok(contents_id) = contents_id_raw.parse::<u32>() {
-                    if let Some(crate::pdf::PdfObject::Stream { data, .. }) = doc.objects.get(&contents_id) {
+        if let Some(crate::pdf::PdfObject::Dictionary(dict)) = doc.objects.get(&page_id)
+            && let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(contents_id_raw))) = dict.get("Contents")
+                && let Ok(contents_id) = contents_id_raw.parse::<u32>()
+                    && let Some(crate::pdf::PdfObject::Stream { data, .. }) = doc.objects.get(&contents_id) {
                         streams.push(decompress_if_needed(data));
                     }
-                }
-            }
-        }
     }
 
     // Fallback for malformed/simple PDFs where /Page dictionaries are not parsed as expected.
@@ -372,7 +367,7 @@ fn extract_page_streams(doc: &crate::pdf::PdfDocument) -> Vec<Vec<u8>> {
 
 fn decompress_if_needed(data: &[u8]) -> Vec<u8> {
     // Valid zlib header: CMF=0x78 and (CMF*256 + FLG) % 31 == 0
-    if data.len() > 2 && data[0] == 0x78 && ((data[0] as u16) * 256 + (data[1] as u16)) % 31 == 0 {
+    if data.len() > 2 && data[0] == 0x78 && ((data[0] as u16) * 256 + (data[1] as u16)).is_multiple_of(31) {
         match crate::compression::decompress_deflate(data) {
             Ok(d) => d,
             Err(_) => data.to_vec(),
@@ -538,13 +533,12 @@ fn generate_with_info(generator: &crate::pdf_generator::PdfGenerator, info_id: u
         pdf.extend_from_slice(obj_header.as_bytes());
         pdf.extend_from_slice(obj.content.as_bytes());
 
-        if obj.is_stream {
-            if let Some(data) = &obj.stream_data {
+        if obj.is_stream
+            && let Some(data) = &obj.stream_data {
                 pdf.extend_from_slice(b"stream\n");
                 pdf.extend_from_slice(data);
                 pdf.extend_from_slice(b"\nendstream\n");
             }
-        }
 
         pdf.extend_from_slice(b"endobj\n");
         current_offset = pdf.len() as u32;
@@ -666,35 +660,30 @@ pub fn extract_metadata_from_pdf(doc: &crate::pdf::PdfDocument) -> Result<PdfMet
 
     // Look for the Info dictionary in the trailer
     // For now, we'll do a simple search for metadata-like objects
-    for (_id, obj) in &doc.objects {
+    for obj in doc.objects.values() {
         if let crate::pdf::PdfObject::Dictionary(data) = obj {
             // Convert dictionary to a string representation for parsing
             let dict_str = dict_to_string(data);
-            if dict_str.contains("/Title") {
-                if let Some(title) = extract_pdf_string_field(&dict_str, "/Title") {
+            if dict_str.contains("/Title")
+                && let Some(title) = extract_pdf_string_field(&dict_str, "/Title") {
                     metadata.title = Some(title);
                 }
-            }
-            if dict_str.contains("/Author") {
-                if let Some(author) = extract_pdf_string_field(&dict_str, "/Author") {
+            if dict_str.contains("/Author")
+                && let Some(author) = extract_pdf_string_field(&dict_str, "/Author") {
                     metadata.author = Some(author);
                 }
-            }
-            if dict_str.contains("/Subject") {
-                if let Some(subject) = extract_pdf_string_field(&dict_str, "/Subject") {
+            if dict_str.contains("/Subject")
+                && let Some(subject) = extract_pdf_string_field(&dict_str, "/Subject") {
                     metadata.subject = Some(subject);
                 }
-            }
-            if dict_str.contains("/Keywords") {
-                if let Some(keywords) = extract_pdf_string_field(&dict_str, "/Keywords") {
+            if dict_str.contains("/Keywords")
+                && let Some(keywords) = extract_pdf_string_field(&dict_str, "/Keywords") {
                     metadata.keywords = Some(keywords);
                 }
-            }
-            if dict_str.contains("/Creator") {
-                if let Some(creator) = extract_pdf_string_field(&dict_str, "/Creator") {
+            if dict_str.contains("/Creator")
+                && let Some(creator) = extract_pdf_string_field(&dict_str, "/Creator") {
                     metadata.creator = Some(creator);
                 }
-            }
         }
     }
 
@@ -806,18 +795,16 @@ fn unescape_pdf_string(s: &str) -> String {
                     '0'..='7' => {
                         // Octal escape sequence (up to 3 digits)
                         let mut octal = String::from(next);
-                        if let Some(&c) = chars.peek() {
-                            if c >= '0' && c <= '7' {
+                        if let Some(&c) = chars.peek()
+                            && ('0'..='7').contains(&c) {
                                 chars.next();
                                 octal.push(c);
-                                if let Some(&c) = chars.peek() {
-                                    if c >= '0' && c <= '7' {
+                                if let Some(&c) = chars.peek()
+                                    && ('0'..='7').contains(&c) {
                                         chars.next();
                                         octal.push(c);
                                     }
-                                }
                             }
-                        }
                         if let Ok(code) = u8::from_str_radix(&octal, 8) {
                             result.push(code as char);
                         }
@@ -960,7 +947,7 @@ pub fn create_pdf_with_all_annotations(
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
-        generator.add_object(format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n"));
+        generator.add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
     }
 
     let kids: Vec<String> = page_ids.iter().map(|id| format!("{} 0 R", id)).collect();
@@ -1071,9 +1058,7 @@ pub fn create_pdf_with_annotations(
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
 
-        let font_dict = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n"
-        );
+        let font_dict = "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string();
         generator.add_object(font_dict);
     }
 
@@ -1248,9 +1233,9 @@ fn build_watermark_stream(text: &str, font_size: f32, opacity: f32, layout: &cra
     // Center of page
     let cx = layout.width / 2.0;
     let cy = layout.height / 2.0;
-    // 45° rotation matrix: cos(45)=0.707, sin(45)=0.707
-    let cos45: f32 = 0.7071;
-    let sin45: f32 = 0.7071;
+    // 45° rotation matrix: cos(45)=sin(45)=1/sqrt(2)
+    let cos45: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    let sin45: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
     let mut stream = Vec::new();
     // Save graphics state, set transparency
@@ -1397,7 +1382,7 @@ pub fn create_pdf_with_form_fields(
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
-        generator.add_object(format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n"));
+        generator.add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
     }
 
     let kids: Vec<String> = page_ids.iter().map(|id| format!("{} 0 R", id)).collect();
@@ -1534,6 +1519,7 @@ pub fn detect_form_fields(input_file: &str) -> Result<Vec<DetectedFormField>> {
 
     // Find all PDF objects and check if they are widget annotations
     let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj(.*?)endobj").unwrap();
+    let opt_re = regex::Regex::new(r"\(([^)]*)\)").unwrap();
 
     for caps in obj_re.captures_iter(&content) {
         let obj_text = &caps[0];
@@ -1591,7 +1577,6 @@ pub fn detect_form_fields(input_file: &str) -> Result<Vec<DetectedFormField>> {
         // Extract /Opt (options list)
         let options = if let Some(opt_raw) = extract_pdf_dict_value(dict_text, "/Opt") {
             // /Opt can be [(Option1) (Option2)] or an array reference
-            let opt_re = regex::Regex::new(r"\(([^)]*)\)").unwrap();
             opt_re.captures_iter(&opt_raw)
                 .map(|c| c[1].to_string())
                 .collect()
@@ -1658,6 +1643,7 @@ pub fn fill_form_fields(
 
     // Find all PDF objects and check if they are widget annotations
     let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj(.*?)endobj").unwrap();
+    let v_re = regex::Regex::new(r"/V\s*\([^)]*\)").unwrap();
 
     let mut updated_bytes = pdf_bytes.clone();
     let mut offset_delta: isize = 0;
@@ -1696,7 +1682,6 @@ pub fn fill_form_fields(
 
         // Replace existing /V (...) or add /V before the closing >>
         let updated_dict = if local_dict.contains("/V ") {
-            let v_re = regex::Regex::new(r"/V\s*\([^)]*\)").unwrap();
             let new_v = format!("/V ({})", escaped_value);
             v_re.replace(&local_dict, &new_v).to_string()
         } else {
@@ -1793,8 +1778,8 @@ pub fn overlay_image_on_pdf(
     // For each page, append the overlay content
     let overlayed: Vec<Vec<u8>> = all_streams
         .iter()
-        .enumerate()
-        .map(|(_i, stream)| {
+        
+        .map(|stream| {
             let mut combined = stream.clone();
             combined.extend_from_slice(&overlay_content);
             combined
@@ -2361,12 +2346,10 @@ pub fn sign_pdf(input_file: &str, output_file: &str, signature: &crate::security
     let value_start = contents_start + 1; // Point to '<' in "Contents <"
     let value_end = contents_start + contents_marker.len() + 1; // After '>'
 
-    let byte_range = vec![
-        0u32,
+    let byte_range = [0u32,
         value_start as u32,
         value_end as u32,
-        (full_output.len() - value_end) as u32,
-    ];
+        (full_output.len() - value_end) as u32];
 
     // Compute SHA-256 over the byte ranges
     let mut hasher = Sha256::new();
@@ -2449,17 +2432,16 @@ fn extract_pdf_dict_value(dict: &str, key: &str) -> Option<String> {
         .map(|(i, _)| i)?;
     let after = dict[pos + key.len()..].trim_start();
     if after.starts_with('(') {
-        let end = after[1..].find(')')?;
-        Some(after[1..=end].to_string())
+        let end = after.find(')')?;
+        Some(after[1..end].to_string())
     } else if after.starts_with('<') && !after.starts_with("<<") {
-        let end = after[1..].find('>')?;
-        Some(after[1..=end].to_string())
+        let end = after.find('>')?;
+        Some(after[1..end].to_string())
     } else if after.starts_with('[') {
         let end = after.find(']')?;
         Some(after[..=end].to_string())
-    } else if after.starts_with('/') {
+    } else if let Some(name_after) = after.strip_prefix('/') {
         // PDF name: /Name
-        let name_after = &after[1..];
         let end = name_after.find(|c: char| c.is_whitespace() || c == '/' || c == '>' || c == '[').unwrap_or(name_after.len());
         Some(name_after[..end].to_string())
     } else {
@@ -2508,18 +2490,16 @@ pub fn extract_tables_from_pdf(input_file: &str) -> Result<Vec<String>> {
                 let line = line.trim();
 
                 // Track positioning
-                if let Some(caps) = td_re.captures(line) {
-                    if let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
+                if let Some(caps) = td_re.captures(line)
+                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
                         current_x = x;
                         current_y = y;
                     }
-                }
-                if let Some(caps) = tm_re.captures(line) {
-                    if let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
+                if let Some(caps) = tm_re.captures(line)
+                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
                         current_x = x;
                         current_y = y;
                     }
-                }
 
                 // Extract text fragments with current position
                 for caps in tj_re.captures_iter(line) {
@@ -2746,34 +2726,30 @@ pub fn detect_document_structure(input_file: &str) -> Result<DocumentStructure> 
                 let line = line.trim();
 
                 // Track font change: /FontName size Tf
-                if let Some(caps) = tf_re.captures(line) {
-                    if let Ok(size) = caps[2].parse::<f32>() {
+                if let Some(caps) = tf_re.captures(line)
+                    && let Ok(size) = caps[2].parse::<f32>() {
                         current_font_name = caps[1].to_string();
                         current_font_size = size;
                     }
-                }
 
                 // Track positioning
-                if let Some(caps) = td_re.captures(line) {
-                    if let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
+                if let Some(caps) = td_re.captures(line)
+                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
                         current_x = x;
                         current_y = y;
                     }
-                }
-                if let Some(caps) = tm_re.captures(line) {
-                    if let (Ok(a), Ok(_d), Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[4].parse::<f32>(), caps[5].parse::<f32>(), caps[6].parse::<f32>()) {
+                if let Some(caps) = tm_re.captures(line)
+                    && let (Ok(a), Ok(_d), Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[4].parse::<f32>(), caps[5].parse::<f32>(), caps[6].parse::<f32>()) {
                         current_x = x;
                         current_y = y;
                         // Effective font scale from matrix (a = x-scale, d = y-scale)
                         tm_scale = a.abs();
                         // Also adjust font size by y-scale if it's meaningful
-                        if let Ok(d) = caps[4].parse::<f32>() {
-                            if d.abs() > 0.01 {
+                        if let Ok(d) = caps[4].parse::<f32>()
+                            && d.abs() > 0.01 {
                                 tm_scale = d.abs();
                             }
-                        }
                     }
-                }
 
                 // Extract text fragments
                 for caps in tj_re.captures_iter(line) {
@@ -3117,7 +3093,7 @@ pub fn create_portfolio_pdf(
     collection_dict.insert("Schema".to_string(), PdfValue::Object(PdfObject::String(schema)));
 
     // Sort entries for the portfolio
-    let sort = format!("<< /S /Name /A true >>");
+    let sort = "<< /S /Name /A true >>".to_string();
     collection_dict.insert("Sort".to_string(), PdfValue::Object(PdfObject::String(sort)));
 
     // Add collection object
@@ -3134,7 +3110,7 @@ pub fn create_portfolio_pdf(
         }
     }
 
-    std::fs::write(output_file, &doc.to_bytes())?;
+    std::fs::write(output_file, doc.to_bytes())?;
     Ok(())
 }
 
