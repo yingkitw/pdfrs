@@ -511,3 +511,68 @@ fn test_extract_images_from_pdf() {
     std::fs::remove_file(&image_pdf).ok();
     std::fs::remove_dir_all(&extract_dir).ok();
 }
+
+#[test]
+fn test_font_subsetting_reduces_file_size() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let subset_pdf = format!("{}/subset_font.pdf", out_dir);
+    let nosubset_pdf = format!("{}/nosubset_font.pdf", out_dir);
+
+    // Use Unicode characters to trigger font embedding
+    let markdown = r"# Unicode Test
+
+Hello with unicode: α β γ δ ε
+And some CJK: 中文测试
+Math symbols: ∫ ∑ ∏ √
+";
+    let elements = pdfrs::elements::parse_markdown(markdown);
+
+    // Use custom settings with identical compression but different subset_fonts
+    let settings_subset = pdfrs::optimization::OptimizationSettings::new()
+        .with_compression(pdfrs::optimization::CompressionLevel::Medium)
+        .with_embed_fonts(true)
+        .with_subset_fonts(true);
+    let generator_subset = pdfrs::optimization::OptimizedPdfGenerator::new(
+        pdfrs::optimization::OptimizationProfile::Custom(settings_subset),
+    )
+    .with_layout(pdfrs::pdf_generator::PageLayout::portrait());
+    generator_subset.generate(&elements, &subset_pdf).unwrap();
+
+    let settings_nosubset = pdfrs::optimization::OptimizationSettings::new()
+        .with_compression(pdfrs::optimization::CompressionLevel::Medium)
+        .with_embed_fonts(true)
+        .with_subset_fonts(false);
+    let generator_nosubset = pdfrs::optimization::OptimizedPdfGenerator::new(
+        pdfrs::optimization::OptimizationProfile::Custom(settings_nosubset),
+    )
+    .with_layout(pdfrs::pdf_generator::PageLayout::portrait());
+    generator_nosubset.generate(&elements, &nosubset_pdf).unwrap();
+
+    // Both should be valid PDFs
+    let doc_subset = pdfrs::pdf::PdfDocument::load_from_file(&subset_pdf).unwrap();
+    let doc_nosubset = pdfrs::pdf::PdfDocument::load_from_file(&nosubset_pdf).unwrap();
+    assert!(!doc_subset.objects.is_empty());
+    assert!(!doc_nosubset.objects.is_empty());
+
+    // Both should contain an embedded font (FontFile2)
+    let subset_has_font = doc_subset.to_bytes().windows(10).any(|w| w == b"/FontFile2");
+    let nosubset_has_font = doc_nosubset.to_bytes().windows(10).any(|w| w == b"/FontFile2");
+    assert!(subset_has_font, "Subset PDF should contain embedded font");
+    assert!(nosubset_has_font, "No-subset PDF should contain embedded font");
+
+    // The subsetted PDF should be smaller or equal in size
+    let size_subset = std::fs::metadata(&subset_pdf).unwrap().len();
+    let size_nosubset = std::fs::metadata(&nosubset_pdf).unwrap().len();
+    assert!(
+        size_subset <= size_nosubset,
+        "Subsetted PDF ({}) should be smaller than or equal to non-subsetted PDF ({})",
+        size_subset,
+        size_nosubset
+    );
+
+    std::fs::remove_file(&subset_pdf).ok();
+    std::fs::remove_file(&nosubset_pdf).ok();
+}

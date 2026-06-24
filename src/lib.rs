@@ -134,6 +134,7 @@ pub mod elements;
 pub mod image;
 pub mod markdown;
 pub mod optimization;
+#[cfg(feature = "parallel")]
 pub mod parallel;
 pub mod pdf;
 pub mod pdf_generator;
@@ -144,6 +145,9 @@ pub mod table_renderer;
 
 #[cfg(feature = "async")]
 pub mod async_api;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 #[cfg(test)]
 mod tests {

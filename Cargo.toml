@@ -1,6 +1,6 @@
 [package]
 name = "pdfrs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "A CLI tool to read/write PDFs and convert to/from markdown"
 authors = ["Ying Kit WONG"]
@@ -21,15 +21,19 @@ regex = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 syntect = "5.0"
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
 ttf-parser = "0.25"
+wasm-bindgen = { version = "0.2", optional = true }
+subsetter = "0.2"
 flate2 = "1.0"
 sha2 = "0.10"
 tokio = { version = "1.0", features = ["fs", "rt", "macros"], optional = true }
 
 [features]
-default = []
+default = ["parallel"]
 async = ["tokio"]
+parallel = ["rayon"]
+wasm = ["wasm-bindgen"]
 
 [dev-dependencies]
 criterion = "0.5"

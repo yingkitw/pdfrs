@@ -140,7 +140,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR13.1**: `rayon` dependency for parallelism — `Cargo.toml` dependency and `parallel.rs` module
 - [x] **FR13.2**: Parallel page rendering — `ParallelPdfGenerator::generate_markdown_pdfs_parallel()` with `par_iter()`
 - [x] **FR13.3**: Parallel PDF merging — `merge_pdfs_parallel()` loads inputs concurrently, `extract_text_parallel()`, `validate_pdfs_parallel()`, `count_pages_parallel()`, `process_pdfs_parallel()`
-- [ ] **FR13.4**: SIMD text width calculations
+- [x] **FR13.4**: SIMD text width calculations — `estimated_text_width()` now processes ASCII text in 8-byte chunks with unrolled `< 128` checks (auto-vectorizable by LLVM), falling back to scalar ASCII runs and per-char Unicode handling
 - [x] **FR13.5**: Async PDF API for web servers — `async_api` module gated behind `async` Cargo feature; `tokio::fs` for non-blocking I/O, `tokio::task::spawn_blocking` for CPU-bound parsing/generation; `load_pdf_async()`, `generate_pdf_async()`, `optimize_pdf_async()`, `validate_pdf_async()`, `validate_pdf_a_async()`
 
 #### FR15: Developer Experience
@@ -152,7 +152,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 #### FR18: Intelligent Optimization
 - [x] **FR18.1**: Smart content-aware compression — `optimize-pdf` CLI command with stream recompression via `PdfDocument::to_bytes()`
-- [ ] **FR18.2**: Font subsetting to reduce file size
+- [x] **FR18.2**: Font subsetting to reduce file size — `prepare_unicode_font_support_with_subsetting()` with `subsetter` crate; collects used chars/glyphs, builds `GlyphRemapper`, subsets embedded TrueType font; `OptimizedPdfGenerator` respects `subset_fonts` setting; integration test verifies smaller PDF with embedded font
 - [x] **FR18.3**: Object deduplication across pages — `PdfDocument::deduplicate_objects()` with deterministic content hashing and reference rewriting, integrated into `optimize_pdf_bytes()`
 - [x] **FR18.4**: Optimization profiles (web, print, archive, ebook)
 
@@ -166,13 +166,9 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR14.5**: PDF/A-1b validation — `validate-pdfa` CLI command with encryption, JS, font embedding, and XMP checks
 
 #### FR16: WebAssembly Support
-- [ ] **FR16.1**: Add `wasm-bindgen` and `wasm-pack`
-- [ ] **FR16.2**: WASM-compatible API
-  ```rust
-  #[wasm_bindgen]
-  pub fn render_markdown_to_pdf(md: &str) -> Result<Vec<u8>, JsValue>;
-  ```
-- [ ] **FR16.3**: JavaScript bindings and npm package
+- [x] **FR16.1**: Add `wasm-bindgen` — optional `wasm-bindgen` dependency behind `wasm` Cargo feature; `rayon` made optional behind `parallel` feature so `wasm32-unknown-unknown` can compile without thread-dependent crates
+- [x] **FR16.2**: WASM-compatible API — `wasm.rs` module with `render_markdown_to_pdf(md: &str) -> Result<Vec<u8>, JsValue>`; pure in-memory pipeline (no filesystem); `parallel` module conditionally compiled with `#[cfg(feature = "parallel")]`
+- [x] **FR16.3**: JavaScript bindings and npm package — `wasm/package.json` with metadata and build script; `wasm/example.html` browser demo; `scripts/build-wasm.sh` for `wasm-pack` builds
 - [ ] **FR16.4**: Canvas-based PDF viewer in browser
 
 ### 🟢 Medium
@@ -266,7 +262,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `PdfDocument::load_from_bytes()` — in-memory PDF parsing without filesystem
   - [x] `PdfDocument::to_bytes()` — round-trip serialization for PDF optimization
   - [ ] Rust API documentation (rustdoc with examples)
-  - [ ] Example usage patterns (examples/ directory)
+  - [x] Example usage patterns (examples/ directory) — `examples/basic.rs` (generate PDF from Markdown), `examples/merge.rs` (merge PDFs), `examples/optimize.rs` (optimize with Web profile), `examples/watermark.rs` (add text watermark)
 
 - [ ] Plugin system
   - [ ] Plugin architecture
@@ -276,9 +272,9 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 ### 🟢 Medium
 
-- [ ] WebAssembly support
-  - [ ] Compile to WASM
-  - [ ] Browser-based PDF processing
+- [x] WebAssembly support
+  - [x] Compile to WASM — `wasm-bindgen` integration with `wasm` Cargo feature; `wasm-pack` build via `scripts/build-wasm.sh`
+  - [x] Browser-based PDF processing — `wasm/example.html` demo generates PDFs client-side with `render_markdown_to_pdf()`
   - [ ] Web interface
 
 - [ ] Cloud integration

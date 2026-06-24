@@ -305,18 +305,9 @@ impl OptimizedPdfGenerator {
 
     /// Generate a PDF from elements with the current optimization settings
     pub fn generate(&self, elements: &[crate::elements::Element], output_path: &str) -> Result<()> {
-        let level = match self.settings.compression_level {
-            CompressionLevel::None => None,
-            _ => Some(self.settings.compression_level.deflate_level()),
-        };
-        crate::pdf_generator::create_pdf_from_elements_with_layout_and_compression(
-            output_path,
-            elements,
-            &self.font,
-            self.font_size,
-            self.layout,
-            level,
-        )
+        let bytes = self.generate_bytes(elements)?;
+        std::fs::write(output_path, bytes)?;
+        Ok(())
     }
 
     /// Generate a PDF from elements and return the bytes
@@ -325,12 +316,14 @@ impl OptimizedPdfGenerator {
             CompressionLevel::None => None,
             _ => Some(self.settings.compression_level.deflate_level()),
         };
-        crate::pdf_generator::generate_pdf_bytes_with_compression(
+        crate::pdf_generator::generate_pdf_bytes_internal(
             elements,
             &self.font,
             self.font_size,
             self.layout,
             level,
+            self.settings.subset_fonts,
+            None,
         )
     }
 

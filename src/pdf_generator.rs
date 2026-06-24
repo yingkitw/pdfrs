@@ -14,7 +14,7 @@ mod unicode_support;
 
 use code_highlight::highlight_code;
 use text_support::{encode_pdf_text, escape_pdf_string, render_math_text, use_base14_normalization};
-use unicode_support::{prepare_unicode_font_support, UnicodeFontEncoder};
+use unicode_support::{prepare_unicode_font_support, prepare_unicode_font_support_with_subsetting, UnicodeFontEncoder};
 
 // --- Page orientation and layout ---
 
@@ -72,6 +72,70 @@ fn document_requires_unicode(elements: &[Element]) -> bool {
         }),
         Element::HorizontalRule | Element::EmptyLine | Element::PageBreak => false,
     })
+}
+
+/// Collect all unique characters from elements that would be rendered via the Unicode font encoder.
+fn collect_unicode_chars(elements: &[Element]) -> std::collections::BTreeSet<char> {
+    let mut chars = std::collections::BTreeSet::new();
+    for elem in elements {
+        match elem {
+            Element::Heading { text, .. }
+            | Element::Paragraph { text }
+            | Element::UnorderedListItem { text, .. }
+            | Element::OrderedListItem { text, .. }
+            | Element::TaskListItem { text, .. }
+            | Element::BlockQuote { text, .. }
+            | Element::InlineCode { code: text }
+            | Element::StyledText { text, .. }
+            => { chars.extend(text.chars()); }
+            Element::MathBlock { expression } | Element::MathInline { expression } => {
+                chars.extend(render_math_text(expression).chars());
+            }
+            Element::CodeBlock { code, .. } => { chars.extend(code.chars()); }
+            Element::DefinitionItem { term, definition } => {
+                chars.extend(term.chars());
+                chars.extend(definition.chars());
+            }
+            Element::Footnote { label, text } => {
+                chars.extend(label.chars());
+                chars.extend(text.chars());
+            }
+            Element::Link { text, url } => {
+                chars.extend(text.chars());
+                chars.extend(url.chars());
+            }
+            Element::Image { alt, path } => {
+                chars.extend(alt.chars());
+                chars.extend(path.chars());
+            }
+            Element::TableRow { cells, .. } => {
+                for cell in cells {
+                    chars.extend(cell.chars());
+                }
+            }
+            Element::RichParagraph { segments } => {
+                for seg in segments {
+                    match seg {
+                        TextSegment::Plain(t)
+                        | TextSegment::Bold(t)
+                        | TextSegment::Italic(t)
+                        | TextSegment::BoldItalic(t)
+                        | TextSegment::Code(t)
+                        => { chars.extend(t.chars()); }
+                        TextSegment::MathInline(expr) => {
+                            chars.extend(render_math_text(expr).chars());
+                        }
+                        TextSegment::Link { text, url } => {
+                            chars.extend(text.chars());
+                            chars.extend(url.chars());
+                        }
+                    }
+                }
+            }
+            Element::HorizontalRule | Element::EmptyLine | Element::PageBreak => {}
+        }
+    }
+    chars
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -157,18 +221,52 @@ fn is_wide_unicode(ch: char) -> bool {
 
 fn estimated_text_width(text: &str, font_size: f32, monospace: bool) -> f32 {
     let base = if monospace { 0.6 } else { 0.5 };
-    let units: f32 = text
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii() {
-                1.0
-            } else if is_wide_unicode(ch) {
-                2.0
-            } else {
-                1.3
+    let bytes = text.as_bytes();
+    let mut units: f32 = 0.0;
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // SIMD-like fast path: process 8-byte chunks of pure ASCII
+        if i + 8 <= bytes.len() {
+            let chunk = &bytes[i..i + 8];
+            // Check all 8 bytes are ASCII (high bit clear) with unrolled comparisons.
+            // The compiler can vectorise these 8 independent checks into a single SIMD op.
+            if chunk[0] < 128
+                && chunk[1] < 128
+                && chunk[2] < 128
+                && chunk[3] < 128
+                && chunk[4] < 128
+                && chunk[5] < 128
+                && chunk[6] < 128
+                && chunk[7] < 128
+            {
+                units += 8.0;
+                i += 8;
+                continue;
             }
-        })
-        .sum();
+        }
+
+        // Scalar fast path: run of ASCII bytes shorter than a full chunk
+        if bytes[i] < 128 {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && bytes[i] < 128 {
+                i += 1;
+            }
+            units += (i - start) as f32;
+            continue;
+        }
+
+        // Slow path: multi-byte UTF-8 character
+        let ch = text[i..].chars().next().unwrap();
+        if is_wide_unicode(ch) {
+            units += 2.0;
+        } else {
+            units += 1.3;
+        }
+        i += ch.len_utf8();
+    }
+
     units * font_size * base
 }
 
@@ -1293,50 +1391,23 @@ fn add_shared_font_resources(generator: &mut PdfGenerator, unicode_font_bytes: O
     }
 }
 
-/// Generate PDF bytes from elements (library API — no filesystem access needed)
-pub fn generate_pdf_bytes(
-    elements: &[Element],
-    font: &str,
-    base_font_size: f32,
-    layout: PageLayout,
-) -> Result<Vec<u8>> {
-    let unicode_font_support = if document_requires_unicode(elements) {
-        prepare_unicode_font_support()
-    } else {
-        None
-    };
-    let unicode_font_encoder = unicode_font_support
-        .as_ref()
-        .map(|(_, encoder)| encoder.clone());
-    let show_page_numbers = true;
-    let mut builder = ContentStreamBuilder::new(
-        base_font_size,
-        show_page_numbers,
-        layout,
-        unicode_font_encoder,
-    );
-    render_elements_to_builder(&mut builder, elements, base_font_size);
-    let page_streams = builder.finish();
-    Ok(assemble_pdf_bytes(
-        &page_streams,
-        font,
-        &layout,
-        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
-        None,
-        None,
-    ))
-}
-
-/// Same as `generate_pdf_bytes` but with optional stream compression
-pub fn generate_pdf_bytes_with_compression(
+/// Internal helper for generating PDF bytes with optional font subsetting.
+pub(crate) fn generate_pdf_bytes_internal(
     elements: &[Element],
     font: &str,
     base_font_size: f32,
     layout: PageLayout,
     compression_level: Option<u8>,
+    subset_fonts: bool,
+    accessibility: Option<&AccessibilityOptions>,
 ) -> Result<Vec<u8>> {
     let unicode_font_support = if document_requires_unicode(elements) {
-        prepare_unicode_font_support()
+        let chars = if subset_fonts {
+            Some(collect_unicode_chars(elements))
+        } else {
+            None
+        };
+        prepare_unicode_font_support_with_subsetting(chars.as_ref())
     } else {
         None
     };
@@ -1358,8 +1429,29 @@ pub fn generate_pdf_bytes_with_compression(
         &layout,
         unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
         compression_level,
-        None,
+        accessibility,
     ))
+}
+
+/// Generate PDF bytes from elements (library API — no filesystem access needed)
+pub fn generate_pdf_bytes(
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+) -> Result<Vec<u8>> {
+    generate_pdf_bytes_internal(elements, font, base_font_size, layout, None, false, None)
+}
+
+/// Same as `generate_pdf_bytes` but with optional stream compression
+pub fn generate_pdf_bytes_with_compression(
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+    compression_level: Option<u8>,
+) -> Result<Vec<u8>> {
+    generate_pdf_bytes_internal(elements, font, base_font_size, layout, compression_level, false, None)
 }
 
 /// Generate a tagged/accessible PDF with PDF/UA structural support.
@@ -1388,31 +1480,7 @@ pub fn generate_tagged_pdf_bytes(
     layout: PageLayout,
     options: AccessibilityOptions,
 ) -> Result<Vec<u8>> {
-    let unicode_font_support = if document_requires_unicode(elements) {
-        prepare_unicode_font_support()
-    } else {
-        None
-    };
-    let unicode_font_encoder = unicode_font_support
-        .as_ref()
-        .map(|(_, encoder)| encoder.clone());
-    let show_page_numbers = true;
-    let mut builder = ContentStreamBuilder::new(
-        base_font_size,
-        show_page_numbers,
-        layout,
-        unicode_font_encoder,
-    );
-    render_elements_to_builder(&mut builder, elements, base_font_size);
-    let page_streams = builder.finish();
-    Ok(assemble_pdf_bytes(
-        &page_streams,
-        font,
-        &layout,
-        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
-        None,
-        Some(&options),
-    ))
+    generate_pdf_bytes_internal(elements, font, base_font_size, layout, None, false, Some(&options))
 }
 
 /// Render only a specific page range from elements into a standalone PDF.
@@ -1444,7 +1512,7 @@ pub fn render_page_range(
     range: std::ops::Range<usize>,
 ) -> Result<Vec<u8>> {
     let unicode_font_support = if document_requires_unicode(elements) {
-        prepare_unicode_font_support()
+        prepare_unicode_font_support_with_subsetting(Some(&collect_unicode_chars(elements)))
     } else {
         None
     };
