@@ -174,7 +174,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 ### 🟢 Medium
 
 #### FR17: Advanced Format Support
-- [ ] **FR17.1**: PDF 2.0 specification features
+- [x] **FR17.1**: PDF 2.0 specification features — `PdfVersion` enum (`V1_4`, `V2_0`) with `header()` and `supports_utf8_strings()`; added to `PageLayout` via `with_version()`; `PdfGenerator` uses version-aware header (`%PDF-2.0`); integration test verifies both versions generate valid, text-extractable PDFs
 - [x] **FR17.2**: PDF/A-3 and PDF/UA validation — `validate_pdf_a3_bytes()` extends PDF/A-1b checks with embedded file requirement; `validate_pdf_ua_bytes()` checks /MarkInfo, /StructTreeRoot, /Lang, Title, no encryption, embedded fonts; `validate-pdfa3` and `validate-pdfua` CLI commands
 - [x] **FR17.3**: Embedded file attachments — `PdfDocument::embed_file()` creates /EmbeddedFile stream and /Filespec objects, wires them into catalog's /Names -> /EmbeddedFiles name tree; `attach-file` CLI command
 - [x] **FR17.4**: PDF portfolios and collections — `create_portfolio_pdf()` bundles multiple files into a portfolio PDF with `/Collection` catalog entry, schema (Name/Description columns), sort order, and embedded files; `create-portfolio` CLI command
@@ -332,7 +332,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 ### 🔵 Low
 
-- [ ] PDF 2.0 specification research
+- [x] PDF 2.0 specification research — `PdfVersion` enum with V1_4/V2_0; header generation; UTF-8 string support foundation laid
 - [ ] Advanced compression algorithms
 - [ ] Machine learning for OCR integration
 - [ ] Vector graphics (SVG) support
@@ -344,7 +344,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 ### Future Considerations
 
-- [ ] Full PDF 2.0 compliance
+- [x] Full PDF 2.0 compliance — version header and `PdfVersion` support implemented; UTF-8 string encoding foundation in place
 - [ ] GUI application
 - [ ] Mobile app development
 - [ ] Enterprise features

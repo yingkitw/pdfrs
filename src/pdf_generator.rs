@@ -57,6 +57,36 @@ pub enum PageOrientation {
     Landscape,
 }
 
+/// PDF specification version used when generating output.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PdfVersion {
+    /// PDF 1.4 (widest compatibility)
+    V1_4,
+    /// PDF 2.0 (UTF-8 strings, larger object numbers, modern feature set)
+    V2_0,
+}
+
+impl Default for PdfVersion {
+    fn default() -> Self {
+        PdfVersion::V1_4
+    }
+}
+
+impl PdfVersion {
+    /// Header line emitted at the start of the PDF file.
+    pub fn header(&self) -> &'static [u8] {
+        match self {
+            PdfVersion::V1_4 => b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n",
+            PdfVersion::V2_0 => b"%PDF-2.0\n%\xE2\xE3\xCF\xD3\n",
+        }
+    }
+
+    /// Whether UTF-8 strings (with BOM) are allowed for text-string values.
+    pub fn supports_utf8_strings(&self) -> bool {
+        matches!(self, PdfVersion::V2_0)
+    }
+}
+
 fn text_requires_unicode(text: &str) -> bool {
     !text.is_ascii()
 }
@@ -179,6 +209,7 @@ pub struct PageLayout {
     pub margin_right: f32,
     pub margin_top: f32,
     pub margin_bottom: f32,
+    pub version: PdfVersion,
 }
 
 impl PageLayout {
@@ -190,6 +221,7 @@ impl PageLayout {
             margin_right: 72.0,
             margin_top: 72.0,
             margin_bottom: 72.0,
+            version: PdfVersion::V1_4,
         }
     }
 
@@ -201,6 +233,7 @@ impl PageLayout {
             margin_right: 72.0,
             margin_top: 72.0,
             margin_bottom: 72.0,
+            version: PdfVersion::V1_4,
         }
     }
 
@@ -209,6 +242,12 @@ impl PageLayout {
             PageOrientation::Portrait => Self::portrait(),
             PageOrientation::Landscape => Self::landscape(),
         }
+    }
+
+    /// Set the PDF version for this document.
+    pub fn with_version(mut self, version: PdfVersion) -> Self {
+        self.version = version;
+        self
     }
 
     pub fn content_top(&self) -> f32 {
@@ -348,6 +387,7 @@ pub struct PdfGenerator {
     pub objects: Vec<PdfObj>,
     pub next_id: u32,
     pub info_id: Option<u32>,
+    pub version: PdfVersion,
 }
 
 #[derive(Debug)]
@@ -371,7 +411,13 @@ impl PdfGenerator {
             objects: Vec::new(),
             next_id: 1,
             info_id: None,
+            version: PdfVersion::default(),
         }
+    }
+
+    pub fn with_version(mut self, version: PdfVersion) -> Self {
+        self.version = version;
+        self
     }
 
     pub fn add_object(&mut self, content: String) -> u32 {
@@ -404,7 +450,7 @@ impl PdfGenerator {
         let mut pdf = Vec::new();
 
         // PDF header
-        pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
+        pdf.extend_from_slice(self.version.header());
 
         // Calculate offsets for xref table
         let mut offsets = Vec::new();
@@ -1591,7 +1637,7 @@ fn assemble_pdf_bytes(
     compression_level: Option<u8>,
     accessibility: Option<&AccessibilityOptions>,
 ) -> Vec<u8> {
-    let mut generator = PdfGenerator::new();
+    let mut generator = PdfGenerator::new().with_version(layout.version);
 
     let font_ids = add_shared_font_resources(&mut generator, unicode_font_bytes);
 

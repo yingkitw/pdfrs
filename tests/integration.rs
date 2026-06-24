@@ -576,3 +576,50 @@ Math symbols: ∫ ∑ ∏ √
     std::fs::remove_file(&subset_pdf).ok();
     std::fs::remove_file(&nosubset_pdf).ok();
 }
+
+#[test]
+fn test_pdf_2_0_version_header() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{}/target/test_output", base);
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let pdf_v14_path = format!("{}/version_1_4.pdf", out_dir);
+    let pdf_v20_path = format!("{}/version_2_0.pdf", out_dir);
+
+    let markdown = "# Version Test\n\nHello world.";
+    let elements = pdfrs::elements::parse_markdown(markdown);
+
+    // Generate PDF 1.4 (default)
+    let layout_v14 = pdfrs::pdf_generator::PageLayout::portrait();
+    let bytes_v14 = pdfrs::pdf_generator::generate_pdf_bytes(
+        &elements, "Helvetica", 12.0, layout_v14,
+    ).unwrap();
+    std::fs::write(&pdf_v14_path, &bytes_v14).unwrap();
+
+    // Generate PDF 2.0
+    let layout_v20 = pdfrs::pdf_generator::PageLayout::portrait()
+        .with_version(pdfrs::pdf_generator::PdfVersion::V2_0);
+    let bytes_v20 = pdfrs::pdf_generator::generate_pdf_bytes(
+        &elements, "Helvetica", 12.0, layout_v20,
+    ).unwrap();
+    std::fs::write(&pdf_v20_path, &bytes_v20).unwrap();
+
+    // Verify headers
+    assert!(bytes_v14.starts_with(b"%PDF-1.4"), "Default PDF should be 1.4");
+    assert!(bytes_v20.starts_with(b"%PDF-2.0"), "Explicit version should be 2.0");
+
+    // Both should be valid, loadable PDFs
+    let doc_v14 = pdfrs::pdf::PdfDocument::load_from_bytes(&bytes_v14).unwrap();
+    let doc_v20 = pdfrs::pdf::PdfDocument::load_from_bytes(&bytes_v20).unwrap();
+    assert!(!doc_v14.objects.is_empty());
+    assert!(!doc_v20.objects.is_empty());
+
+    // Text should be extractable from both
+    let text_v14 = doc_v14.get_text().unwrap();
+    let text_v20 = doc_v20.get_text().unwrap();
+    assert!(text_v14.contains("Version Test"));
+    assert!(text_v20.contains("Version Test"));
+
+    std::fs::remove_file(&pdf_v14_path).ok();
+    std::fs::remove_file(&pdf_v20_path).ok();
+}
