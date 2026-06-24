@@ -1,3 +1,8 @@
+//! Fluent builder API for ergonomic PDF creation
+//!
+//! Provides [`PdfBuilder`] — a chainable API for constructing PDFs
+//! without manually managing [`Element`] vectors.
+
 use crate::elements::Element;
 use crate::pdf_generator::{PageLayout, create_pdf_from_elements_with_layout};
 use anyhow::Result;

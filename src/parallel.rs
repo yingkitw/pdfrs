@@ -1,3 +1,9 @@
+//! High-performance parallel PDF operations using Rayon
+//!
+//! All functions in this module are gated behind the `parallel` Cargo feature
+//! (enabled by default). They use data-parallel iterators to process multiple
+//! PDFs concurrently.
+
 use crate::pdf::PdfDocument;
 use anyhow::Result;
 use rayon::prelude::*;

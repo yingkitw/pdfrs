@@ -1,3 +1,8 @@
+//! Data compression and decompression utilities
+//!
+//! Wraps `flate2` for zlib/Deflate compression used in PDF streams.
+//! Provides [`compress_deflate`] for writing and [`decompress_deflate`] for reading.
+
 use anyhow::Result;
 use flate2::bufread::ZlibDecoder;
 use flate2::write::ZlibEncoder;

@@ -1,3 +1,9 @@
+//! Image loading, parsing, and PDF embedding
+//!
+//! Supports JPEG (baseline), PNG, and BMP formats. Images are parsed into
+//! an [`ImageInfo`] struct containing raw pixel data and metadata, then
+//! embedded into PDFs via the [`pdf_generator`](crate::pdf_generator) module.
+
 use anyhow::{anyhow, Result};
 use std::fs;
 

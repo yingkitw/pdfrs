@@ -261,7 +261,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Rich `Element` enum with 19 variants for document modeling (including MathBlock, MathInline)
   - [x] `PdfDocument::load_from_bytes()` — in-memory PDF parsing without filesystem
   - [x] `PdfDocument::to_bytes()` — round-trip serialization for PDF optimization
-  - [ ] Rust API documentation (rustdoc with examples)
+  - [x] Rust API documentation (rustdoc with examples) — module-level `//!` docs added to all public modules (`elements`, `pdf_generator`, `pdf_ops`, `pdf`, `image`, `compression`, `builder`, `streaming`, `parallel`, `wasm`); cross-referenced types and runnable examples in `lib.rs`
   - [x] Example usage patterns (examples/ directory) — `examples/basic.rs` (generate PDF from Markdown), `examples/merge.rs` (merge PDFs), `examples/optimize.rs` (optimize with Web profile), `examples/watermark.rs` (add text watermark)
 
 - [ ] Plugin system

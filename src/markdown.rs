@@ -1,3 +1,9 @@
+//! Markdown to PDF conversion utilities
+//!
+//! High-level helpers like [`markdown_to_pdf_full`] that read a Markdown file
+//! and write a complete PDF, plus [`watch_markdown_to_pdf`] for hot-reload
+//! development workflows.
+
 use crate::elements::{self, Element, TextSegment};
 use anyhow::Result;
 use std::fs::File;

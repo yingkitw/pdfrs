@@ -1,3 +1,36 @@
+//! PDF generation from structured document elements
+//!
+//! This module is the core PDF engine. It takes a vector of [`Element`]s
+//! (produced by [`elements::parse_markdown`][`crate::elements::parse_markdown`])
+//! and renders them into a standards-compliant PDF byte stream.
+//!
+//! # Quick start
+//!
+//! ```rust,no_run
+//! use pdfrs::elements;
+//! use pdfrs::pdf_generator::{generate_pdf_bytes, PageLayout};
+//!
+//! let elements = elements::parse_markdown("# Hello\n\nWorld");
+//! let layout = PageLayout::portrait();
+//! let pdf = generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+//! ```
+//!
+//! # Key types
+//!
+//! - [`PageLayout`] — page size, orientation, and margins
+//! - [`PageOrientation`] — `Portrait` or `Landscape`
+//! - [`generate_pdf_bytes`] — in-memory PDF generation
+//! - [`create_pdf_from_elements_with_layout`] — write to file
+//! - [`StreamingPdfGenerator`] in the [`streaming`](crate::streaming) module — incremental generation for large documents
+//!
+//! # Unicode font embedding
+//!
+//! When the document contains non-ASCII characters, the generator
+//! automatically embeds a TrueType font (configurable via the
+//! `PDFRS_UNICODE_FONT_PATH` environment variable). Font subsetting
+//! can be enabled via [`OptimizationSettings`] in the [`optimization`](crate::optimization)
+//! module.
+
 use crate::elements::{Element, TextSegment};
 use crate::pdf_ops::escape_pdf_meta;
 use crate::table_renderer::{PdfTableHelper, TableStyle};

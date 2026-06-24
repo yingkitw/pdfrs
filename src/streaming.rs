@@ -1,3 +1,9 @@
+//! Memory-efficient streaming PDF generation for large documents
+//!
+//! [`StreamingPdfGenerator`] writes pages incrementally to disk instead of
+//! buffering the entire document in memory, making it suitable for very
+//! large reports or server scenarios where early bytes can be streamed.
+
 use crate::elements::{Element, TextSegment};
 use crate::pdf_generator::{PageLayout, PdfGenerator, Color};
 use anyhow::Result;

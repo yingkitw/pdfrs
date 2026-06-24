@@ -1,3 +1,35 @@
+//! Document element types and Markdown parsing
+//!
+//! This module defines the core [`Element`] enum used throughout the crate
+//! to represent structured document content, along with a [`parse_markdown`]
+//! function that converts CommonMark-style Markdown into a vector of
+//! elements ready for PDF generation.
+//!
+//! # Element types
+//!
+//! | Element | Markdown syntax |
+//! |---------|----------------|
+//! | `Heading` | `# Title` through `###### Title` |
+//! | `Paragraph` | Plain text block |
+//! | `UnorderedListItem` | `- item` or `* item` |
+//! | `OrderedListItem` | `1. item` |
+//! | `CodeBlock` | ` ```lang\ncode\n``` ` |
+//! | `BlockQuote` | `> quote` |
+//! | `HorizontalRule` | `---` |
+//! | `Image` | `![alt](path)` |
+//! | `TableRow` | `| col1 | col2 |` |
+//! | `MathBlock` / `MathInline` | `$$...$$` / `$...$` |
+//!
+//! # Example
+//!
+//! ```rust
+//! use pdfrs::elements::parse_markdown;
+//!
+//! let md = "# Hello\n\nThis is a **bold** paragraph.";
+//! let elements = parse_markdown(md);
+//! assert!(elements.len() >= 2);
+//! ```
+
 /// Structured document elements parsed from Markdown.
 /// These carry formatting intent so the PDF generator can render
 /// headers at different sizes, indent lists, etc.

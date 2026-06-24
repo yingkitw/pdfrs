@@ -1,3 +1,24 @@
+//! WebAssembly bindings for pdfrs
+//!
+//! This module exposes the PDF generation pipeline to JavaScript environments
+//! via `wasm-bindgen`. All functions are pure in-memory — no filesystem access.
+//!
+//! # Build
+//!
+//! ```bash
+//! wasm-pack build . --target web --out-dir wasm/pkg --features wasm --no-default-features
+//! ```
+//!
+//! # Usage (JavaScript)
+//!
+//! ```js
+//! import init, { render_markdown_to_pdf } from './pkg/pdfrs.js';
+//!
+//! await init();
+//! const pdfBytes = render_markdown_to_pdf("# Hello WASM\n\nIt works!");
+//! // pdfBytes is a Uint8Array
+//! ```
+
 use wasm_bindgen::prelude::*;
 
 /// Render Markdown to PDF bytes in a WebAssembly environment.

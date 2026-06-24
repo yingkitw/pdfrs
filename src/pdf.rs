@@ -1,3 +1,9 @@
+//! PDF document model, parsing, text extraction, and structural diff
+//!
+//! Provides [`PdfDocument`] for loading PDFs from files or bytes,
+//! navigating objects, extracting text with [`get_text`], validating
+//! structure, and comparing documents with [`diff_pdf_bytes`].
+
 use crate::compression;
 use anyhow::Result;
 use std::collections::HashMap;
