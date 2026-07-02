@@ -434,7 +434,7 @@ And even more text to ensure we have content streams.
     )
     .unwrap();
 
-    let original_size = std::fs::metadata(&source_pdf).unwrap().len();
+    let _original_size = std::fs::metadata(&source_pdf).unwrap().len();
 
     // Optimize with Web profile (high compression)
     let profile = pdfrs::optimization::OptimizationProfile::Web;

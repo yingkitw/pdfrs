@@ -40,6 +40,8 @@ cargo build
 cargo test
 ```
 
+Pull requests and pushes to `main` are validated by GitHub Actions (Ubuntu, macOS, Windows).
+
 ### Code Style
 
 This project uses standard Rust formatting:

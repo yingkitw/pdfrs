@@ -118,11 +118,11 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Digital signatures — `DigitalSignature` with `sign`/`verify-signature` CLI commands, SHA-256 content digest, PDF signature dictionary structure
   - [x] PDF sanitization — `PdfDocument::sanitize()` strips JavaScript, launch actions, external file references, additional actions; `sanitize-pdf` CLI command
 
-- [ ] Performance improvements
-  - [ ] Memory usage optimization
-  - [ ] Faster PDF parsing
-  - [ ] Streaming processing for large files
-  - [ ] Parallel processing where applicable
+- [x] Performance improvements
+  - [x] Memory usage optimization — `parse_objects()` streams lines without allocating a full line index; lazy document retains single byte buffer
+  - [x] Faster PDF parsing — compiled regex cache via `OnceLock` on hot parse/extract/validate paths
+  - [x] Streaming processing for large files — `StreamingPdfGenerator`, `LazyPdfDocument`
+  - [x] Parallel processing where applicable — `parallel.rs` with rayon
 
 ---
 
@@ -169,7 +169,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR16.1**: Add `wasm-bindgen` — optional `wasm-bindgen` dependency behind `wasm` Cargo feature; `rayon` made optional behind `parallel` feature so `wasm32-unknown-unknown` can compile without thread-dependent crates
 - [x] **FR16.2**: WASM-compatible API — `wasm.rs` module with `render_markdown_to_pdf(md: &str) -> Result<Vec<u8>, JsValue>`; pure in-memory pipeline (no filesystem); `parallel` module conditionally compiled with `#[cfg(feature = "parallel")]`
 - [x] **FR16.3**: JavaScript bindings and npm package — `wasm/package.json` with metadata and build script; `wasm/example.html` browser demo; `scripts/build-wasm.sh` for `wasm-pack` builds
-- [ ] **FR16.4**: Canvas-based PDF viewer in browser
+- [x] **FR16.4**: Canvas-based PDF viewer in browser — `wasm/viewer.js` renders generated PDF bytes onto canvas via pdf.js; `wasm/example.html` demo with live preview and download
 
 ### 🟢 Medium
 
@@ -294,7 +294,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Round-trip validation tests (generate → validate → parse → verify all element types)
   - [x] Performance benchmarks (criterion-based)
   - [x] Property-based tests (proptest for compression, image, pdf_ops, elements modules)
-  - [ ] Automated testing pipeline
+  - [x] Automated testing pipeline — GitHub Actions CI (`.github/workflows/ci.yml`) runs `cargo test` on Ubuntu/macOS/Windows, async feature tests, and benchmark compile check
 
 - [x] Documentation
   - [x] README.md with all CLI commands and examples
@@ -313,7 +313,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [ ] Security audit
 
 - [ ] CI/CD improvements
-  - [ ] Automated testing on multiple platforms
+  - [x] Automated testing on multiple platforms — GitHub Actions matrix (ubuntu, macos, windows)
   - [ ] Automated release process
   - [ ] Performance regression testing
   - [ ] Dependency vulnerability scanning
@@ -337,6 +337,21 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [ ] Machine learning for OCR integration
 - [ ] Vector graphics (SVG) support
 - [ ] 3D PDF support investigation
+
+### Brainstorming (Competitive Intelligence — 2026-07)
+
+Capabilities in peer projects worth prioritizing:
+
+- **Native page rasterization** (Gigapdf, PDFium/PDFNova) — render PDF pages to PNG/canvas without pdf.js dependency
+- **Full-text search with highlight boxes** (Gigapdf, PDF Oxide) — search within PDF and return bounding boxes
+- **Office/HTML round-trip conversion** (Gigapdf) — DOCX/ODT/HTML ↔ PDF beyond Markdown
+- **True redaction** (Gigapdf) — remove content from streams, not just opaque overlays
+- **OCR for scanned PDFs** (Gigapdf) — built-in recognizer without Tesseract
+- **Vector path / SVG drawing** (better-pdf) — `drawSvgPath`, polygons, outlines/bookmarks
+- **Incremental PDF saves** (better-pdf) — append-only updates for faster edit workflows
+- **Web Worker offloading** (MantisPDF) — keep UI responsive during large WASM operations
+- **IndexedDB WASM module caching** (PDFNova) — instant reload of WASM binary in browser
+- **Multi-language bindings** (PDF Oxide) — Python/JS/Go/C# from same Rust core
 
 ---
 

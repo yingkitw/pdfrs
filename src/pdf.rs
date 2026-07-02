@@ -13,6 +13,33 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
+macro_rules! pdf_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: OnceLock<regex::Regex> = OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+pdf_regex!(re_root, r"/Root\s+(\d+)\s+\d+\s+R");
+pdf_regex!(re_root_any, r"/Root\s+\d+\s+\d+\s+R");
+pdf_regex!(re_obj_ref, r"^(\d+) (\d+) R$");
+pdf_regex!(re_obj, r"(\d+)\s+(\d+)\s+obj\b");
+pdf_regex!(re_obj_count, r"\d+\s+\d+\s+obj\b");
+pdf_regex!(re_tj, r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj");
+pdf_regex!(re_tj_hex, r"<([0-9a-fA-F\s]+)>\s*Tj");
+pdf_regex!(re_tj_array, r"\[((?:[^\]]*?))\]\s*TJ");
+pdf_regex!(re_tj_str, r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)");
+pdf_regex!(re_tj_hex_str, r"<([0-9a-fA-F\s]+)>");
+pdf_regex!(re_td, r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]");
+pdf_regex!(
+    re_tm,
+    r"[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm"
+);
+pdf_regex!(re_page, r"/Type\s+/Page[^s]");
+pdf_regex!(re_page_eol, r"/Type\s+/Page\s*\n");
+
 #[derive(Debug, Clone)]
 pub struct PdfDocument {
     pub version: String,
@@ -281,7 +308,7 @@ impl PdfDocument {
         }
 
         // Parse catalog reference from trailer so to_bytes() can write the correct /Root
-        let root_re = regex::Regex::new(r"/Root\s+(\d+)\s+\d+\s+R").unwrap();
+        let root_re = re_root();
         if let Some(caps) = root_re.captures(&content)
             && let Ok(id) = caps[1].parse::<u32>() {
                 doc.catalog = id;
@@ -294,7 +321,7 @@ impl PdfDocument {
     fn replace_ref_in_value(val: &mut PdfValue, old_id: u32, new_id: u32) {
         match val {
             PdfValue::Object(PdfObject::String(s)) => {
-                if let Some(caps) = regex::Regex::new(r"^(\d+) (\d+) R$").unwrap().captures(s)
+                if let Some(caps) = re_obj_ref().captures(s)
                     && let Ok(id) = caps[1].parse::<u32>()
                         && id == old_id {
                             let generation = &caps[2];
@@ -680,19 +707,19 @@ impl PdfDocument {
     pub fn get_text(&self) -> Result<String> {
         let mut text = String::new();
         // Matches (text) Tj — single string show
-        let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
+        let tj_re = re_tj();
         // Matches <hex> Tj — hex string show
-        let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
+        let tj_hex_re = re_tj_hex();
         // Matches [...] TJ — array show (strings + kerning numbers)
-        let tj_array_re = regex::Regex::new(r"\[((?:[^\]]*?))\]\s*TJ").unwrap();
+        let tj_array_re = re_tj_array();
         // Matches string elements inside a TJ array
-        let tj_str_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)").unwrap();
+        let tj_str_re = re_tj_str();
         // Matches hex string elements inside a TJ array
-        let tj_hex_str_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>").unwrap();
+        let tj_hex_str_re = re_tj_hex_str();
         // Matches Td/TD positioning operators: <x> <y> Td
-        let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
+        let td_re = re_td();
         // Matches Tm text matrix: a b c d e f Tm (f = y position)
-        let tm_re = regex::Regex::new(r"[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm").unwrap();
+        let tm_re = re_tm();
 
         // Sort objects by ID to maintain page order
         let mut sorted_ids: Vec<&u32> = self.objects.keys().collect();
@@ -810,12 +837,11 @@ fn decompress_stream(data: &[u8]) -> Vec<u8> {
 // --- Object parsing ---
 
 fn parse_objects(content: &str, doc: &mut PdfDocument) -> Result<()> {
-    let obj_re = regex::Regex::new(r"(\d+)\s+(\d+)\s+obj\b").unwrap();
-    let lines: Vec<&str> = content.lines().collect();
-    let mut i = 0;
+    let obj_re = re_obj();
+    let mut lines = content.lines();
 
-    while i < lines.len() {
-        let line = lines[i].trim();
+    while let Some(line) = lines.next() {
+        let line = line.trim();
 
         if let Some(caps) = obj_re.captures(line) {
             // Only match if the line is exactly "N G obj" (possibly with trailing whitespace)
@@ -823,21 +849,21 @@ fn parse_objects(content: &str, doc: &mut PdfDocument) -> Result<()> {
             if (line == full_match || line.starts_with(full_match))
                 && let (Ok(obj_num), Ok(_gen_num)) =
                     (caps[1].parse::<u32>(), caps[2].parse::<u32>())
-                {
-                    i += 1;
-                    let mut obj_content = String::new();
+            {
+                let mut obj_content = String::new();
 
-                    while i < lines.len() && !lines[i].trim().starts_with("endobj") {
-                        obj_content.push_str(lines[i]);
-                        obj_content.push('\n');
-                        i += 1;
+                while let Some(inner) = lines.next() {
+                    if inner.trim().starts_with("endobj") {
+                        break;
                     }
-
-                    let obj = parse_object_content(&obj_content)?;
-                    doc.objects.insert(obj_num, obj);
+                    obj_content.push_str(inner);
+                    obj_content.push('\n');
                 }
+
+                let obj = parse_object_content(&obj_content)?;
+                doc.objects.insert(obj_num, obj);
+            }
         }
-        i += 1;
     }
 
     Ok(())
@@ -1056,7 +1082,7 @@ impl LazyPdfDocument {
             }
 
         let catalog = {
-            let root_re = regex::Regex::new(r"/Root\s+(\d+)\s+\d+\s+R").unwrap();
+            let root_re = re_root();
             if let Some(caps) = root_re.captures(&content) {
                 caps[1].parse::<u32>().unwrap_or(0)
             } else {
@@ -1084,7 +1110,7 @@ impl LazyPdfDocument {
     /// Scan for objects containing streams and record their ID -> byte range mapping.
     fn find_stream_object_offsets(data: &[u8]) -> HashMap<u32, (usize, usize)> {
         let content = String::from_utf8_lossy(data);
-        let obj_re = regex::Regex::new(r"(\d+)\s+(\d+)\s+obj\b").unwrap();
+        let obj_re = re_obj();
         let mut result = HashMap::new();
 
         for caps in obj_re.captures_iter(&content) {
@@ -1133,11 +1159,11 @@ impl LazyPdfDocument {
     /// Extract text by lazily decompressing and parsing only content stream objects.
     pub fn get_text(&self) -> Result<String> {
         let mut text = String::new();
-        let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
-        let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
-        let tj_array_re = regex::Regex::new(r"\[((?:[^\]]*?))\]\s*TJ").unwrap();
-        let tj_str_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)").unwrap();
-        let tj_hex_str_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>").unwrap();
+        let tj_re = re_tj();
+        let tj_hex_re = re_tj_hex();
+        let tj_array_re = re_tj_array();
+        let tj_str_re = re_tj_str();
+        let tj_hex_str_re = re_tj_hex_str();
 
         let mut ids: Vec<u32> = self.stream_objects.keys().copied().collect();
         ids.sort();
@@ -1268,15 +1294,15 @@ pub fn validate_pdf_bytes(data: &[u8]) -> PdfValidation {
     }
 
     // 7. Count page objects (/Type /Page but NOT /Type /Pages)
-    let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
-    let page_re_eol = regex::Regex::new(r"/Type\s+/Page\s*\n").unwrap();
+    let page_re = re_page();
+    let page_re_eol = re_page_eol();
     let actual_pages = page_re.find_iter(&content).count() + page_re_eol.find_iter(&content).count();
     if actual_pages == 0 {
         errors.push("No page objects found (/Type /Page)".to_string());
     }
 
     // 8. Count objects
-    let obj_re = regex::Regex::new(r"\d+\s+\d+\s+obj\b").unwrap();
+    let obj_re = re_obj_count();
     let object_count = obj_re.find_iter(&content).count();
     if object_count == 0 {
         errors.push("No PDF objects found".to_string());
@@ -1304,7 +1330,7 @@ pub fn validate_pdf_bytes(data: &[u8]) -> PdfValidation {
 
     // 11. Check /Root reference in trailer
     if has_trailer {
-        let root_re = regex::Regex::new(r"/Root\s+\d+\s+\d+\s+R").unwrap();
+        let root_re = re_root_any();
         if !root_re.is_match(&content) {
             errors.push("Trailer missing /Root reference".to_string());
         }
@@ -1590,7 +1616,7 @@ pub fn diff_pdf_bytes(old: &[u8], new: &[u8]) -> Result<PdfDiff> {
     // Count pages by looking for /Type /Page (but not /Pages)
     let old_content = String::from_utf8_lossy(old);
     let new_content = String::from_utf8_lossy(new);
-    let page_re = regex::Regex::new(r"/Type\s+/Page[^s]").unwrap();
+    let page_re = re_page();
     let pages_old = page_re.find_iter(&old_content).count();
     let pages_new = page_re.find_iter(&new_content).count();
 
@@ -2271,7 +2297,7 @@ mod tests {
         let lazy_text = lazy_doc.get_text().unwrap();
 
         let full_doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
-        let full_text = full_doc.get_text().unwrap();
+        let _full_text = full_doc.get_text().unwrap();
 
         assert!(
             lazy_text.contains("Lazy Test"),

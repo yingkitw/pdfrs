@@ -417,10 +417,11 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 
 #### FR16: WebAssembly & Browser Support
 
-- **FR16.1**: Compile to WASM for browser-based PDF rendering
-- **FR16.2**: JavaScript API for web applications
-- **FR16.3**: Canvas-based PDF viewer in browser
-- **FR16.4**: Real-time collaborative PDF editing
+- **FR16.1**: Compile to WASM for browser-based PDF rendering — ✅ `wasm` feature, `wasm-pack` build
+- **FR16.2**: JavaScript API for web applications — ✅ `render_markdown_to_pdf()` in `src/wasm.rs`
+- **FR16.3**: JavaScript bindings and npm package — ✅ `wasm/package.json`, `scripts/build-wasm.sh`
+- **FR16.4**: Canvas-based PDF viewer in browser — ✅ `wasm/viewer.js` + pdf.js preview in `wasm/example.html`
+- **FR16.5**: Real-time collaborative PDF editing — planned
 
 #### FR17: Advanced Format Support
 
@@ -470,9 +471,10 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 - [ ] FR15.3: Diff/patch support
 
 ### Phase 5: Web & Modern (1 month)
-- [ ] FR16.1-16.4: WASM support
-- [ ] FR17.1-17.5: Advanced formats
-- [ ] Web-based PDF viewer
+- [x] FR16.1-16.4: WASM support and canvas viewer
+- [x] FR17.1-17.4: Advanced formats (PDF 2.0, PDF/A-3, PDF/UA, attachments, portfolios)
+- [ ] FR17.5: 3D annotations
+- [ ] FR16.5: Real-time collaborative editing
 
 ### Phase 6: Security & Advanced (1 month)
 - [ ] FR19.1-19.5: Security features

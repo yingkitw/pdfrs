@@ -4,14 +4,21 @@
   <meta charset="UTF-8">
   <title>pdfrs WASM Demo</title>
   <style>
-    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-    textarea { width: 100%; height: 200px; font-family: monospace; }
-    button { padding: 0.5rem 1rem; font-size: 1rem; margin-top: 0.5rem; }
+    body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    textarea { width: 100%; height: 200px; font-family: monospace; box-sizing: border-box; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; margin-top: 0.5rem; margin-right: 0.5rem; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .controls { margin: 1rem 0; }
+    .viewer-section { margin-top: 2rem; border-top: 1px solid #ccc; padding-top: 1rem; }
+    #viewer-container { background: #f0f0f0; padding: 1rem; border-radius: 4px; min-height: 120px; }
+    #viewer-container .pdf-page { display: block; margin: 0 auto 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: white; }
+    #status { color: #666; font-size: 0.9rem; margin-top: 0.5rem; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <h1>pdfrs WASM Demo</h1>
-  <p>Enter Markdown below and click <strong>Generate PDF</strong>:</p>
+  <p>Enter Markdown below, then generate and preview the PDF in your browser:</p>
   <textarea id="input"># Hello from WASM
 
 This PDF was generated entirely in your browser using **pdfrs**.
@@ -20,6 +27,7 @@ This PDF was generated entirely in your browser using **pdfrs**.
 
 - No server required
 - Pure Rust compiled to WebAssembly
+- Canvas-based PDF preview
 - *Italic* and **bold** text
 - Unicode: α β γ δ ε 中文
 
@@ -29,27 +37,72 @@ fn main() {
 }
 ```
 </textarea>
-  <br>
-  <button id="generate">Generate PDF</button>
+  <div class="controls">
+    <button id="generate">Generate &amp; Preview</button>
+    <button id="download" class="hidden">Download PDF</button>
+  </div>
+
+  <div class="viewer-section">
+    <h2>PDF Preview</h2>
+    <div id="viewer-container">
+      <p id="placeholder">Click <strong>Generate &amp; Preview</strong> to render the PDF here.</p>
+    </div>
+    <p id="status"></p>
+  </div>
 
   <script type="module">
     import init, { render_markdown_to_pdf } from './pkg/pdfrs.js';
+    import { renderPdfToContainer } from './viewer.js';
 
     await init();
 
-    document.getElementById('generate').addEventListener('click', () => {
+    let lastPdfBytes = null;
+    let downloadUrl = null;
+
+    const generateBtn = document.getElementById('generate');
+    const downloadBtn = document.getElementById('download');
+    const container = document.getElementById('viewer-container');
+    const placeholder = document.getElementById('placeholder');
+    const status = document.getElementById('status');
+
+    function setStatus(msg) {
+      status.textContent = msg;
+    }
+
+    generateBtn.addEventListener('click', async () => {
       const md = document.getElementById('input').value;
-      const pdfBytes = render_markdown_to_pdf(md);
 
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
+      generateBtn.disabled = true;
+      setStatus('Generating PDF…');
 
+      try {
+        lastPdfBytes = render_markdown_to_pdf(md);
+
+        if (downloadUrl) {
+          URL.revokeObjectURL(downloadUrl);
+        }
+        downloadUrl = URL.createObjectURL(new Blob([lastPdfBytes], { type: 'application/pdf' }));
+        downloadBtn.classList.remove('hidden');
+
+        placeholder.classList.add('hidden');
+        setStatus('Rendering preview…');
+
+        const { pageCount } = await renderPdfToContainer(lastPdfBytes, container, { scale: 1.25 });
+        setStatus(`Preview ready — ${pageCount} page${pageCount === 1 ? '' : 's'}.`);
+      } catch (err) {
+        setStatus(`Error: ${err.message || err}`);
+        console.error(err);
+      } finally {
+        generateBtn.disabled = false;
+      }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      if (!downloadUrl) return;
       const a = document.createElement('a');
-      a.href = url;
+      a.href = downloadUrl;
       a.download = 'output.pdf';
       a.click();
-
-      URL.revokeObjectURL(url);
     });
   </script>
 </body>

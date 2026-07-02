@@ -202,6 +202,18 @@ assert!(validation.valid);
 assert!(validation.page_count >= 1);
 ```
 
+## WebAssembly
+
+Generate PDFs in the browser with the optional `wasm` feature:
+
+```bash
+./scripts/build-wasm.sh
+python3 -m http.server 8080
+# open http://localhost:8080/wasm/example.html
+```
+
+The demo generates PDFs from Markdown via WASM and previews them on canvas. See [wasm/README.md](wasm/README.md) for the JavaScript API and viewer utilities.
+
 ## Architecture
 
 This tool is built with a modular architecture:
@@ -251,4 +263,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Built entirely in Rust without external PDF dependencies
 - Implements core PDF specifications from scratch
 - Inspired by the need for a lightweight PDF toolchain
-```
