@@ -21,14 +21,14 @@
 //! - [`PageOrientation`] — `Portrait` or `Landscape`
 //! - [`generate_pdf_bytes`] — in-memory PDF generation
 //! - [`create_pdf_from_elements_with_layout`] — write to file
-//! - [`StreamingPdfGenerator`] in the [`streaming`](crate::streaming) module — incremental generation for large documents
+//! - [`crate::streaming::StreamingPdfGenerator`] — incremental generation for large documents
 //!
 //! # Unicode font embedding
 //!
 //! When the document contains non-ASCII characters, the generator
 //! automatically embeds a TrueType font (configurable via the
 //! `PDFRS_UNICODE_FONT_PATH` environment variable). Font subsetting
-//! can be enabled via [`OptimizationSettings`] in the [`optimization`](crate::optimization)
+//! can be enabled via [`crate::optimization::OptimizationSettings`] in the [`optimization`](crate::optimization)
 //! module.
 
 use crate::elements::{Element, TextSegment};
