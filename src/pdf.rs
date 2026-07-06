@@ -578,7 +578,219 @@ impl PdfDocument {
         }
     }
 
-    /// Embed an external file into this PDF as an attachment.
+    /// Scan this document for JavaScript actions without modifying it.
+    pub fn detect_javascript_actions(&self) -> JavaScriptSandboxReport {
+        let mut actions = Vec::new();
+
+        for (id, obj) in &self.objects {
+            Self::scan_object_for_javascript(*id, obj, &mut actions);
+        }
+
+        if let Some(PdfObject::Dictionary(catalog)) = self.objects.get(&self.catalog) {
+            if catalog.contains_key("JavaScript") || catalog.contains_key("JS") {
+                actions.push(JavaScriptAction {
+                    object_id: Some(self.catalog),
+                    kind: "document_script".to_string(),
+                    description: "Catalog contains document-level JavaScript".to_string(),
+                });
+            }
+            if catalog.contains_key("OpenAction") {
+                actions.push(JavaScriptAction {
+                    object_id: Some(self.catalog),
+                    kind: "open_action".to_string(),
+                    description: "Catalog OpenAction may execute on document open".to_string(),
+                });
+            }
+        }
+
+        JavaScriptSandboxReport {
+            actions_found: actions.clone(),
+            actions_removed: 0,
+            clean: actions.is_empty(),
+        }
+    }
+
+    /// Neutralize JavaScript actions and return a report of what was found.
+    ///
+    /// Extends [`sanitize`](Self::sanitize) by also stripping annotation `/A` and `/AA`
+    /// dictionaries that execute JavaScript, `javascript:` URI actions, and
+    /// document-level `/Names /JavaScript` entries.
+    pub fn sandbox(&mut self) -> JavaScriptSandboxReport {
+        let before = self.detect_javascript_actions();
+        let found = before.actions_found.len();
+
+        self.sanitize();
+        self.strip_javascript_action_dictionaries();
+
+        let after = self.detect_javascript_actions();
+        JavaScriptSandboxReport {
+            actions_found: before.actions_found,
+            actions_removed: found.saturating_sub(after.actions_found.len()),
+            clean: after.actions_found.is_empty(),
+        }
+    }
+
+    fn scan_object_for_javascript(id: u32, obj: &PdfObject, actions: &mut Vec<JavaScriptAction>) {
+        match obj {
+            PdfObject::Dictionary(dict) => Self::scan_dict_for_javascript(Some(id), dict, actions),
+            PdfObject::Stream { dictionary, .. } => {
+                Self::scan_dict_for_javascript(Some(id), dictionary, actions)
+            }
+            PdfObject::String(content) => Self::scan_string_for_javascript(Some(id), content, actions),
+            _ => {}
+        }
+    }
+
+    fn scan_dict_for_javascript(
+        id: Option<u32>,
+        dict: &HashMap<String, PdfValue>,
+        actions: &mut Vec<JavaScriptAction>,
+    ) {
+        if Self::dict_is_javascript_action(dict) {
+            actions.push(JavaScriptAction {
+                object_id: id,
+                kind: "javascript_action".to_string(),
+                description: "Dictionary executes JavaScript (/S /JavaScript or /JS)".to_string(),
+            });
+        }
+
+        for (key, val) in dict {
+            if key.eq_ignore_ascii_case("URI")
+                && Self::value_contains_javascript_uri(val)
+            {
+                actions.push(JavaScriptAction {
+                    object_id: id,
+                    kind: "javascript_uri".to_string(),
+                    description: "URI action uses a javascript: URL".to_string(),
+                });
+            }
+
+            match val {
+                PdfValue::Object(PdfObject::Dictionary(inner)) => {
+                    Self::scan_dict_for_javascript(id, inner, actions);
+                }
+                PdfValue::Object(PdfObject::Stream { dictionary, .. }) => {
+                    Self::scan_dict_for_javascript(id, dictionary, actions);
+                }
+                PdfValue::Object(PdfObject::String(s)) => {
+                    Self::scan_string_for_javascript(id, s, actions);
+                }
+                PdfValue::Object(PdfObject::Array(arr)) => {
+                    for item in arr {
+                        if let PdfValue::Object(PdfObject::Dictionary(inner)) = item {
+                            Self::scan_dict_for_javascript(id, inner, actions);
+                        } else if let PdfValue::Object(PdfObject::String(s)) = item {
+                            Self::scan_string_for_javascript(id, s, actions);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn scan_string_for_javascript(id: Option<u32>, content: &str, actions: &mut Vec<JavaScriptAction>) {
+        let lower = content.to_ascii_lowercase();
+        if lower.contains("/s /javascript")
+            || lower.contains("/js")
+            || (lower.contains("javascript") && lower.contains("app."))
+        {
+            actions.push(JavaScriptAction {
+                object_id: id,
+                kind: "javascript_action".to_string(),
+                description: "String-encoded PDF object contains JavaScript action".to_string(),
+            });
+        }
+        if lower.contains("javascript:") {
+            actions.push(JavaScriptAction {
+                object_id: id,
+                kind: "javascript_uri".to_string(),
+                description: "String-encoded object contains javascript: URI".to_string(),
+            });
+        }
+    }
+
+    fn dict_is_javascript_action(dict: &HashMap<String, PdfValue>) -> bool {
+        if dict.contains_key("JS") || dict.contains_key("JavaScript") {
+            return true;
+        }
+        dict.get("S").is_some_and(|v| {
+            matches!(v, PdfValue::Object(PdfObject::String(s)) if s.contains("JavaScript"))
+        })
+    }
+
+    fn value_contains_javascript_uri(val: &PdfValue) -> bool {
+        match val {
+            PdfValue::Object(PdfObject::String(s)) => s.to_ascii_lowercase().contains("javascript:"),
+            _ => false,
+        }
+    }
+
+    fn strip_javascript_action_dictionaries(&mut self) {
+        for obj in self.objects.values_mut() {
+            match obj {
+                PdfObject::Dictionary(dict) => Self::strip_js_from_dict(dict),
+                PdfObject::Stream { dictionary, .. } => Self::strip_js_from_dict(dictionary),
+                PdfObject::String(content) => {
+                    if content.to_ascii_lowercase().contains("javascript:") {
+                        *content = Self::neutralize_javascript_uris(content);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn strip_js_from_dict(dict: &mut HashMap<String, PdfValue>) {
+        let action_keys: Vec<String> = dict
+            .iter()
+            .filter(|(key, val)| {
+                matches!(key.as_str(), "A" | "AA")
+                    && matches!(val, PdfValue::Object(PdfObject::Dictionary(inner)) if Self::dict_is_javascript_action(inner))
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in action_keys {
+            dict.remove(&key);
+        }
+
+        let uri_keys: Vec<String> = dict
+            .iter()
+            .filter(|(key, val)| key.eq_ignore_ascii_case("URI") && Self::value_contains_javascript_uri(val))
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in uri_keys {
+            dict.remove(&key);
+        }
+
+        for val in dict.values_mut() {
+            match val {
+                PdfValue::Object(PdfObject::Dictionary(inner)) => Self::strip_js_from_dict(inner),
+                PdfValue::Object(PdfObject::Stream { dictionary, .. }) => {
+                    Self::strip_js_from_dict(dictionary)
+                }
+                PdfValue::Object(PdfObject::Array(arr)) => {
+                    for item in arr.iter_mut() {
+                        if let PdfValue::Object(PdfObject::Dictionary(inner)) = item {
+                            Self::strip_js_from_dict(inner);
+                        }
+                    }
+                }
+                PdfValue::Object(PdfObject::String(s)) => {
+                    if s.to_ascii_lowercase().contains("javascript:") {
+                        *s = Self::neutralize_javascript_uris(s);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn neutralize_javascript_uris(content: &str) -> String {
+        content.replace("javascript:", "blocked:")
+    }
     ///
     /// Creates the required /EmbeddedFile stream and /Filespec objects,
     /// then wires them into the document catalog's /Names -> /EmbeddedFiles
@@ -1233,6 +1445,22 @@ impl LazyPdfDocument {
     }
 }
 
+/// A detected JavaScript action inside a PDF document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JavaScriptAction {
+    pub object_id: Option<u32>,
+    pub kind: String,
+    pub description: String,
+}
+
+/// Report from scanning or sandboxing JavaScript actions in a PDF.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JavaScriptSandboxReport {
+    pub actions_found: Vec<JavaScriptAction>,
+    pub actions_removed: usize,
+    pub clean: bool,
+}
+
 /// Validate a PDF file's structural integrity
 pub fn validate_pdf(filename: &str) -> Result<PdfValidation> {
     let mut file = File::open(filename)?;
@@ -1573,6 +1801,13 @@ pub fn validate_pdf_ua(filename: &str) -> Result<PdfUaValidation> {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
     Ok(validate_pdf_ua_bytes(&buffer))
+}
+
+/// Load PDF bytes, sandbox JavaScript actions, and return the cleaned PDF plus report.
+pub fn sandbox_pdf_bytes(data: &[u8]) -> Result<(Vec<u8>, JavaScriptSandboxReport)> {
+    let mut doc = PdfDocument::load_from_bytes(data)?;
+    let report = doc.sandbox();
+    Ok((doc.to_bytes(), report))
 }
 
 /// Structural difference between two PDF documents.
@@ -2478,6 +2713,62 @@ mod tests {
         assert!(!output_bytes.is_empty(), "Sanitized PDF should still serialize");
         let content = String::from_utf8_lossy(&output_bytes);
         assert!(!content.contains("app.alert"), "JS payload should not remain in output");
+    }
+
+    #[test]
+    fn test_javascript_sandbox_detects_and_strips_actions() {
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Sandbox test".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+
+        let mut js_action = HashMap::new();
+        js_action.insert(
+            "S".to_string(),
+            PdfValue::Object(PdfObject::String("/JavaScript".to_string())),
+        );
+        js_action.insert(
+            "JS".to_string(),
+            PdfValue::Object(PdfObject::String("app.alert('x')".to_string())),
+        );
+
+        let mut annot = HashMap::new();
+        annot.insert(
+            "A".to_string(),
+            PdfValue::Object(PdfObject::Dictionary(js_action)),
+        );
+        doc.objects.insert(997, PdfObject::Dictionary(annot));
+
+        let mut uri_action = HashMap::new();
+        uri_action.insert(
+            "URI".to_string(),
+            PdfValue::Object(PdfObject::String("(javascript:alert(1))".to_string())),
+        );
+        doc.objects.insert(996, PdfObject::Dictionary(uri_action));
+
+        let before = doc.detect_javascript_actions();
+        assert!(
+            before.actions_found.len() >= 2,
+            "Should detect JS action and javascript: URI"
+        );
+
+        let report = doc.sandbox();
+        assert!(report.clean, "Sandboxed PDF should have no JS actions left");
+
+        let output = doc.to_bytes();
+        let content = String::from_utf8_lossy(&output);
+        assert!(
+            !content.contains("javascript:alert"),
+            "javascript: URI should be neutralized"
+        );
+        assert!(
+            !content.contains("app.alert('x')"),
+            "JS payload should be removed"
+        );
     }
 
     #[test]

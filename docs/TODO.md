@@ -182,7 +182,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 
 #### FR19: Security
 - [x] **FR19.1**: Malformed PDF sanitization — `PdfDocument::sanitize()` removes JavaScript (`/JS`, `/JavaScript`), launch actions (`/S /Launch`), external file references, additional actions (`/AA`), and `OpenAction` from catalog; `sanitize-pdf` CLI command
-- [ ] **FR19.2**: JavaScript action sandbox
+- [x] **FR19.2**: JavaScript action sandbox — `detect_javascript_actions()`, `PdfDocument::sandbox()`, `sandbox_pdf_bytes()` API; strips annotation `/A`/`/AA` JavaScript actions, `javascript:` URIs, and document-level script name trees; `sandbox-pdf` CLI command with action report
 - [x] **FR19.3**: Digital signature creation/verification — `DigitalSignature` struct with SHA-256 content digest, `sign-pdf` and `verify-signature` CLI commands
 - [ ] **FR19.4**: Certificate management
 
@@ -294,7 +294,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Round-trip validation tests (generate → validate → parse → verify all element types)
   - [x] Performance benchmarks (criterion-based)
   - [x] Property-based tests (proptest for compression, image, pdf_ops, elements modules)
-  - [x] Automated testing pipeline — GitHub Actions CI (`.github/workflows/ci.yml`) runs `cargo test` on Ubuntu/macOS/Windows, async feature tests, and benchmark compile check
+  - [ ] Automated testing pipeline
 
 - [x] Documentation
   - [x] README.md with all CLI commands and examples
@@ -313,7 +313,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [ ] Security audit
 
 - [ ] CI/CD improvements
-  - [x] Automated testing on multiple platforms — GitHub Actions matrix (ubuntu, macos, windows)
+  - [ ] Automated testing on multiple platforms
   - [ ] Automated release process
   - [ ] Performance regression testing
   - [ ] Dependency vulnerability scanning

@@ -442,7 +442,7 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 #### FR19: Security & Validation
 
 - **FR19.1**: Malformed PDF detection and sanitization
-- **FR19.2**: JavaScript sandbox for PDF actions
+- **FR19.2**: JavaScript sandbox for PDF actions — ✅ `sandbox()` / `sandbox-pdf` detects and neutralizes JS actions, `javascript:` URIs, and document script trees
 - **FR19.3**: Digital signature creation and verification
 - **FR19.4**: Certificate management
 - **FR19.5**: DRM and permission enforcement

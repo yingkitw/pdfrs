@@ -40,7 +40,7 @@ cargo build
 cargo test
 ```
 
-Pull requests and pushes to `main` are validated by GitHub Actions (Ubuntu, macOS, Windows).
+Run the full suite locally before submitting changes.
 
 ### Code Style
 

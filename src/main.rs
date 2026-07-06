@@ -322,6 +322,13 @@ enum Commands {
         #[arg(short, long, help = "Output sanitized PDF file")]
         output: String,
     },
+    #[command(about = "Sandbox JavaScript actions in a PDF (detect, strip, and report)")]
+    SandboxPdf {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output sandboxed PDF file")]
+        output: String,
+    },
     #[command(about = "Watch a markdown file and regenerate PDF on changes")]
     WatchMarkdown {
         #[arg(help = "Input markdown file")]
@@ -1025,6 +1032,30 @@ fn main() {
                     }
                 }
                 Err(e) => eprintln!("Error loading PDF: {}", e),
+            }
+        }
+        Commands::SandboxPdf { input, output } => {
+            match std::fs::read(&input) {
+                Ok(bytes) => match pdf::sandbox_pdf_bytes(&bytes) {
+                    Ok((output_bytes, report)) => match std::fs::write(&output, output_bytes) {
+                        Ok(_) => {
+                            println!("Sandboxed PDF written to {}", output);
+                            println!("  Actions found: {}", report.actions_found.len());
+                            println!("  Actions removed: {}", report.actions_removed);
+                            println!("  Clean: {}", report.clean);
+                            for action in &report.actions_found {
+                                let id = action
+                                    .object_id
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_else(|| "?".to_string());
+                                println!("    [{}] object {} — {}", action.kind, id, action.description);
+                            }
+                        }
+                        Err(e) => eprintln!("Error writing sandboxed PDF: {}", e),
+                    },
+                    Err(e) => eprintln!("Error sandboxing PDF: {}", e),
+                },
+                Err(e) => eprintln!("Error reading PDF: {}", e),
             }
         }
         Commands::ValidatePdfa3 { input } => {

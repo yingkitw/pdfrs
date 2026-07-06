@@ -623,3 +623,18 @@ fn test_pdf_2_0_version_header() {
     std::fs::remove_file(&pdf_v14_path).ok();
     std::fs::remove_file(&pdf_v20_path).ok();
 }
+
+#[test]
+fn test_javascript_sandbox_pdf_bytes() {
+    std::fs::create_dir_all("tests/output").ok();
+    let path = "tests/output/int_sandbox.pdf";
+    create_test_pdf(path, "Sandbox Integration");
+
+    let bytes = std::fs::read(path).unwrap();
+    let (sandboxed, report) = pdfrs::pdf::sandbox_pdf_bytes(&bytes).unwrap();
+
+    assert!(report.clean, "Generated PDF should remain clean after sandbox pass");
+    assert!(pdfrs::pdf::validate_pdf_bytes(&sandboxed).valid);
+
+    std::fs::remove_file(path).ok();
+}
