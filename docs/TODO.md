@@ -184,7 +184,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR19.1**: Malformed PDF sanitization — `PdfDocument::sanitize()` removes JavaScript (`/JS`, `/JavaScript`), launch actions (`/S /Launch`), external file references, additional actions (`/AA`), and `OpenAction` from catalog; `sanitize-pdf` CLI command
 - [x] **FR19.2**: JavaScript action sandbox — `detect_javascript_actions()`, `PdfDocument::sandbox()`, `sandbox_pdf_bytes()` API; strips annotation `/A`/`/AA` JavaScript actions, `javascript:` URIs, and document-level script name trees; `sandbox-pdf` CLI command with action report
 - [x] **FR19.3**: Digital signature creation/verification — `DigitalSignature` struct with SHA-256 content digest, `sign-pdf` and `verify-signature` CLI commands
-- [ ] **FR19.4**: Certificate management
+- [x] **FR19.4**: Certificate management — `SigningCertificate`, `CertificateStore` (PEM import/list/get/remove), SHA-256 fingerprints, `/Cert` embedding in signatures, `extract_certificates_from_pdf()`; `import-certificate`, `list-certificates` CLI; `sign --certificate` / `--cert-id`
 
 ---
 

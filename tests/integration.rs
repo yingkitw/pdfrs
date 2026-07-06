@@ -681,3 +681,37 @@ fn test_screen_reader_compliance_tagged_pdf() {
     assert!(text.contains("Accessibility Report"));
     assert!(text.contains("screen reader"));
 }
+
+#[test]
+fn test_certificate_sign_and_extract() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let out_dir = format!("{base}/target/test_output");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let input_pdf = format!("{base}/tests/fixtures/simple.pdf");
+    if !std::path::Path::new(&input_pdf).exists() {
+        create_test_pdf(&input_pdf, "Cert Test");
+    }
+
+    let cert_path = format!("{base}/tests/fixtures/test_cert.pem");
+    let cert = pdfrs::security::load_certificate_pem("test-signer", &cert_path).unwrap();
+    let signed_pdf = format!("{out_dir}/cert_signed.pdf");
+
+    let sig = pdfrs::security::DigitalSignature::new("Test Signer")
+        .with_reason("Certificate signing test");
+    pdfrs::pdf_ops::sign_pdf_with_certificate(&input_pdf, &signed_pdf, &sig, Some(&cert)).unwrap();
+
+    let signatures = pdfrs::pdf_ops::verify_pdf_signature(&signed_pdf).unwrap();
+    assert!(!signatures.is_empty());
+    assert!(signatures[0].certificate_fingerprint.is_some());
+    assert!(signatures[0].certificate_subject.is_some());
+
+    let extracted = pdfrs::pdf_ops::extract_certificates_from_pdf(&signed_pdf).unwrap();
+    assert_eq!(extracted.len(), 1);
+    assert_eq!(
+        extracted[0].fingerprint_sha256,
+        cert.fingerprint_sha256
+    );
+
+    std::fs::remove_file(&signed_pdf).ok();
+}

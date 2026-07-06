@@ -251,6 +251,28 @@ enum Commands {
         location: Option<String>,
         #[arg(long, help = "Contact information")]
         contact: Option<String>,
+        #[arg(long, help = "Path to signing certificate PEM file")]
+        certificate: Option<String>,
+        #[arg(long, help = "Certificate id in store (alternative to --certificate)")]
+        cert_id: Option<String>,
+        #[arg(long, help = "Certificate store directory", default_value = "certs")]
+        cert_store: String,
+    },
+    #[command(about = "Import an X.509 certificate into the certificate store")]
+    ImportCertificate {
+        #[arg(help = "Certificate id")]
+        id: String,
+        #[arg(help = "Path to PEM certificate file")]
+        file: String,
+        #[arg(long, help = "Subject distinguished name override")]
+        subject: Option<String>,
+        #[arg(long, help = "Certificate store directory", default_value = "certs")]
+        store: String,
+    },
+    #[command(about = "List certificates in the certificate store")]
+    ListCertificates {
+        #[arg(long, help = "Certificate store directory", default_value = "certs")]
+        store: String,
     },
     #[command(about = "Verify digital signatures in a PDF")]
     VerifySignature {
@@ -801,14 +823,41 @@ fn main() {
             reason,
             location,
             contact,
+            certificate,
+            cert_id,
+            cert_store,
         } => {
+            let cert = match (&certificate, &cert_id) {
+                (Some(path), _) => Some(security::load_certificate_pem("signing-cert", path)),
+                (_, Some(id)) => Some(
+                    security::CertificateStore::open(&cert_store).and_then(|store| store.get(id)),
+                ),
+                _ => None,
+            };
+
+            let cert = match cert {
+                Some(Ok(c)) => Some(c),
+                Some(Err(e)) => {
+                    eprintln!("Error loading certificate: {e}");
+                    return;
+                }
+                None => None,
+            };
+
+            let signer_name = if signer.is_empty() {
+                cert.as_ref()
+                    .map(|c| c.subject.clone())
+                    .unwrap_or_else(|| "Unknown Signer".to_string())
+            } else {
+                signer
+            };
+
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
             let date = format!("{}0000+0000", now);
-            let sig = security::DigitalSignature::new(&signer)
-                .with_date(date);
+            let sig = security::DigitalSignature::new(&signer_name).with_date(date);
             let sig = if let Some(r) = reason {
                 sig.with_reason(r)
             } else {
@@ -824,9 +873,53 @@ fn main() {
             } else {
                 sig
             };
-            match pdf_ops::sign_pdf(&input, &output, &sig) {
-                Ok(_) => println!("Successfully signed {} -> {}", input, output),
+            match pdf_ops::sign_pdf_with_certificate(
+                &input,
+                &output,
+                &sig,
+                cert.as_ref(),
+            ) {
+                Ok(_) => {
+                    println!("Successfully signed {} -> {}", input, output);
+                    if let Some(c) = &cert {
+                        println!("  Certificate: {} ({})", c.id, c.fingerprint_sha256);
+                    }
+                }
                 Err(e) => eprintln!("Error signing PDF: {}", e),
+            }
+        }
+        Commands::ImportCertificate { id, file, subject, store } => {
+            match security::CertificateStore::open(&store) {
+                Ok(cert_store) => match cert_store.import(&id, &file, subject.as_deref()) {
+                    Ok(cert) => {
+                        println!("Imported certificate '{}' into {}", id, store);
+                        println!("  Subject: {}", cert.subject);
+                        println!("  Fingerprint (SHA-256): {}", cert.fingerprint_sha256);
+                    }
+                    Err(e) => eprintln!("Error importing certificate: {}", e),
+                },
+                Err(e) => eprintln!("Error opening certificate store: {}", e),
+            }
+        }
+        Commands::ListCertificates { store } => {
+            match security::CertificateStore::open(&store) {
+                Ok(cert_store) => match cert_store.list() {
+                    Ok(certs) => {
+                        if certs.is_empty() {
+                            println!("No certificates in {}", store);
+                        } else {
+                            println!("Certificates in {}:", store);
+                            for cert in certs {
+                                println!(
+                                    "  {} — {} [{}]",
+                                    cert.id, cert.subject, cert.fingerprint_sha256
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("Error listing certificates: {}", e),
+                },
+                Err(e) => eprintln!("Error opening certificate store: {}", e),
             }
         }
         Commands::VerifySignature { input } => {
@@ -847,6 +940,12 @@ fn main() {
                             }
                             if let Some(ref date) = sig.date {
                                 println!("    Date: {}", date);
+                            }
+                            if let Some(ref subject) = sig.certificate_subject {
+                                println!("    Certificate subject: {}", subject);
+                            }
+                            if let Some(ref fp) = sig.certificate_fingerprint {
+                                println!("    Certificate fingerprint: {}", fp);
                             }
                         }
                     }
