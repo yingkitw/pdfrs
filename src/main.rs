@@ -308,6 +308,11 @@ enum Commands {
         #[arg(help = "Input PDF file")]
         input: String,
     },
+    #[command(about = "Check screen reader compliance (PDF/UA + text extraction)")]
+    CheckScreenReader {
+        #[arg(help = "Input PDF file")]
+        input: String,
+    },
     #[command(about = "Compare two PDFs structurally and report differences")]
     DiffPdfs {
         #[arg(help = "Old PDF file")]
@@ -1107,6 +1112,35 @@ fn main() {
                     }
                 }
                 Err(e) => eprintln!("Error validating PDF/UA: {}", e),
+            }
+        }
+        Commands::CheckScreenReader { input } => {
+            match pdf::check_screen_reader_compliance(&input) {
+                Ok(report) => {
+                    println!("Screen reader compliance for {}:", input);
+                    println!("  Compliant: {}", report.compliant);
+                    println!("  Text extractable: {}", report.text_extractable);
+                    println!("  Extracted text length: {}", report.extracted_text_length);
+                    if !report.structure_element_types.is_empty() {
+                        println!(
+                            "  Structure types: {}",
+                            report.structure_element_types.join(", ")
+                        );
+                    }
+                    if !report.issues.is_empty() {
+                        println!("  Issues:");
+                        for issue in &report.issues {
+                            println!("    - {}", issue);
+                        }
+                    }
+                    if !report.warnings.is_empty() {
+                        println!("  Warnings:");
+                        for warning in &report.warnings {
+                            println!("    - {}", warning);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error checking screen reader compliance: {}", e),
             }
         }
         Commands::CreatePortfolio { output, files, title } => {

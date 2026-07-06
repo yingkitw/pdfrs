@@ -1803,6 +1803,93 @@ pub fn validate_pdf_ua(filename: &str) -> Result<PdfUaValidation> {
     Ok(validate_pdf_ua_bytes(&buffer))
 }
 
+/// Screen reader compliance report combining PDF/UA checks with text-extraction validation.
+#[derive(Debug, Clone)]
+pub struct ScreenReaderComplianceReport {
+    pub compliant: bool,
+    pub pdf_ua: PdfUaValidation,
+    pub text_extractable: bool,
+    pub extracted_text_length: usize,
+    pub structure_element_types: Vec<String>,
+    pub issues: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// Check whether a PDF is suitable for screen reader and assistive technology use.
+///
+/// Runs [`validate_pdf_ua_bytes`], verifies text can be extracted, and inspects
+/// the structure tree for common element types (`/S /H1`, `/S /P`, etc.).
+pub fn check_screen_reader_compliance_bytes(data: &[u8]) -> ScreenReaderComplianceReport {
+    let pdf_ua = validate_pdf_ua_bytes(data);
+    let content = String::from_utf8_lossy(data);
+    let mut issues = pdf_ua.errors.clone();
+    let mut warnings = pdf_ua.warnings.clone();
+
+    let (text_extractable, extracted_text_length) = match PdfDocument::load_from_bytes(data) {
+        Ok(doc) => match doc.get_text() {
+            Ok(text) => {
+                let len = text.trim().len();
+                (len > 0, len)
+            }
+            Err(e) => {
+                issues.push(format!("Text extraction failed: {e}"));
+                (false, 0)
+            }
+        },
+        Err(e) => {
+            issues.push(format!("PDF parse failed: {e}"));
+            (false, 0)
+        }
+    };
+
+    if !text_extractable {
+        issues.push(
+            "No extractable text found — screen readers cannot read document content".to_string(),
+        );
+    }
+
+    let structure_element_types = detect_structure_element_types(&content);
+
+    if pdf_ua.has_struct_tree && structure_element_types.len() <= 1 {
+        warnings.push(
+            "Structure tree is minimal — consider mapping headings, paragraphs, and lists to /StructElem entries".to_string(),
+        );
+    }
+
+    let compliant = issues.is_empty();
+
+    ScreenReaderComplianceReport {
+        compliant,
+        pdf_ua,
+        text_extractable,
+        extracted_text_length,
+        structure_element_types,
+        issues,
+        warnings,
+    }
+}
+
+/// Check screen reader compliance for a PDF file on disk.
+pub fn check_screen_reader_compliance(filename: &str) -> Result<ScreenReaderComplianceReport> {
+    let mut file = File::open(filename)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    Ok(check_screen_reader_compliance_bytes(&buffer))
+}
+
+fn detect_structure_element_types(content: &str) -> Vec<String> {
+    const TYPES: &[&str] = &[
+        "Document", "H1", "H2", "H3", "H4", "H5", "H6", "P", "L", "LI", "Table", "TR", "Figure",
+        "Link", "Code", "Formula", "BlockQuote", "Note",
+    ];
+
+    TYPES
+        .iter()
+        .filter(|t| content.contains(&format!("/S /{t}")))
+        .map(|t| (*t).to_string())
+        .collect()
+}
+
 /// Load PDF bytes, sandbox JavaScript actions, and return the cleaned PDF plus report.
 pub fn sandbox_pdf_bytes(data: &[u8]) -> Result<(Vec<u8>, JavaScriptSandboxReport)> {
     let mut doc = PdfDocument::load_from_bytes(data)?;
@@ -2658,6 +2745,50 @@ mod tests {
         assert!(!result.has_struct_tree, "Should detect missing StructTreeRoot");
         assert!(!result.has_lang, "Should detect missing Lang");
         assert!(!result.has_title, "Should detect missing Title");
+    }
+
+    #[test]
+    fn test_check_screen_reader_compliance_tagged_vs_untagged() {
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let elements = vec![
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Accessible".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Screen reader test content.".into(),
+            },
+        ];
+
+        let untagged = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout)
+            .unwrap();
+        let untagged_report = check_screen_reader_compliance_bytes(&untagged);
+        assert!(
+            !untagged_report.compliant,
+            "Untagged PDF should fail screen reader compliance"
+        );
+        assert!(!untagged_report.issues.is_empty());
+
+        let opts = crate::pdf_generator::AccessibilityOptions::new()
+            .with_tagged_pdf(true)
+            .with_language("en-US".to_string())
+            .with_title("Accessible Doc".to_string());
+        let tagged = crate::pdf_generator::generate_tagged_pdf_bytes(
+            &elements,
+            "Helvetica",
+            12.0,
+            layout,
+            opts,
+        )
+        .unwrap();
+        let tagged_report = check_screen_reader_compliance_bytes(&tagged);
+        assert!(
+            tagged_report.compliant,
+            "Tagged PDF should pass: {:?}",
+            tagged_report.issues
+        );
+        assert!(tagged_report.text_extractable);
+        assert!(tagged_report.structure_element_types.contains(&"Document".to_string()));
     }
 
     #[test]

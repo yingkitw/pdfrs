@@ -638,3 +638,46 @@ fn test_javascript_sandbox_pdf_bytes() {
 
     std::fs::remove_file(path).ok();
 }
+
+#[test]
+fn test_screen_reader_compliance_tagged_pdf() {
+    let md = "# Accessibility Report\n\n\
+        This document tests screen reader compliance.\n\n\
+        ## Features\n\n\
+        - Headings and lists\n\
+        - Paragraph text\n\n\
+        | Name | Value |\n\
+        |------|-------|\n\
+        | A    | 1     |\n";
+
+    let elements = pdfrs::elements::parse_markdown(md);
+    let layout = pdfrs::pdf_generator::PageLayout::portrait();
+    let opts = pdfrs::pdf_generator::AccessibilityOptions::new()
+        .with_tagged_pdf(true)
+        .with_language("en-US".to_string())
+        .with_title("Screen Reader Compliance Test".to_string());
+
+    let bytes = pdfrs::pdf_generator::generate_tagged_pdf_bytes(
+        &elements,
+        "Helvetica",
+        12.0,
+        layout,
+        opts,
+    )
+    .unwrap();
+
+    let report = pdfrs::pdf::check_screen_reader_compliance_bytes(&bytes);
+    assert!(
+        report.compliant,
+        "Tagged PDF should pass screen reader checks: {:?}",
+        report.issues
+    );
+    assert!(report.text_extractable);
+    assert!(report.extracted_text_length > 20);
+    assert!(report.pdf_ua.compliant);
+
+    let doc = pdfrs::pdf::PdfDocument::load_from_bytes(&bytes).unwrap();
+    let text = doc.get_text().unwrap();
+    assert!(text.contains("Accessibility Report"));
+    assert!(text.contains("screen reader"));
+}

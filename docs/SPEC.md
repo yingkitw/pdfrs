@@ -426,7 +426,7 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 #### FR17: Advanced Format Support
 
 - **FR17.1**: PDF 2.0 feature support
-- **FR17.2**: PDF/A-3 and PDF/UA (universal accessibility)
+- **FR17.2**: PDF/A-3 and PDF/UA (universal accessibility) — includes `check_screen_reader_compliance_bytes()` and `check-screen-reader` CLI for PDF/UA + text-extraction validation
 - **FR17.3**: Embedded attachments with metadata
 - **FR17.4**: Portfolio and collection support
 - **FR17.5**: 3D annotations and rich media

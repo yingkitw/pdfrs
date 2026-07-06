@@ -240,7 +240,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `element_to_structure()` mapping for all Element variants
   - [x] `AccessibilityOptions` builder (tagged_pdf, language, title)
   - [x] Full tagged PDF generation in output — `generate_tagged_pdf_bytes()` creates `/StructTreeRoot`, `/MarkInfo << /Marked true >>`, `/Lang`, and `/Title` in catalog/Info dictionary; generated PDFs pass `validate_pdf_ua_bytes()` checks
-  - [ ] Screen reader compliance testing
+  - [x] Screen reader compliance testing — `check_screen_reader_compliance_bytes()` combines PDF/UA validation with text-extraction checks; `check-screen-reader` CLI command; integration test for complex tagged Markdown
 
 - [ ] Localization
   - [ ] Multi-language error messages
@@ -302,7 +302,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] SPEC.md with functional requirements
   - [ ] API documentation (rustdoc with examples)
   - [ ] User guide
-  - [ ] Contributing guidelines
+  - [x] Contributing guidelines — `docs/CONTRIBUTING.md`
 
 ### 🟡 High
 
