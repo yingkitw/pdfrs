@@ -1,14 +1,22 @@
 [package]
 name = "pdfrs"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
-description = "A CLI tool to read/write PDFs and convert to/from markdown"
+description = "Pure Rust PDF toolkit: Markdown to PDF, merge/split/validate, Unicode/CJK, charts, thesis layout, CLI (pdfcli) and WASM — no Poppler, PDFium, or LaTeX"
 authors = ["Ying Kit WONG"]
 documentation = "https://docs.rs/pdfrs"
 repository = "https://github.com/yingkitw/pdfrs"
 homepage = "https://github.com/yingkitw/pdfrs"
-license = "MIT"
-keywords = ["pdf", "markdown", "cli"]
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["pdf", "markdown", "wasm", "cli", "unicode"]
+categories = [
+    "command-line-utilities",
+    "encoding",
+    "parsing",
+    "text-processing",
+    "wasm",
+]
 
 [lib]
 name = "pdfrs"

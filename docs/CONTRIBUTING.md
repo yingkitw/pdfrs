@@ -205,4 +205,5 @@ Releases are versioned using semantic versioning:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the project's license.
+By contributing, you agree that your contributions will be licensed under the
+[Apache License 2.0](../LICENSE).

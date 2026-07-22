@@ -1,6 +1,6 @@
 # PDF-RS Library API Reference
 
-**Version**: 0.1.0 | **Edition**: Rust 2024 | **License**: MIT
+**Version**: 0.1.0 | **Edition**: Rust 2024 | **License**: Apache-2.0
 
 > This document serves as the complete API reference for the pdf-rs library, covering all public modules, types, functions, and their usage patterns.
 

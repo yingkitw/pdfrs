@@ -1,9 +1,31 @@
-# pdfrs
+# pdfrs — Pure Rust PDF library & CLI (Markdown ↔ PDF)
 
-A Rust library and CLI (`pdfcli`) for reading, writing, and manipulating PDF files. Converts to/from Markdown. Implemented entirely in Rust without external PDF libraries.
+**pdfrs** is an open-source **Rust PDF toolkit** and command-line tool (`pdfcli`) for **Markdown to PDF**, **PDF to Markdown**, text extraction, merge/split/rotate, validation, Unicode/CJK documents, charts, and academic thesis layout. It is a **self-contained PDF engine** written in Rust — **no Poppler, no PDFium, no LaTeX** — with an optional **WebAssembly (WASM)** build for the browser.
 
-**See what it can generate:** open the sample output → [**comprehensive.pdf**](comprehensive.pdf)  
-(Source Markdown: [`tests/fixtures/comprehensive_document.md`](tests/fixtures/comprehensive_document.md). Regenerate with `pdfcli generate-comprehensive`.)
+| | |
+|---|---|
+| **Crate** | [`pdfrs`](https://crates.io/crates/pdfrs) on crates.io |
+| **Docs** | [docs.rs/pdfrs](https://docs.rs/pdfrs) |
+| **Binary** | `pdfcli` |
+| **License** | [Apache-2.0](LICENSE) |
+| **Sample PDF** | [comprehensive.pdf](comprehensive.pdf) — multi-feature demo output |
+| **Source Markdown** | [comprehensive_document.md](tests/fixtures/comprehensive_document.md) |
+
+[![crates.io](https://img.shields.io/crates/v/pdfrs.svg)](https://crates.io/crates/pdfrs)
+[![docs.rs](https://docs.rs/pdfrs/badge.svg)](https://docs.rs/pdfrs)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](Cargo.toml)
+
+**See what it can generate:** [**comprehensive.pdf**](comprehensive.pdf)  
+Regenerate anytime with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`.
+
+### At a glance
+
+- **Markdown → PDF** and **PDF → Markdown** in one crate  
+- **PDF manipulation**: merge, split, rotate, reorder, watermark, metadata, annotations  
+- **Unicode / CJK** with embedded TrueType fonts; optional Base-14 compatibility mode  
+- **Charts** (` ```chart` `), **multi-column** layout, **thesis** TOC / Roman folios / citations  
+- **Library + CLI + WASM** from the same Rust core  
 
 ## Why pdfrs?
 
@@ -393,13 +415,30 @@ Extra material (contributing, validation notes) is under [`docs/`](docs/).
 - Chart fences cover bar / line / pie only (no stacked or multi-series charts yet)
 - Full tagged PDF output not yet implemented (structure types defined)
 
+## FAQ
+
+### What is pdfrs?
+**pdfrs** is a pure Rust PDF library and CLI (`pdfcli`) that converts Markdown to PDF, extracts or converts PDF to Markdown, and performs PDF operations (merge, split, rotate, validate, linearize) without linking Poppler, PDFium, or requiring LaTeX.
+
+### How is pdfrs different from Pandoc or Typst?
+Pandoc usually needs an external PDF engine; Typst is a full typesetting language. pdfrs is a **self-contained PDF toolkit** focused on Markdown ↔ PDF plus PDF surgery, validation, and WASM — one Rust crate for library and CLI use.
+
+### Does pdfrs support Chinese, Japanese, and Korean (CJK)?
+Yes. Non-ASCII documents embed a Unicode TrueType font as Type0/CIDFont by default. Override the font with `PDFRS_UNICODE_FONT_PATH`.
+
+### Can I generate PDFs in the browser?
+Yes. Build with the `wasm` feature (`./scripts/build-wasm.sh`) and use the JavaScript API; see [wasm/README.md](wasm/README.md).
+
+### Where can I see sample output?
+Download or open [comprehensive.pdf](comprehensive.pdf) in this repository.
+
 ## Contributing
 
 Contributions are welcome! Please read our [Contributing Guidelines](docs/CONTRIBUTING.md) for details.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 — see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
