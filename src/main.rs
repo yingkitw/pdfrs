@@ -4,12 +4,29 @@ use clap::{Parser, Subcommand};
 #[command(name = "pdf-cli")]
 #[command(about = "A CLI tool to read/write PDFs and convert to/from markdown")]
 struct Cli {
+    /// UI language for validation/error messages (en, es, de, fr, zh, he, ar).
+    /// Falls back to PDFRS_LANG / LANG when omitted.
+    #[arg(long, global = true)]
+    lang: Option<String>,
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about = "Generate the bundled comprehensive capability PDF")]
+    GenerateComprehensive {
+        #[arg(short, long, help = "Output PDF file", default_value = "comprehensive.pdf")]
+        output: String,
+        #[arg(long, help = "Use landscape orientation")]
+        landscape: bool,
+        #[arg(long, help = "Also linearize for Fast Web View")]
+        linearize: bool,
+        #[arg(long, help = "Font size", default_value = "11")]
+        font_size: f32,
+        #[arg(long, help = "Number of text columns (1-4)", default_value = "1")]
+        columns: u8,
+    },
     #[command(about = "Convert PDF to Markdown")]
     PdfToMd {
         #[arg(help = "Input PDF file")]
@@ -29,6 +46,12 @@ enum Commands {
         font_size: f32,
         #[arg(long, help = "Use landscape orientation")]
         landscape: bool,
+        #[arg(long, help = "Right-to-left layout (Hebrew/Arabic)")]
+        rtl: bool,
+        #[arg(long, help = "Number of text columns (1-4)", default_value = "1")]
+        columns: u8,
+        #[arg(long, help = "Enable plugins (comma-separated: callouts)", default_value = "")]
+        plugins: String,
         #[arg(long, help = "Optimization profile (web, print, archive, ebook)", default_value = "archive")]
         profile: String,
     },
@@ -74,6 +97,22 @@ enum Commands {
         #[arg(long, help = "Width", default_value = "200")]
         width: f32,
         #[arg(long, help = "Height", default_value = "200")]
+        height: f32,
+    },
+    #[command(about = "Apply image filters and write a one-page PDF (BMP/PNG)")]
+    FilterImage {
+        #[arg(help = "Input image file (BMP or PNG)")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+        #[arg(
+            long = "filter",
+            help = "Filter to apply (repeatable): grayscale, invert, sepia, brightness:N, contrast:F"
+        )]
+        filters: Vec<String>,
+        #[arg(long, help = "Max display width", default_value = "500")]
+        width: f32,
+        #[arg(long, help = "Max display height", default_value = "700")]
         height: f32,
     },
     #[command(about = "Merge multiple PDFs into one")]
@@ -188,6 +227,26 @@ enum Commands {
         output: String,
         #[arg(short, long, help = "Optimization profile (web, print, archive, ebook)", default_value = "web")]
         profile: String,
+    },
+    #[command(about = "Linearize a PDF for Fast Web View (progressive loading)")]
+    LinearizePdf {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+    },
+    #[command(about = "Append an incremental update (metadata) without rewriting the PDF body")]
+    IncrementalUpdate {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+        #[arg(long, help = "Set document title via incremental /Info")]
+        title: Option<String>,
+        #[arg(long, help = "Set document author via incremental /Info")]
+        author: Option<String>,
+        #[arg(long, help = "Append a text annotation note (incremental)")]
+        note: Option<String>,
     },
     #[command(about = "Overlay an image onto all pages of a PDF")]
     OverlayImage {
@@ -382,6 +441,28 @@ enum Commands {
         #[arg(short, long, help = "Portfolio title")]
         title: Option<String>,
     },
+    #[command(about = "Create a PDF with vector graphics (demo shapes)")]
+    DrawVector {
+        #[arg(help = "Output PDF file")]
+        output: String,
+        #[arg(long, help = "Use landscape page")]
+        landscape: bool,
+    },
+    #[command(about = "Render an SVG path (d=) or SVG file into a PDF")]
+    DrawSvg {
+        #[arg(help = "Output PDF file")]
+        output: String,
+        #[arg(long, help = "SVG path d attribute string")]
+        path: Option<String>,
+        #[arg(long, help = "SVG file containing a <path d=\"...\">")]
+        file: Option<String>,
+        #[arg(long, help = "Use landscape page")]
+        landscape: bool,
+        #[arg(long, help = "Stroke line width", default_value = "1.5")]
+        line_width: f32,
+        #[arg(long, help = "Fill the path")]
+        fill: bool,
+    },
     #[command(about = "Attach an external file to a PDF")]
     AttachFile {
         #[arg(help = "Input PDF file")]
@@ -393,10 +474,50 @@ enum Commands {
         #[arg(short, long, help = "Attachment name in PDF (defaults to file basename)")]
         name: Option<String>,
     },
+    #[command(about = "Create a PDF with an embedded U3D 3D annotation")]
+    Embed3d {
+        #[arg(help = "Output PDF file")]
+        output: String,
+        #[arg(help = "U3D model file")]
+        model: String,
+        #[arg(long, help = "Page label text", default_value = "3D Model")]
+        label: String,
+        #[arg(long, help = "Annotation X (points)", default_value = "72")]
+        x: f32,
+        #[arg(long, help = "Annotation Y (points)", default_value = "200")]
+        y: f32,
+        #[arg(long, help = "Annotation width", default_value = "400")]
+        width: f32,
+        #[arg(long, help = "Annotation height", default_value = "300")]
+        height: f32,
+        #[arg(long, help = "Activate 3D view when the page opens")]
+        activate_on_open: bool,
+    },
 }
 
 // Use the library instead of declaring modules
-use pdfrs::{elements, image, markdown, optimization, parallel, pdf, pdf_generator, pdf_ops, security};
+use pdfrs::{comprehensive, elements, i18n, image, incremental, linearize, markdown, optimization, parallel, pdf, pdf_generator, pdf_ops, plugin, security, vector};
+
+fn resolve_locale(cli_lang: &Option<String>) -> i18n::Locale {
+    cli_lang
+        .as_deref()
+        .and_then(i18n::Locale::parse)
+        .unwrap_or_else(i18n::Locale::from_env)
+}
+
+fn build_plugin_registry(plugins: &str) -> plugin::PluginRegistry {
+    let mut registry = plugin::PluginRegistry::new();
+    for name in plugins.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        match name.to_ascii_lowercase().as_str() {
+            "callouts" | "callout" => {
+                registry.register_parser(plugin::CalloutPlugin);
+                registry.register_generator(plugin::CalloutPlugin);
+            }
+            other => eprintln!("Warning: unknown plugin '{}'", other),
+        }
+    }
+    registry
+}
 
 fn parse_optimization_profile(s: &str) -> optimization::OptimizationProfile {
     match s.to_lowercase().as_str() {
@@ -410,8 +531,32 @@ fn parse_optimization_profile(s: &str) -> optimization::OptimizationProfile {
 
 fn main() {
     let cli = Cli::parse();
+    let locale = resolve_locale(&cli.lang);
 
     match cli.command {
+        Commands::GenerateComprehensive {
+            output,
+            landscape,
+            linearize,
+            font_size,
+            columns,
+        } => {
+            let opts = comprehensive::ComprehensiveOptions::default()
+                .with_landscape(landscape)
+                .with_linearize(linearize)
+                .with_font_size(font_size)
+                .with_columns(columns);
+            match comprehensive::write_bundled_comprehensive_pdf(&output, &opts) {
+                Ok(()) => {
+                    let size = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
+                    println!(
+                        "Wrote comprehensive PDF {} ({} bytes, linearize={}, columns={})",
+                        output, size, linearize, columns
+                    );
+                }
+                Err(e) => eprintln!("Error generating comprehensive PDF: {}", e),
+            }
+        }
         Commands::PdfToMd { input, output } => match pdf::extract_text(&input) {
             Ok(text) => {
                 if let Err(e) = std::fs::write(&output, text) {
@@ -431,6 +576,9 @@ fn main() {
             font,
             font_size,
             landscape,
+            rtl,
+            columns,
+            plugins,
             profile,
         } => {
             let profile = parse_optimization_profile(&profile);
@@ -438,10 +586,17 @@ fn main() {
                 pdf_generator::PageLayout::landscape()
             } else {
                 pdf_generator::PageLayout::portrait()
-            };
+            }
+            .with_rtl(rtl)
+            .with_columns(columns);
             let result = (|| -> anyhow::Result<()> {
                 let content = std::fs::read_to_string(&input)?;
-                let elements = elements::parse_markdown(&content);
+                let registry = build_plugin_registry(&plugins);
+                let elements = if registry.has_parsers() || registry.has_generators() {
+                    plugin::parse_markdown_with_plugins(&content, &registry)
+                } else {
+                    elements::parse_markdown(&content)
+                };
                 let generator = optimization::OptimizedPdfGenerator::new(profile)
                     .with_font(&font)
                     .with_font_size(font_size)
@@ -538,6 +693,33 @@ fn main() {
                 image_file, pdf_file
             ),
             Err(e) => eprintln!("Error adding image: {}", e),
+        },
+        Commands::FilterImage {
+            input,
+            output,
+            filters,
+            width,
+            height,
+        } => {
+            if filters.is_empty() {
+                eprintln!("Error: at least one --filter is required");
+                return;
+            }
+            let parsed: Result<Vec<_>, _> = filters.iter().map(|f| image::ImageFilter::parse(f)).collect();
+            match parsed {
+                Ok(filter_list) => {
+                    match image::create_filtered_image_pdf(&input, &output, &filter_list, width, height)
+                    {
+                        Ok(_) => println!(
+                            "Wrote filtered image PDF {} ({} filter(s))",
+                            output,
+                            filter_list.len()
+                        ),
+                        Err(e) => eprintln!("Error filtering image: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Error parsing filters: {}", e),
+            }
         },
         Commands::Merge { inputs, output } => {
             match parallel::merge_pdfs_parallel(&inputs, output.clone()) {
@@ -722,9 +904,78 @@ fn main() {
                         output,
                         if in_size > 0 { (out_size as f64 / in_size as f64) * 100.0 } else { 0.0 }
                     );
-                    println!("Profile: {:?} | compression: {:?}", profile, settings.compression_level);
+                    println!("Profile: {:?} | compression: {:?} | linearized: {}", profile, settings.compression_level, settings.linearize);
+                    if settings.linearize && std::fs::read(&output).ok().is_some_and(|b| linearize::is_linearized(&b)) {
+                        println!("Fast Web View: enabled (/Linearized)");
+                    }
                 }
                 Err(e) => eprintln!("Error optimizing PDF: {}", e),
+            }
+        }
+        Commands::LinearizePdf { input, output } => {
+            match linearize::linearize_pdf_file(&input, &output) {
+                Ok(_) => {
+                    println!("Linearized PDF written to {} (Fast Web View)", output);
+                }
+                Err(e) => eprintln!("Error linearizing PDF: {}", e),
+            }
+        }
+        Commands::IncrementalUpdate {
+            input,
+            output,
+            title,
+            author,
+            note,
+        } => {
+            match std::fs::read(&input) {
+                Ok(bytes) => {
+                    let mut updated = bytes;
+                    let mut did = false;
+                    if title.is_some() || author.is_some() {
+                        match incremental::incremental_set_info(
+                            &updated,
+                            title.as_deref(),
+                            author.as_deref(),
+                        ) {
+                            Ok(u) => {
+                                updated = u;
+                                did = true;
+                            }
+                            Err(e) => {
+                                eprintln!("Error updating info: {}", e);
+                                return;
+                            }
+                        }
+                    }
+                    if let Some(ref n) = note {
+                        match incremental::incremental_add_text_annotation(
+                            &updated, n, 72.0, 720.0, 24.0, 24.0,
+                        ) {
+                            Ok(u) => {
+                                updated = u;
+                                did = true;
+                            }
+                            Err(e) => {
+                                eprintln!("Error adding note: {}", e);
+                                return;
+                            }
+                        }
+                    }
+                    if !did {
+                        eprintln!("Provide --title/--author and/or --note");
+                        return;
+                    }
+                    match std::fs::write(&output, &updated) {
+                        Ok(_) => println!(
+                            "Wrote incremental update to {} ({} -> {} bytes)",
+                            output,
+                            std::fs::metadata(&input).map(|m| m.len()).unwrap_or(0),
+                            updated.len()
+                        ),
+                        Err(e) => eprintln!("Error writing output: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Error reading {}: {}", input, e),
             }
         }
         Commands::OverlayImage {
@@ -1029,24 +1280,45 @@ fn main() {
         Commands::Validate { input } => {
             match pdf::validate_pdf(&input) {
                 Ok(result) => {
-                    println!("Validation result for {}:", input);
-                    println!("  Valid: {}", result.valid);
-                    println!("  Pages: {}", result.page_count);
-                    println!("  Objects: {}", result.object_count);
+                    let result = i18n::localize_validation(locale, &result);
+                    println!("{}", i18n::tf(locale, i18n::MsgId::ValidationResultFor, &[&input]));
+                    let yes_no = if result.valid {
+                        i18n::t(locale, i18n::MsgId::Yes)
+                    } else {
+                        i18n::t(locale, i18n::MsgId::No)
+                    };
+                    println!(
+                        "  {}: {}",
+                        i18n::t(locale, i18n::MsgId::ValidLabel),
+                        yes_no
+                    );
+                    println!(
+                        "  {}: {}",
+                        i18n::t(locale, i18n::MsgId::PagesLabel),
+                        i18n::format_integer(locale, result.page_count as u64)
+                    );
+                    println!(
+                        "  {}: {}",
+                        i18n::t(locale, i18n::MsgId::ObjectsLabel),
+                        i18n::format_integer(locale, result.object_count as u64)
+                    );
                     if !result.errors.is_empty() {
-                        println!("  Errors:");
+                        println!("  {}:", i18n::t(locale, i18n::MsgId::ErrorsLabel));
                         for e in &result.errors {
                             println!("    - {}", e);
                         }
                     }
                     if !result.warnings.is_empty() {
-                        println!("  Warnings:");
+                        println!("  {}:", i18n::t(locale, i18n::MsgId::WarningsLabel));
                         for w in &result.warnings {
                             println!("    - {}", w);
                         }
                     }
                 }
-                Err(e) => eprintln!("Error validating PDF: {}", e),
+                Err(e) => eprintln!(
+                    "{}",
+                    i18n::tf(locale, i18n::MsgId::ErrorValidatingPdf, &[&e.to_string()])
+                ),
             }
         }
         Commands::ValidatePdfa { input } => {
@@ -1072,6 +1344,63 @@ fn main() {
                     }
                 }
                 Err(e) => eprintln!("Error validating PDF/A: {}", e),
+            }
+        }
+        Commands::DrawVector { output, landscape } => {
+            let layout = if landscape {
+                pdf_generator::PageLayout::landscape()
+            } else {
+                pdf_generator::PageLayout::portrait()
+            };
+            match vector::demo_canvas().write_pdf(&output, layout) {
+                Ok(_) => println!("Wrote vector graphics demo PDF: {}", output),
+                Err(e) => eprintln!("Error writing vector PDF: {}", e),
+            }
+        }
+        Commands::DrawSvg {
+            output,
+            path,
+            file,
+            landscape,
+            line_width,
+            fill,
+        } => {
+            let layout = if landscape {
+                pdf_generator::PageLayout::landscape()
+            } else {
+                pdf_generator::PageLayout::portrait()
+            };
+            let stroke = Some(pdf_generator::Color::black());
+            let fill_color = if fill {
+                Some(pdf_generator::Color::rgb(0.85, 0.9, 1.0))
+            } else {
+                None
+            };
+            let result = match (&path, &file) {
+                (Some(d), _) => match vector::svg_path_to_pdf_bytes(
+                    d,
+                    layout,
+                    stroke,
+                    fill_color,
+                    line_width,
+                ) {
+                    Ok(bytes) => std::fs::write(&output, bytes).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                },
+                (None, Some(svg_file)) => vector::svg_file_to_pdf(
+                    svg_file,
+                    &output,
+                    layout,
+                    stroke,
+                    fill_color,
+                    line_width,
+                )
+                .map_err(|e| e.to_string()),
+                (None, None) => Err("Provide --path \"M...\" or --file icon.svg".to_string()),
+            };
+            match result {
+                Ok(_) => println!("Wrote SVG path PDF: {}", output),
+                Err(e) => eprintln!("Error rendering SVG path: {}", e),
             }
         }
         Commands::AttachFile { input, output, file, name } => {
@@ -1102,6 +1431,34 @@ fn main() {
                     }
                 }
                 Err(e) => eprintln!("Error loading PDF: {}", e),
+            }
+        }
+        Commands::Embed3d {
+            output,
+            model,
+            label,
+            x,
+            y,
+            width,
+            height,
+            activate_on_open,
+        } => {
+            match std::fs::read(&model) {
+                Ok(u3d_data) => {
+                    let annot = pdf_ops::ThreeDAnnotation {
+                        x,
+                        y,
+                        width,
+                        height,
+                        contents: label.clone(),
+                        activate_on_open,
+                    };
+                    match pdf_ops::create_pdf_with_3d_annotation(&output, &label, &u3d_data, &annot) {
+                        Ok(_) => println!("Created 3D PDF {} from {}", output, model),
+                        Err(e) => eprintln!("Error creating 3D PDF: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Error reading U3D model {}: {}", model, e),
             }
         }
         Commands::DiffPdfs { old, new } => {

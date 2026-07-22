@@ -17,6 +17,9 @@
 //! | `BlockQuote` | `> quote` |
 //! | `HorizontalRule` | `---` |
 //! | `Image` | `![alt](path)` |
+//! | `Chart` | ` ```chart bar|line|pie` ` |
+//! | `Toc` / page modes | `<!-- toc -->`, `<!-- pagenumber:roman -->`, … |
+//! | `CitationDef` | `[@key]: reference` |
 //! | `TableRow` | `| col1 | col2 |` |
 //! | `MathBlock` / `MathInline` | `$$...$$` / `$...$` |
 //!
@@ -49,8 +52,11 @@ pub enum TextSegment {
     Italic(String),
     BoldItalic(String),
     Code(String),
+    Strikethrough(String),
     MathInline(String),
     Link { text: String, url: String },
+    /// Inline citation `[@key]` rendered as [n].
+    Citation { key: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +82,42 @@ pub enum Element {
     PageBreak,
     HorizontalRule,
     EmptyLine,
+    /// Switch multi-column layout for following content (`<!-- columns:N -->`).
+    Columns { count: u8 },
+    /// Chart from a fenced ` ```chart …` ` block (bar / line / pie).
+    Chart {
+        kind: ChartKind,
+        title: Option<String>,
+        /// `(label, value)` pairs
+        points: Vec<(String, f32)>,
+    },
+    /// Page folio style (`<!-- pagenumber:roman|arabic|none -->`).
+    PageNumberMode { style: PageNumberStyle },
+    /// Running header toggle (`<!-- running-header:on|off -->`).
+    RunningHeaderMode { enabled: bool },
+    /// Insert an in-document table of contents (`<!-- toc -->`).
+    Toc,
+    /// Emit numbered bibliography from citations (`<!-- bibliography -->`).
+    Bibliography,
+    /// Citation definition: `[@key]: full reference text`.
+    CitationDef { key: String, text: String },
+}
+
+/// Chart type for [`Element::Chart`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartKind {
+    Bar,
+    Line,
+    Pie,
+}
+
+/// Page number / folio style for thesis front matter vs body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageNumberStyle {
+    #[default]
+    Arabic,
+    Roman,
+    None,
 }
 
 /// Parse alignment from a table separator cell like `:---`, `:---:`, `---:`
@@ -136,7 +178,38 @@ pub fn parse_inline_formatting(text: &str) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     let mut remaining = text.to_string();
 
-    // Links first (highest priority)
+    // Citations [@key] or [@k1; @k2] before links
+    let cite_re = regex::Regex::new(r"\[@([^\]]+)\]").unwrap();
+    while let Some(caps) = cite_re.captures(&remaining) {
+        let full_match = caps.get(0).unwrap();
+        let before = &remaining[..full_match.start()];
+        let keys = caps.get(1).unwrap().as_str();
+        if !before.is_empty() {
+            segments.extend(parse_inline_formatting_after_cites(before));
+        }
+        for key in keys.split(';') {
+            let key = key.trim().trim_start_matches('@').trim();
+            if !key.is_empty() {
+                segments.push(TextSegment::Citation {
+                    key: key.to_string(),
+                });
+            }
+        }
+        remaining = remaining[full_match.end()..].to_string();
+    }
+
+    if !remaining.is_empty() {
+        segments.extend(parse_inline_formatting_after_cites(&remaining));
+    }
+
+    segments
+}
+
+fn parse_inline_formatting_after_cites(text: &str) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+    let mut remaining = text.to_string();
+
+    // Links
     let link_re = regex::Regex::new(r"\[([^\]]+)\]\(([^\)]+)\)").unwrap();
     while let Some(caps) = link_re.captures(&remaining) {
         let full_match = caps.get(0).unwrap();
@@ -194,6 +267,31 @@ fn parse_code_and_bold_italic(text: &str) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     let mut remaining = text.to_string();
 
+    // Strikethrough first so ~~...~~ is not partially eaten by italic rules
+    let strike_re = regex::Regex::new(r"~~(.+?)~~").unwrap();
+    while let Some(caps) = strike_re.captures(&remaining) {
+        let full_match = caps.get(0).unwrap();
+        let before = &remaining[..full_match.start()];
+        let content = caps.get(1).unwrap().as_str();
+
+        if !before.is_empty() {
+            segments.extend(parse_code_and_bold_italic_no_strike(before));
+        }
+        segments.push(TextSegment::Strikethrough(content.to_string()));
+        remaining = remaining[full_match.end()..].to_string();
+    }
+
+    if !remaining.is_empty() {
+        segments.extend(parse_code_and_bold_italic_no_strike(&remaining));
+    }
+
+    segments
+}
+
+fn parse_code_and_bold_italic_no_strike(text: &str) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+    let mut remaining = text.to_string();
+
     // Code (high priority)
     let code_re = regex::Regex::new(r"`([^`]+)`").unwrap();
     while let Some(caps) = code_re.captures(&remaining) {
@@ -218,8 +316,9 @@ fn parse_code_and_bold_italic(text: &str) -> Vec<TextSegment> {
 
 /// Parse bold/italic formatting
 fn parse_bold_italic(text: &str) -> Vec<TextSegment> {
-    let mut segments = Vec::new();
-    let mut remaining = text.to_string();
+    if text.is_empty() {
+        return Vec::new();
+    }
 
     // Bold+italic: ***text*** or ___text___ (explicit patterns)
     let bi_stars_re = regex::Regex::new(r"\*\*\*(.+?)\*\*\*").unwrap();
@@ -227,90 +326,69 @@ fn parse_bold_italic(text: &str) -> Vec<TextSegment> {
     // Bold: **text** or __text__
     let b_stars_re = regex::Regex::new(r"\*\*(.+?)\*\*").unwrap();
     let b_under_re = regex::Regex::new(r"__(.+?)__").unwrap();
-    // Italic: *text* or _text_ (simple pattern, may have false positives but that's acceptable)
+    // Italic: *text* or _text_
     let i_stars_re = regex::Regex::new(r"\*([^*]+)\*").unwrap();
     let i_under_re = regex::Regex::new(r"_([^_]+)_").unwrap();
 
-    loop {
-        let mut found = false;
-
-        if let Some(caps) = bi_stars_re.captures(&remaining) {
-            let full_match = caps.get(0).unwrap();
-            let before = &remaining[..full_match.start()];
-            let content = caps.get(1).unwrap().as_str();
-
-            if !before.is_empty() {
-                segments.push(TextSegment::Plain(before.to_string()));
-            }
-            segments.push(TextSegment::BoldItalic(content.to_string()));
-            remaining = remaining[full_match.end()..].to_string();
-            found = true;
-        } else if let Some(caps) = bi_under_re.captures(&remaining) {
-            let full_match = caps.get(0).unwrap();
-            let before = &remaining[..full_match.start()];
-            let content = caps.get(1).unwrap().as_str();
-
-            if !before.is_empty() {
-                segments.push(TextSegment::Plain(before.to_string()));
-            }
-            segments.push(TextSegment::BoldItalic(content.to_string()));
-            remaining = remaining[full_match.end()..].to_string();
-            found = true;
-        } else if let Some(caps) = b_stars_re.captures(&remaining) {
-            let full_match = caps.get(0).unwrap();
-            let before = &remaining[..full_match.start()];
-            let content = caps.get(1).unwrap().as_str();
-
-            if !before.is_empty() {
-                segments.push(TextSegment::Plain(before.to_string()));
-            }
-            segments.push(TextSegment::Bold(content.to_string()));
-            remaining = remaining[full_match.end()..].to_string();
-            found = true;
-        } else if let Some(caps) = b_under_re.captures(&remaining) {
-            let full_match = caps.get(0).unwrap();
-            let before = &remaining[..full_match.start()];
-            let content = caps.get(1).unwrap().as_str();
-
-            if !before.is_empty() {
-                segments.push(TextSegment::Plain(before.to_string()));
-            }
-            segments.push(TextSegment::Bold(content.to_string()));
-            remaining = remaining[full_match.end()..].to_string();
-            found = true;
-        } else if let Some(caps) = i_stars_re.captures(&remaining) {
-            let full_match = caps.get(0).unwrap();
-            let before = &remaining[..full_match.start()];
-            let content = caps.get(1).unwrap().as_str();
-
-            if !before.is_empty() {
-                segments.push(TextSegment::Plain(before.to_string()));
-            }
-            segments.push(TextSegment::Italic(content.to_string()));
-            remaining = remaining[full_match.end()..].to_string();
-            found = true;
-        } else if let Some(caps) = i_under_re.captures(&remaining) {
-            let full_match = caps.get(0).unwrap();
-            let before = &remaining[..full_match.start()];
-            let content = caps.get(1).unwrap().as_str();
-
-            if !before.is_empty() {
-                segments.push(TextSegment::Plain(before.to_string()));
-            }
-            segments.push(TextSegment::Italic(content.to_string()));
-            remaining = remaining[full_match.end()..].to_string();
-            found = true;
-        }
-
-        if !found {
-            break;
-        }
+    #[derive(Clone, Copy)]
+    enum Kind {
+        BoldItalic,
+        Bold,
+        Italic,
     }
 
-    if !remaining.is_empty() {
-        segments.push(TextSegment::Plain(remaining));
+    let mut best: Option<(usize, usize, Kind, String)> = None;
+    let consider = |best: &mut Option<(usize, usize, Kind, String)>,
+                    caps: regex::Captures,
+                    kind: Kind| {
+        let full = caps.get(0).unwrap();
+        let content = caps.get(1).unwrap().as_str().to_string();
+        let start = full.start();
+        let end = full.end();
+        match best {
+            None => *best = Some((start, end, kind, content)),
+            Some((bs, be, _, _)) if start < *bs || (start == *bs && end > *be) => {
+                *best = Some((start, end, kind, content));
+            }
+            _ => {}
+        }
+    };
+
+    if let Some(caps) = bi_stars_re.captures(text) {
+        consider(&mut best, caps, Kind::BoldItalic);
+    }
+    if let Some(caps) = bi_under_re.captures(text) {
+        consider(&mut best, caps, Kind::BoldItalic);
+    }
+    if let Some(caps) = b_stars_re.captures(text) {
+        consider(&mut best, caps, Kind::Bold);
+    }
+    if let Some(caps) = b_under_re.captures(text) {
+        consider(&mut best, caps, Kind::Bold);
+    }
+    if let Some(caps) = i_stars_re.captures(text) {
+        consider(&mut best, caps, Kind::Italic);
+    }
+    if let Some(caps) = i_under_re.captures(text) {
+        consider(&mut best, caps, Kind::Italic);
     }
 
+    let Some((start, end, kind, content)) = best else {
+        return vec![TextSegment::Plain(text.to_string())];
+    };
+
+    let mut segments = Vec::new();
+    if start > 0 {
+        segments.extend(parse_bold_italic(&text[..start]));
+    }
+    segments.push(match kind {
+        Kind::BoldItalic => TextSegment::BoldItalic(content),
+        Kind::Bold => TextSegment::Bold(content),
+        Kind::Italic => TextSegment::Italic(content),
+    });
+    if end < text.len() {
+        segments.extend(parse_bold_italic(&text[end..]));
+    }
     segments
 }
 
@@ -320,6 +398,7 @@ pub fn has_inline_formatting(text: &str) -> bool {
         || text.contains("__")
         || text.contains("***")
         || text.contains("___")
+        || text.contains("~~")
         || text.contains('`')
         || text.contains('[')
         || (text.contains('$') && text.matches('$').count() >= 2)
@@ -327,6 +406,17 @@ pub fn has_inline_formatting(text: &str) -> bool {
 
 /// Parse markdown text into structured elements
 pub fn parse_markdown(markdown: &str) -> Vec<Element> {
+    parse_markdown_with_hook(markdown, None)
+}
+
+/// Parse Markdown with an optional line-level hook (used by the plugin system).
+///
+/// The hook runs for each line outside code/math fences. Returning
+/// `Some((elements, consumed))` appends those elements and skips `consumed` lines.
+pub fn parse_markdown_with_hook(
+    markdown: &str,
+    hook: Option<&dyn Fn(&[&str], usize) -> Option<(Vec<Element>, usize)>>,
+) -> Vec<Element> {
     let mut elements = Vec::new();
     let mut in_code_block = false;
     let mut code_lang = String::new();
@@ -373,13 +463,19 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
             continue;
         }
 
-        // Code block toggle
+        // Code block toggle (chart fences become Element::Chart)
         if trimmed.starts_with("```") {
             if in_code_block {
-                elements.push(Element::CodeBlock {
-                    language: code_lang.clone(),
-                    code: code_buf.clone(),
-                });
+                if let Some(chart) =
+                    crate::chart::try_parse_chart_element(&code_lang, &code_buf)
+                {
+                    elements.push(chart);
+                } else {
+                    elements.push(Element::CodeBlock {
+                        language: code_lang.clone(),
+                        code: code_buf.clone(),
+                    });
+                }
                 code_buf.clear();
                 code_lang.clear();
                 in_code_block = false;
@@ -397,6 +493,15 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
             }
             code_buf.push_str(line);
             i += 1;
+            continue;
+        }
+
+        // Plugin hook (before built-in block syntax)
+        if let Some(h) = hook
+            && let Some((plugin_elements, consumed)) = h(&lines, i)
+        {
+            elements.extend(plugin_elements);
+            i += consumed.max(1);
             continue;
         }
 
@@ -430,6 +535,60 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
             elements.push(Element::PageBreak);
             i += 1;
             continue;
+        }
+
+        // Multi-column / thesis switches: <!-- columns:2 -->, <!-- toc -->, etc.
+        if let Some(rest) = trimmed
+            .strip_prefix("<!--")
+            .and_then(|s| s.strip_suffix("-->"))
+        {
+            let inner = rest.trim().to_ascii_lowercase();
+            if let Some(n) = inner
+                .strip_prefix("columns:")
+                .or_else(|| inner.strip_prefix("columns :"))
+                .map(str::trim)
+                .and_then(|s| s.parse::<u8>().ok())
+            {
+                elements.push(Element::Columns {
+                    count: n.clamp(1, 4),
+                });
+                i += 1;
+                continue;
+            }
+            if let Some(style) = inner
+                .strip_prefix("pagenumber:")
+                .or_else(|| inner.strip_prefix("page-number:"))
+                .map(str::trim)
+            {
+                let style = match style {
+                    "roman" | "rom" => PageNumberStyle::Roman,
+                    "none" | "off" | "hide" => PageNumberStyle::None,
+                    _ => PageNumberStyle::Arabic,
+                };
+                elements.push(Element::PageNumberMode { style });
+                i += 1;
+                continue;
+            }
+            if let Some(mode) = inner
+                .strip_prefix("running-header:")
+                .or_else(|| inner.strip_prefix("runningheader:"))
+                .map(str::trim)
+            {
+                let enabled = matches!(mode, "on" | "true" | "yes" | "1");
+                elements.push(Element::RunningHeaderMode { enabled });
+                i += 1;
+                continue;
+            }
+            if inner == "toc" || inner == "tableofcontents" || inner == "table-of-contents" {
+                elements.push(Element::Toc);
+                i += 1;
+                continue;
+            }
+            if inner == "bibliography" || inner == "references" {
+                elements.push(Element::Bibliography);
+                i += 1;
+                continue;
+            }
         }
 
         // Image: ![alt](path)
@@ -495,6 +654,19 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
             }
             i += 1;
             continue;
+        }
+
+        // Citation definition: [@key]: full reference
+        if trimmed.starts_with("[@")
+            && let Some(close) = trimmed.find("]:")
+        {
+            let key = trimmed[2..close].trim().to_string();
+            let text = strip_inline_formatting(trimmed[close + 2..].trim());
+            if !key.is_empty() {
+                elements.push(Element::CitationDef { key, text });
+                i += 1;
+                continue;
+            }
         }
 
         // Footnote definition: [^label]: text
@@ -579,10 +751,14 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
 
     // Close unclosed code block
     if in_code_block && !code_buf.is_empty() {
-        elements.push(Element::CodeBlock {
-            language: code_lang,
-            code: code_buf,
-        });
+        if let Some(chart) = crate::chart::try_parse_chart_element(&code_lang, &code_buf) {
+            elements.push(chart);
+        } else {
+            elements.push(Element::CodeBlock {
+                language: code_lang,
+                code: code_buf,
+            });
+        }
     }
 
     // Close unclosed math block
@@ -617,6 +793,32 @@ mod tests {
     fn test_parse_strikethrough() {
         assert_eq!(strip_inline_formatting("~~removed~~"), "removed");
         assert_eq!(strip_inline_formatting("keep ~~this~~ text"), "keep this text");
+    }
+
+    #[test]
+    fn test_parse_mixed_inline_styles_left_to_right() {
+        let segments = parse_inline_formatting(
+            "Emphasis: **bold**, *italic*, ***both***, `code`, ~~strike~~",
+        );
+        assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t == "bold")));
+        assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t == "italic")));
+        assert!(segments.iter().any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "both")));
+        assert!(segments.iter().any(|s| matches!(s, TextSegment::Code(t) if t == "code")));
+        assert!(segments.iter().any(|s| matches!(s, TextSegment::Strikethrough(t) if t == "strike")));
+        let joined: String = segments
+            .iter()
+            .map(|s| match s {
+                TextSegment::Plain(t)
+                | TextSegment::Bold(t)
+                | TextSegment::Italic(t)
+                | TextSegment::BoldItalic(t)
+                | TextSegment::Strikethrough(t) => t.as_str(),
+                TextSegment::Code(t) => t.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert!(!joined.contains("**"));
+        assert!(!joined.contains("~~"));
     }
 
     #[test]
@@ -765,6 +967,40 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_chart_fence() {
+        let md = "```chart pie\ntitle: Mix\nA, 10\nB, 20\n```\n";
+        let elements = parse_markdown(md);
+        match &elements[0] {
+            Element::Chart { kind, title, points } => {
+                assert_eq!(*kind, ChartKind::Pie);
+                assert_eq!(title.as_deref(), Some("Mix"));
+                assert_eq!(points.len(), 2);
+            }
+            other => panic!("expected Chart, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_thesis_directives_and_citations() {
+        let md = "\
+<!-- pagenumber:roman -->\n\
+<!-- running-header:on -->\n\
+<!-- toc -->\n\
+See [@smith2020].\n\
+<!-- bibliography -->\n\
+[@smith2020]: Smith (2020).\n\
+<!-- pagenumber:arabic -->\n";
+        let elements = parse_markdown(md);
+        assert!(elements.iter().any(|e| matches!(e, Element::PageNumberMode { style: PageNumberStyle::Roman })));
+        assert!(elements.iter().any(|e| matches!(e, Element::RunningHeaderMode { enabled: true })));
+        assert!(elements.iter().any(|e| matches!(e, Element::Toc)));
+        assert!(elements.iter().any(|e| matches!(e, Element::Bibliography)));
+        assert!(elements.iter().any(|e| matches!(e, Element::CitationDef { key, .. } if key == "smith2020")));
+        assert!(elements.iter().any(|e| matches!(e, Element::RichParagraph { segments } if segments.iter().any(|s| matches!(s, TextSegment::Citation { key } if key == "smith2020")))));
+        assert!(elements.iter().any(|e| matches!(e, Element::PageNumberMode { style: PageNumberStyle::Arabic })));
+    }
+
+    #[test]
     fn test_parse_standalone_link() {
         let md = "[Click here](https://example.com)";
         let elements = parse_markdown(md);
@@ -781,6 +1017,14 @@ mod tests {
         let elements = parse_markdown(md);
         assert_eq!(elements.len(), 1);
         assert_eq!(elements[0], Element::PageBreak);
+    }
+
+    #[test]
+    fn test_parse_columns_directive() {
+        let md = "<!-- columns:2 -->\n\nHello\n\n<!-- columns:1 -->";
+        let elements = parse_markdown(md);
+        assert!(elements.iter().any(|e| matches!(e, Element::Columns { count: 2 })));
+        assert!(elements.iter().any(|e| matches!(e, Element::Columns { count: 1 })));
     }
 
     #[test]

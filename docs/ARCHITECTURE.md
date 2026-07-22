@@ -34,10 +34,10 @@ PDF-CLI is architectured as a modular system with clear separation of concerns. 
 
 **Responsibilities**:
 
-- Parse command-line arguments using `clap`
+- Parse command-line arguments using `clap` (including global `--lang`)
 - Route commands to appropriate handlers
 - Coordinate between modules
-- Handle application-level error reporting
+- Handle application-level error reporting (optionally localized via `i18n`)
 
 **Key Components**:
 
@@ -170,6 +170,7 @@ pub enum Element {
 **Key Functions**:
 
 - `parse_markdown()`: Parse markdown text into `Vec<Element>`
+- Supports headings, paragraphs, lists, tables, code, math, images, charts (` ```chart` `), columns, thesis directives (`toc`, page numbers, citations), etc.
 - `strip_inline_formatting()`: Remove bold/italic/code/link/strikethrough syntax
 
 **Design Decisions**:
@@ -238,6 +239,7 @@ pub fn create_image_content_stream(
 - `rotate_pdf()`: Apply rotation (0/90/180/270°) to all pages
 - `create_pdf_with_metadata()`: Generate PDF with Info dictionary (title, author, etc.)
 - `create_pdf_with_annotations()`: Generate PDF with text and link annotations
+- `create_pdf_with_3d_annotation()` / `_bytes`: Embed U3D as a `/Subtype /3D` annotation
 - `create_pdf_with_images()`: Place multiple JPEG images on a single page
 
 **Key Types**:
@@ -246,8 +248,54 @@ pub fn create_image_content_stream(
 - `TextAnnotation`: Positioned text note on a page
 - `LinkAnnotation`: Clickable URI region on a page
 - `HighlightAnnotation`: Colored highlight rectangle with QuadPoints
+- `ThreeDAnnotation`: U3D 3D annotation rectangle + activation (`/3DA`)
 - `Color`: RGB color struct for text rendering
 - `TextAlign`: Left/Center alignment enum
+
+### 7b. Internationalization (`src/i18n.rs`)
+
+**Purpose**: Localized CLI/validation messages and number formatting
+
+**Key Types / Functions**:
+
+- `Locale`: `en` / `es` / `de` / `fr` / `zh` / `he` / `ar` (from `--lang`, `PDFRS_LANG`, or `LANG`)
+- `MsgId` + `t` / `tf`: message catalog with `{0}` placeholders
+- `localize_validation()`: translate known structural validation strings
+- `format_integer` / `format_decimal`: locale-aware separators
+
+### 7c. Plugin System (`src/plugin.rs`)
+
+**Purpose**: Extensible Markdown parsing and element transforms
+
+**Key Types**:
+
+- `ParserPlugin` / `GeneratorPlugin` traits
+- `PluginRegistry` — register and run plugins
+- `CalloutPlugin` — `:::note` / `:::warning` / … fenced callouts
+- `parse_markdown_with_plugins()` — parse + transform pipeline
+
+Document bookmarks (`/Outlines`) are produced automatically from headings during PDF assembly in `pdf_generator`.
+
+### 7d. Linearization (`src/linearize.rs`)
+
+**Purpose**: Fast Web View / progressive PDF loading
+
+**Key Functions**:
+
+- `linearize_pdf_bytes` / `linearize_pdf_file` — rewrite with `/Linearized` dict + first-page object priority
+- `is_linearized` — detect Fast Web View structure
+- Wired into `optimize_pdf_bytes` when `OptimizationSettings.linearize` is true (Web/Ebook profiles)
+
+### 7e. Incremental Updates (`src/incremental.rs`)
+
+**Purpose**: Append-only PDF saves without rewriting prior bytes
+
+**Key Functions**:
+
+- `incremental_append_objects` — low-level object + xref/`/Prev` trailer append
+- `incremental_set_info` — update title/author via new `/Info`
+- `incremental_add_text_annotation` — append a text note + catalog override
+- `is_incremental_pdf` — detect multiple `%%EOF` markers
 
 ### 8. PDF Validation (`src/pdf.rs` — validation functions)
 

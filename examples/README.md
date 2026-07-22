@@ -2,6 +2,19 @@
 
 This directory contains comprehensive examples demonstrating the unicode, math, and code conversion capabilities of the PDF processing library.
 
+## Capability Showcase
+
+A multi-feature validation fixture lives at `tests/fixtures/capability_showcase.md`
+with automated checks in `tests/capability_validation.rs`:
+
+```bash
+cargo test --test capability_validation
+```
+
+This exercises plugins (callouts), outlines/bookmarks, multi-page breaks, RTL
+samples, linearization, incremental updates, vector/SVG/3D side channels, and
+writes sample PDFs under `tests/output/capability_*.pdf`.
+
 ## Quick Start
 
 ### Run All Validation Tests

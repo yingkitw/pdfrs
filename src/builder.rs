@@ -82,6 +82,23 @@ impl PdfBuilder {
         self
     }
 
+    /// Enable right-to-left layout
+    pub fn with_rtl(mut self, rtl: bool) -> Self {
+        self.layout = self.layout.with_rtl(rtl);
+        self
+    }
+
+    /// Parse Markdown with plugins and append the resulting elements.
+    pub fn add_markdown_with_plugins(
+        mut self,
+        markdown: &str,
+        registry: &crate::plugin::PluginRegistry,
+    ) -> Self {
+        self.elements
+            .extend(crate::plugin::parse_markdown_with_plugins(markdown, registry));
+        self
+    }
+
     /// Add a heading element
     pub fn add_heading(mut self, text: &str, level: u8) -> Self {
         self.elements.push(Element::Heading {

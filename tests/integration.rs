@@ -88,13 +88,13 @@ fn test_optimized_pdf_generator_compression() {
         },
     ];
 
-    // Web profile (high compression)
+    // Web profile (high compression + linearize)
     let web_gen = pdfrs::optimization::OptimizedPdfGenerator::new(
         pdfrs::optimization::OptimizationProfile::web(),
     );
     let web_bytes = web_gen.generate_bytes(&elements).unwrap();
 
-    // Print profile (low compression)
+    // Print profile (low compression, no linearize)
     let print_gen = pdfrs::optimization::OptimizedPdfGenerator::new(
         pdfrs::optimization::OptimizationProfile::print(),
     );
@@ -102,12 +102,25 @@ fn test_optimized_pdf_generator_compression() {
 
     assert!(web_bytes.starts_with(b"%PDF"));
     assert!(print_bytes.starts_with(b"%PDF"));
-
-    // Web should be smaller than print due to higher compression
     assert!(
-        web_bytes.len() <= print_bytes.len(),
-        "Web-optimized PDF ({}) should not be larger than print ({})",
-        web_bytes.len(),
+        pdfrs::linearize::is_linearized(&web_bytes),
+        "Web profile should emit a linearized PDF"
+    );
+    assert!(!pdfrs::linearize::is_linearized(&print_bytes));
+
+    // Compare stream compression without linearization overhead (tiny docs grow when linearized)
+    let web_nol_settings = pdfrs::optimization::OptimizationProfile::web()
+        .settings()
+        .with_linearize(false);
+    let web_nol = pdfrs::optimization::OptimizedPdfGenerator::new(
+        pdfrs::optimization::OptimizationProfile::custom(web_nol_settings),
+    )
+    .generate_bytes(&elements)
+    .unwrap();
+    assert!(
+        web_nol.len() <= print_bytes.len(),
+        "Web compression without linearize ({}) should not exceed print ({})",
+        web_nol.len(),
         print_bytes.len()
     );
 
@@ -714,4 +727,235 @@ fn test_certificate_sign_and_extract() {
     );
 
     std::fs::remove_file(&signed_pdf).ok();
+}
+
+#[test]
+fn test_filtered_image_pdf() {
+    std::fs::create_dir_all("tests/output").ok();
+    let bmp_path = "tests/output/filter_test.bmp";
+    let pdf_path = "tests/output/filter_test.pdf";
+
+    // Minimal 2x2 24-bit BMP (BGR bottom-up, 4-byte row padding)
+    let mut bmp = Vec::new();
+    bmp.extend_from_slice(b"BM");
+    let file_size: u32 = 54 + 16;
+    bmp.extend_from_slice(&file_size.to_le_bytes());
+    bmp.extend_from_slice(&[0, 0, 0, 0]);
+    bmp.extend_from_slice(&54u32.to_le_bytes());
+    bmp.extend_from_slice(&40u32.to_le_bytes());
+    bmp.extend_from_slice(&2i32.to_le_bytes());
+    bmp.extend_from_slice(&2i32.to_le_bytes());
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&24u16.to_le_bytes());
+    bmp.extend_from_slice(&0u32.to_le_bytes());
+    bmp.extend_from_slice(&16u32.to_le_bytes());
+    bmp.extend_from_slice(&[0u8; 16]);
+    bmp.extend_from_slice(&[0, 0, 255, 0, 255, 0, 0, 0]);
+    bmp.extend_from_slice(&[255, 0, 0, 100, 100, 100, 0, 0]);
+    std::fs::write(bmp_path, &bmp).unwrap();
+
+    let filters = [
+        pdfrs::image::ImageFilter::Grayscale,
+        pdfrs::image::ImageFilter::Brightness(10),
+    ];
+    pdfrs::image::create_filtered_image_pdf(bmp_path, pdf_path, &filters, 200.0, 200.0).unwrap();
+
+    assert!(std::path::Path::new(pdf_path).exists());
+    let validation = pdfrs::pdf::validate_pdf_bytes(&std::fs::read(pdf_path).unwrap());
+    assert!(
+        validation.valid,
+        "Filtered image PDF should be valid: {:?}",
+        validation.errors
+    );
+
+    std::fs::remove_file(bmp_path).ok();
+    std::fs::remove_file(pdf_path).ok();
+}
+
+#[test]
+fn test_vector_graphics_demo_pdf() {
+    std::fs::create_dir_all("tests/output").ok();
+    let path = "tests/output/vector_demo.pdf";
+    pdfrs::vector::demo_canvas()
+        .write_pdf(path, pdfrs::pdf_generator::PageLayout::portrait())
+        .unwrap();
+
+    let bytes = std::fs::read(path).unwrap();
+    let validation = pdfrs::pdf::validate_pdf_bytes(&bytes);
+    assert!(validation.valid, "{:?}", validation.errors);
+
+    let content = String::from_utf8_lossy(&bytes);
+    assert!(content.contains(" re\n") || content.contains(" re"));
+    assert!(content.contains(" c\n") || content.contains(" c"));
+    assert!(content.contains(" m\n") || content.contains(" m"));
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_svg_path_pdf_integration() {
+    std::fs::create_dir_all("tests/output").ok();
+    let path = "tests/output/svg_path.pdf";
+    let svg = r#"<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+  <path d="M40 160 L100 40 L160 160 Z" fill="none" stroke="black"/>
+</svg>"#;
+    let svg_path = "tests/output/triangle.svg";
+    std::fs::write(svg_path, svg).unwrap();
+
+    pdfrs::vector::svg_file_to_pdf(
+        svg_path,
+        path,
+        pdfrs::pdf_generator::PageLayout::portrait(),
+        Some(pdfrs::pdf_generator::Color::black()),
+        Some(pdfrs::pdf_generator::Color::rgb(0.9, 0.95, 1.0)),
+        2.0,
+    )
+    .unwrap();
+
+    let bytes = std::fs::read(path).unwrap();
+    let validation = pdfrs::pdf::validate_pdf_bytes(&bytes);
+    assert!(validation.valid, "{:?}", validation.errors);
+
+    std::fs::remove_file(path).ok();
+    std::fs::remove_file(svg_path).ok();
+}
+
+#[test]
+fn test_rtl_hebrew_pdf() {
+    let elements = vec![
+        pdfrs::elements::Element::Heading {
+            level: 1,
+            text: "שלום עולם".to_string(),
+        },
+        pdfrs::elements::Element::Paragraph {
+            text: "זה מסמך בעברית לבדיקת תמיכה ב־RTL.".to_string(),
+        },
+    ];
+    let layout = pdfrs::pdf_generator::PageLayout::portrait().with_rtl(true);
+    let bytes = pdfrs::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout)
+        .unwrap();
+    let validation = pdfrs::pdf::validate_pdf_bytes(&bytes);
+    assert!(validation.valid, "{:?}", validation.errors);
+
+    // Visual reorder should put the last Hebrew letter near the start of encoded text
+    let prepared = pdfrs::rtl::prepare_for_pdf("אב");
+    assert_eq!(prepared, "בא");
+}
+
+#[test]
+fn test_i18n_localize_validation_spanish() {
+    let bad = b"not a pdf";
+    let result = pdfrs::pdf::validate_pdf_bytes(bad);
+    assert!(!result.valid);
+    assert!(!result.errors.is_empty());
+
+    let es = pdfrs::i18n::localize_validation(pdfrs::i18n::Locale::Es, &result);
+    assert_eq!(es.errors.len(), result.errors.len());
+    // At least the missing-header message should be translated
+    assert!(
+        es.errors.iter().any(|e| e.contains("cabecera") || e.contains("Falta")),
+        "expected Spanish error, got {:?}",
+        es.errors
+    );
+    assert_eq!(
+        pdfrs::i18n::format_integer(pdfrs::i18n::Locale::De, 1000),
+        "1.000"
+    );
+}
+
+#[test]
+fn test_plugin_callouts_and_outlines() {
+    let md = r#"# Chapter One
+
+Intro text.
+
+:::note
+Remember this
+:::
+
+## Section A
+
+More text.
+"#;
+    let registry = pdfrs::plugin::PluginRegistry::with_defaults();
+    let elements = pdfrs::plugin::parse_markdown_with_plugins(md, &registry);
+    assert!(
+        elements.iter().any(|e| matches!(
+            e,
+            pdfrs::elements::Element::Paragraph { text } if text.contains("NOTE")
+        )),
+        "callout should expand to NOTE paragraph, got {:?}",
+        elements
+    );
+
+    let bytes = pdfrs::pdf_generator::generate_pdf_bytes(
+        &elements,
+        "Helvetica",
+        12.0,
+        pdfrs::pdf_generator::PageLayout::portrait(),
+    )
+    .unwrap();
+    let validation = pdfrs::pdf::validate_pdf_bytes(&bytes);
+    assert!(validation.valid, "{:?}", validation.errors);
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.contains("/Outlines"), "expected outline dictionary");
+    assert!(text.contains("/Title (Chapter One)") || text.contains("/Title (Chapter One)"));
+    assert!(text.contains("/PageMode /UseOutlines"));
+}
+
+#[test]
+fn test_linearize_web_profile_optimize() {
+    let elements = vec![
+        pdfrs::elements::Element::Heading {
+            level: 1,
+            text: "Web Opt".into(),
+        },
+        pdfrs::elements::Element::Paragraph {
+            text: "Body".into(),
+        },
+    ];
+    let bytes = pdfrs::pdf_generator::generate_pdf_bytes(
+        &elements,
+        "Helvetica",
+        12.0,
+        pdfrs::pdf_generator::PageLayout::portrait(),
+    )
+    .unwrap();
+    assert!(!pdfrs::linearize::is_linearized(&bytes));
+
+    let settings = pdfrs::optimization::OptimizationProfile::web().settings();
+    assert!(settings.linearize);
+    let optimized = pdfrs::optimization::optimize_pdf_bytes(&bytes, settings).unwrap();
+    assert!(pdfrs::linearize::is_linearized(&optimized));
+    assert!(pdfrs::pdf::validate_pdf_bytes(&optimized).valid);
+}
+
+#[test]
+fn test_3d_u3d_annotation_pdf() {
+    std::fs::create_dir_all("tests/output").ok();
+    let model_path = "tests/output/sample.u3d";
+    let pdf_path = "tests/output/embed_3d.pdf";
+    // Minimal placeholder bytes (structure test; not a real U3D mesh)
+    let u3d = b"U3D\0pdfrs-integration-fixture";
+    std::fs::write(model_path, u3d).unwrap();
+
+    let annot = pdfrs::pdf_ops::ThreeDAnnotation {
+        x: 72.0,
+        y: 180.0,
+        width: 360.0,
+        height: 280.0,
+        contents: "Sample 3D".into(),
+        activate_on_open: true,
+    };
+    pdfrs::pdf_ops::create_pdf_with_3d_annotation(pdf_path, "Embedded U3D", u3d, &annot).unwrap();
+
+    let bytes = std::fs::read(pdf_path).unwrap();
+    let validation = pdfrs::pdf::validate_pdf_bytes(&bytes);
+    assert!(validation.valid, "{:?}", validation.errors);
+    assert!(pdfrs::pdf_ops::pdf_contains_3d_u3d(&bytes));
+    assert!(bytes.windows(u3d.len()).any(|w| w == u3d));
+
+    std::fs::remove_file(pdf_path).ok();
+    std::fs::remove_file(model_path).ok();
 }

@@ -129,19 +129,28 @@
 //! ```
 
 pub mod builder;
+pub mod chart;
+pub mod comprehensive;
 pub mod compression;
 pub mod elements;
+pub mod i18n;
 pub mod image;
+pub mod incremental;
+pub mod linearize;
 pub mod markdown;
 pub mod optimization;
+pub mod plugin;
 #[cfg(feature = "parallel")]
 pub mod parallel;
 pub mod pdf;
 pub mod pdf_generator;
 pub mod pdf_ops;
+pub mod rtl;
 pub mod security;
 pub mod streaming;
 pub mod table_renderer;
+pub mod thesis;
+pub mod vector;
 
 #[cfg(feature = "async")]
 pub mod async_api;

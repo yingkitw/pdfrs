@@ -31,7 +31,11 @@ fn elements_to_text(elements: &[Element]) -> String {
             Element::RichParagraph { segments } => {
                 for segment in segments {
                     match segment {
-                        TextSegment::Plain(t) | TextSegment::Bold(t) | TextSegment::Italic(t) | TextSegment::BoldItalic(t) => {
+                        TextSegment::Plain(t)
+                        | TextSegment::Bold(t)
+                        | TextSegment::Italic(t)
+                        | TextSegment::BoldItalic(t)
+                        | TextSegment::Strikethrough(t) => {
                             text.push_str(t);
                         }
                         TextSegment::Code(c) => {
@@ -50,6 +54,11 @@ fn elements_to_text(elements: &[Element]) -> String {
                             text.push_str("](");
                             text.push_str(url);
                             text.push(')');
+                        }
+                        TextSegment::Citation { key } => {
+                            text.push_str("[@");
+                            text.push_str(key);
+                            text.push(']');
                         }
                     }
                 }
@@ -121,6 +130,28 @@ fn elements_to_text(elements: &[Element]) -> String {
                 text.push_str(path);
                 text.push_str(")\n");
             }
+            Element::Chart { kind, title, points } => {
+                text.push_str("[Chart ");
+                text.push_str(match kind {
+                    crate::elements::ChartKind::Bar => "bar",
+                    crate::elements::ChartKind::Line => "line",
+                    crate::elements::ChartKind::Pie => "pie",
+                });
+                if let Some(t) = title {
+                    text.push_str(": ");
+                    text.push_str(t);
+                }
+                text.push_str("] ");
+                for (i, (label, value)) in points.iter().enumerate() {
+                    if i > 0 {
+                        text.push_str(", ");
+                    }
+                    text.push_str(label);
+                    text.push('=');
+                    text.push_str(&value.to_string());
+                }
+                text.push('\n');
+            }
             Element::StyledText { text: t, .. } => {
                 text.push_str(t);
                 text.push('\n');
@@ -142,6 +173,28 @@ fn elements_to_text(elements: &[Element]) -> String {
                 text.push_str("---\n");
             }
             Element::EmptyLine => {}
+            Element::Columns { count } => {
+                text.push_str(&format!("\n<!-- columns:{} -->\n", count));
+            }
+            Element::PageNumberMode { style } => {
+                let s = match style {
+                    crate::elements::PageNumberStyle::Roman => "roman",
+                    crate::elements::PageNumberStyle::Arabic => "arabic",
+                    crate::elements::PageNumberStyle::None => "none",
+                };
+                text.push_str(&format!("\n<!-- pagenumber:{} -->\n", s));
+            }
+            Element::RunningHeaderMode { enabled } => {
+                text.push_str(&format!(
+                    "\n<!-- running-header:{} -->\n",
+                    if *enabled { "on" } else { "off" }
+                ));
+            }
+            Element::Toc => text.push_str("\n<!-- toc -->\n"),
+            Element::Bibliography => text.push_str("\n<!-- bibliography -->\n"),
+            Element::CitationDef { key, text: t } => {
+                text.push_str(&format!("[@{}]: {}\n", key, t));
+            }
         }
     }
     text
@@ -179,10 +232,20 @@ pub fn markdown_to_pdf_full(
 
     let elements = elements::parse_markdown(&content);
     let layout = crate::pdf_generator::PageLayout::from_orientation(orientation);
-    crate::pdf_generator::create_pdf_from_elements_with_layout(
-        pdf_file, &elements, font, font_size, layout,
+    let image_base = std::path::Path::new(markdown_file)
+        .parent()
+        .map(|p| p.to_path_buf());
+    let bytes = crate::pdf_generator::generate_pdf_bytes_internal_with_base(
+        &elements,
+        font,
+        font_size,
+        layout,
+        None,
+        false,
+        None,
+        image_base,
     )?;
-
+    std::fs::write(pdf_file, bytes)?;
     Ok(())
 }
 

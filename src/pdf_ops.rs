@@ -878,6 +878,151 @@ pub struct HighlightAnnotation {
     pub color_b: f32,
 }
 
+/// A 3D annotation referencing an embedded U3D stream (PDF 1.6+ / ISO 32000 §13.6).
+#[derive(Debug, Clone)]
+pub struct ThreeDAnnotation {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    /// Optional tooltip / contents string shown by viewers.
+    pub contents: String,
+    /// Activate when the page is opened (`/A /PO`).
+    pub activate_on_open: bool,
+}
+
+impl Default for ThreeDAnnotation {
+    fn default() -> Self {
+        Self {
+            x: 72.0,
+            y: 200.0,
+            width: 400.0,
+            height: 300.0,
+            contents: "3D Model".to_string(),
+            activate_on_open: true,
+        }
+    }
+}
+
+/// Create a single-page PDF embedding U3D data as a `/Subtype /3D` annotation.
+///
+/// The U3D bytes are stored in a `/Type /3D` / `/Subtype /U3D` stream referenced by
+/// the annotation's `/3DD` entry. Viewers that support U3D (e.g. Adobe Acrobat) can
+/// render the model in the annotation rectangle.
+pub fn create_pdf_with_3d_annotation(
+    output_file: &str,
+    page_label: &str,
+    u3d_data: &[u8],
+    annot: &ThreeDAnnotation,
+) -> Result<()> {
+    let bytes = create_pdf_with_3d_annotation_bytes(page_label, u3d_data, annot)?;
+    fs::write(output_file, bytes)?;
+    println!(
+        "[3d] Created {} with U3D annotation ({} bytes model)",
+        output_file,
+        u3d_data.len()
+    );
+    Ok(())
+}
+
+/// In-memory variant of [`create_pdf_with_3d_annotation`].
+pub fn create_pdf_with_3d_annotation_bytes(
+    page_label: &str,
+    u3d_data: &[u8],
+    annot: &ThreeDAnnotation,
+) -> Result<Vec<u8>> {
+    if u3d_data.is_empty() {
+        return Err(anyhow!("U3D data must not be empty"));
+    }
+
+    let layout = crate::pdf_generator::PageLayout::portrait();
+    let mut generator = crate::pdf_generator::PdfGenerator::new();
+
+    // 1. 3D stream (U3D)
+    let stream_dict = format!(
+        "<< /Type /3D\n/Subtype /U3D\n/Length {} >>\n",
+        u3d_data.len()
+    );
+    let stream_id = generator.add_stream_object(stream_dict, u3d_data.to_vec());
+
+    // 2. 3D annotation
+    let activation = if annot.activate_on_open {
+        "/3DA << /A /PO /TB true /NP true >>\n"
+    } else {
+        "/3DA << /A /XA /TB true /NP true >>\n"
+    };
+    let annot_dict = format!(
+        "<< /Type /Annot\n\
+         /Subtype /3D\n\
+         /Rect [{} {} {} {}]\n\
+         /Contents ({})\n\
+         /3DD {} 0 R\n\
+         {}\
+         /F 4\n\
+         >>\n",
+        annot.x,
+        annot.y,
+        annot.x + annot.width,
+        annot.y + annot.height,
+        escape_pdf_meta(&annot.contents),
+        stream_id,
+        activation,
+    );
+    let annot_id = generator.add_object(annot_dict);
+
+    // 3. Page content (simple label above the 3D rect)
+    let label_y = (annot.y + annot.height + 20.0).min(layout.height - 36.0);
+    let page_stream = format!(
+        "BT\n/F1 14 Tf\n1 0 0 1 72 {} Tm\n({}) Tj\nET\n",
+        label_y,
+        escape_pdf_meta(page_label),
+    );
+    let content_id = generator.add_stream_object(
+        format!("<< /Length {} >>\n", page_stream.len()),
+        page_stream.into_bytes(),
+    );
+
+    // Pre-compute pages/catalog IDs: content, font, page, pages, catalog
+    let font_id = content_id + 1;
+    let page_id = content_id + 2;
+    let pages_id = content_id + 3;
+
+    let page_dict = format!(
+        "<< /Type /Page\n\
+         /Parent {} 0 R\n\
+         /MediaBox [0 0 {} {}]\n\
+         /Contents {} 0 R\n\
+         /Annots [{} 0 R]\n\
+         /Resources << /Font << /F1 {} 0 R >> >>\n\
+         >>\n",
+        pages_id, layout.width, layout.height, content_id, annot_id, font_id
+    );
+    let actual_font_id = generator
+        .add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
+    assert_eq!(actual_font_id, font_id);
+    let actual_page_id = generator.add_object(page_dict);
+    assert_eq!(actual_page_id, page_id);
+
+    let pages_dict = format!(
+        "<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n",
+        page_id
+    );
+    let actual_pages_id = generator.add_object(pages_dict);
+    assert_eq!(actual_pages_id, pages_id);
+    generator.add_object(format!(
+        "<< /Type /Catalog\n/Pages {} 0 R\n>>\n",
+        actual_pages_id
+    ));
+
+    Ok(generator.generate())
+}
+
+/// Returns true if the PDF bytes contain a 3D annotation and a U3D stream.
+pub fn pdf_contains_3d_u3d(pdf_bytes: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(pdf_bytes);
+    text.contains("/Subtype /3D") && text.contains("/Subtype /U3D") && text.contains("/3DD")
+}
+
 /// Create a PDF with text, link, and highlight annotations
 pub fn create_pdf_with_all_annotations(
     output_file: &str,
@@ -3215,6 +3360,29 @@ pub fn create_portfolio_pdf(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_create_pdf_with_3d_annotation_bytes() {
+        let u3d = b"U3D\0fake-model-bytes-for-structure-test";
+        let annot = ThreeDAnnotation {
+            contents: "Demo".into(),
+            activate_on_open: true,
+            ..Default::default()
+        };
+        let bytes = create_pdf_with_3d_annotation_bytes("3D Demo", u3d, &annot).unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
+        assert!(pdf_contains_3d_u3d(&bytes));
+        assert!(bytes.windows(u3d.len()).any(|w| w == u3d));
+        let validation = crate::pdf::validate_pdf_bytes(&bytes);
+        assert!(validation.valid, "{:?}", validation.errors);
+    }
+
+    #[test]
+    fn test_3d_annotation_rejects_empty_u3d() {
+        let annot = ThreeDAnnotation::default();
+        let err = create_pdf_with_3d_annotation_bytes("x", b"", &annot).unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
 
     #[test]
     fn test_pdf_metadata_info_dict() {

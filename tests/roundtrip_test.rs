@@ -665,6 +665,8 @@ fn test_technical_report_complex_roundtrip() {
     let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
     assert!(ok, "pdf-to-md failed for technical_report_complex");
     let roundtrip = fs::read_to_string(&md_out).unwrap();
+    // PDF line wrapping can split phrases; normalize whitespace for checks.
+    let roundtrip_flat: String = roundtrip.split_whitespace().collect::<Vec<_>>().join(" ");
 
     // Step 4: Verify content survival across all element types
     let must_contain = vec![
@@ -725,7 +727,8 @@ fn test_technical_report_complex_roundtrip() {
 
     let mut missing = Vec::new();
     for s in &must_contain {
-        if !roundtrip.contains(s) {
+        let needle: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !roundtrip_flat.contains(&needle) {
             missing.push(*s);
         }
     }

@@ -1,8 +1,11 @@
-//! Image loading, parsing, and PDF embedding
+//! Image loading, parsing, PDF embedding, and pixel filters
 //!
 //! Supports JPEG (baseline), PNG, and BMP formats. Images are parsed into
 //! an [`ImageInfo`] struct containing raw pixel data and metadata, then
 //! embedded into PDFs via the [`pdf_generator`](crate::pdf_generator) module.
+//!
+//! Pixel filters ([`ImageFilter`]) work on raw RGB (BMP, or PNG after scanline
+//! reconstruction). JPEG must be converted to BMP/PNG first.
 
 use anyhow::{anyhow, Result};
 use std::fs;
@@ -82,6 +85,302 @@ impl ImageInfo {
     pub fn get_alt_text(&self) -> &str {
         self.alt_text.as_deref().unwrap_or("Image")
     }
+
+    /// Apply a single pixel filter, converting to raw RGB when needed.
+    pub fn apply_filter(self, filter: ImageFilter) -> Result<Self> {
+        apply_image_filter(self, filter)
+    }
+
+    /// Apply multiple filters in order.
+    pub fn apply_filters(self, filters: &[ImageFilter]) -> Result<Self> {
+        apply_image_filters(self, filters)
+    }
+}
+
+/// Pixel filters for raw RGB image data.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ImageFilter {
+    /// Convert to luminance grayscale
+    Grayscale,
+    /// Invert each color channel
+    Invert,
+    /// Adjust brightness by `amount` (-255..=255)
+    Brightness(i16),
+    /// Adjust contrast by factor (1.0 = unchanged; typical range 0.5..=2.0)
+    Contrast(f32),
+    /// Apply a warm sepia tone
+    Sepia,
+}
+
+impl ImageFilter {
+    /// Parse a filter name from CLI text (`grayscale`, `invert`, `brightness:20`, `contrast:1.5`, `sepia`).
+    pub fn parse(s: &str) -> Result<Self> {
+        let s = s.trim().to_ascii_lowercase();
+        if s == "grayscale" || s == "grey" || s == "gray" {
+            return Ok(Self::Grayscale);
+        }
+        if s == "invert" {
+            return Ok(Self::Invert);
+        }
+        if s == "sepia" {
+            return Ok(Self::Sepia);
+        }
+        if let Some(rest) = s.strip_prefix("brightness:") {
+            let amount: i16 = rest
+                .parse()
+                .map_err(|_| anyhow!("Invalid brightness amount: {rest}"))?;
+            return Ok(Self::Brightness(amount.clamp(-255, 255)));
+        }
+        if let Some(rest) = s.strip_prefix("contrast:") {
+            let factor: f32 = rest
+                .parse()
+                .map_err(|_| anyhow!("Invalid contrast factor: {rest}"))?;
+            return Ok(Self::Contrast(factor.max(0.0)));
+        }
+        Err(anyhow!(
+            "Unknown image filter '{s}' (expected grayscale, invert, sepia, brightness:N, contrast:F)"
+        ))
+    }
+}
+
+/// Convert an image to raw DeviceRGB pixels suitable for filtering and embedding.
+///
+/// BMP is already raw RGB. PNG scanlines are reconstructed. JPEG is not supported
+/// (no built-in DCT decoder).
+pub fn ensure_raw_rgb(info: ImageInfo) -> Result<ImageInfo> {
+    match info.format {
+        ImageFormat::Bmp => {
+            if info.color_components != 3 {
+                return Err(anyhow!("BMP filter support requires 3-channel RGB"));
+            }
+            Ok(info)
+        }
+        ImageFormat::Png => reconstruct_png_to_raw_rgb(info),
+        ImageFormat::Jpeg => Err(anyhow!(
+            "Image filters require BMP or PNG; JPEG is DCT-encoded and cannot be filtered without a JPEG decoder"
+        )),
+    }
+}
+
+fn reconstruct_png_to_raw_rgb(info: ImageInfo) -> Result<ImageInfo> {
+    let width = info.width as usize;
+    let height = info.height as usize;
+    let components = match info.color_components {
+        1 | 3 => info.color_components as usize,
+        // Alpha already stripped during load; treat 2/4 as RGB path errors
+        _ => {
+            return Err(anyhow!(
+                "PNG filter support requires 1 or 3 color components (got {})",
+                info.color_components
+            ))
+        }
+    };
+    let row_bytes = width * components;
+    let mut out = Vec::with_capacity(width * height * 3);
+    let mut prev = vec![0u8; row_bytes];
+    let mut i = 0usize;
+
+    for _ in 0..height {
+        if i >= info.data.len() {
+            return Err(anyhow!("PNG data truncated while reconstructing scanlines"));
+        }
+        let filter_type = info.data[i];
+        i += 1;
+        if i + row_bytes > info.data.len() {
+            return Err(anyhow!("PNG row truncated while reconstructing scanlines"));
+        }
+        let mut cur = info.data[i..i + row_bytes].to_vec();
+        i += row_bytes;
+        apply_png_filter(filter_type, &mut cur, &prev, components)?;
+        for px in cur.chunks(components) {
+            match components {
+                1 => {
+                    out.push(px[0]);
+                    out.push(px[0]);
+                    out.push(px[0]);
+                }
+                3 => {
+                    out.extend_from_slice(px);
+                }
+                _ => unreachable!(),
+            }
+        }
+        prev = cur;
+    }
+
+    Ok(ImageInfo {
+        format: ImageFormat::Bmp,
+        width: info.width,
+        height: info.height,
+        data: out,
+        bits_per_component: 8,
+        color_components: 3,
+        alt_text: info.alt_text,
+    })
+}
+
+fn apply_png_filter(filter_type: u8, cur: &mut [u8], prev: &[u8], bpp: usize) -> Result<()> {
+    match filter_type {
+        0 => Ok(()), // None
+        1 => {
+            // Sub
+            for i in bpp..cur.len() {
+                cur[i] = cur[i].wrapping_add(cur[i - bpp]);
+            }
+            Ok(())
+        }
+        2 => {
+            // Up
+            for i in 0..cur.len() {
+                cur[i] = cur[i].wrapping_add(prev[i]);
+            }
+            Ok(())
+        }
+        3 => {
+            // Average
+            for i in 0..cur.len() {
+                let left = if i >= bpp { cur[i - bpp] } else { 0 };
+                let up = prev[i];
+                cur[i] = cur[i].wrapping_add(((u16::from(left) + u16::from(up)) / 2) as u8);
+            }
+            Ok(())
+        }
+        4 => {
+            // Paeth
+            for i in 0..cur.len() {
+                let a = if i >= bpp { cur[i - bpp] } else { 0 };
+                let b = prev[i];
+                let c = if i >= bpp { prev[i - bpp] } else { 0 };
+                cur[i] = cur[i].wrapping_add(paeth_predictor(a, b, c));
+            }
+            Ok(())
+        }
+        other => Err(anyhow!("Unsupported PNG filter type: {other}")),
+    }
+}
+
+fn paeth_predictor(a: u8, b: u8, c: u8) -> u8 {
+    let a = i16::from(a);
+    let b = i16::from(b);
+    let c = i16::from(c);
+    let p = a + b - c;
+    let pa = (p - a).abs();
+    let pb = (p - b).abs();
+    let pc = (p - c).abs();
+    if pa <= pb && pa <= pc {
+        a as u8
+    } else if pb <= pc {
+        b as u8
+    } else {
+        c as u8
+    }
+}
+
+/// Apply one filter to an image (converts to raw RGB first when needed).
+pub fn apply_image_filter(info: ImageInfo, filter: ImageFilter) -> Result<ImageInfo> {
+    let mut info = ensure_raw_rgb(info)?;
+    apply_filter_to_rgb(&mut info.data, filter);
+    if matches!(filter, ImageFilter::Grayscale) {
+        // Keep 3-channel gray RGB for DeviceRGB embedding consistency
+        info.color_components = 3;
+    }
+    Ok(info)
+}
+
+/// Apply filters sequentially.
+pub fn apply_image_filters(info: ImageInfo, filters: &[ImageFilter]) -> Result<ImageInfo> {
+    let mut info = ensure_raw_rgb(info)?;
+    for filter in filters {
+        apply_filter_to_rgb(&mut info.data, *filter);
+    }
+    Ok(info)
+}
+
+fn apply_filter_to_rgb(data: &mut [u8], filter: ImageFilter) {
+    match filter {
+        ImageFilter::Grayscale => {
+            for px in data.chunks_exact_mut(3) {
+                let y = ((77u32 * u32::from(px[0])
+                    + 150u32 * u32::from(px[1])
+                    + 29u32 * u32::from(px[2]))
+                    >> 8) as u8;
+                px[0] = y;
+                px[1] = y;
+                px[2] = y;
+            }
+        }
+        ImageFilter::Invert => {
+            for b in data.iter_mut() {
+                *b = 255 - *b;
+            }
+        }
+        ImageFilter::Brightness(amount) => {
+            for b in data.iter_mut() {
+                *b = (i16::from(*b) + amount).clamp(0, 255) as u8;
+            }
+        }
+        ImageFilter::Contrast(factor) => {
+            for b in data.iter_mut() {
+                let v = (f32::from(*b) - 128.0) * factor + 128.0;
+                *b = v.clamp(0.0, 255.0) as u8;
+            }
+        }
+        ImageFilter::Sepia => {
+            for px in data.chunks_exact_mut(3) {
+                let r = f32::from(px[0]);
+                let g = f32::from(px[1]);
+                let b = f32::from(px[2]);
+                px[0] = (0.393 * r + 0.769 * g + 0.189 * b).clamp(0.0, 255.0) as u8;
+                px[1] = (0.349 * r + 0.686 * g + 0.168 * b).clamp(0.0, 255.0) as u8;
+                px[2] = (0.272 * r + 0.534 * g + 0.131 * b).clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}
+
+/// Create a one-page PDF containing a filtered image.
+pub fn create_filtered_image_pdf(
+    image_path: &str,
+    output_pdf: &str,
+    filters: &[ImageFilter],
+    display_width: f32,
+    display_height: f32,
+) -> Result<()> {
+    let info = load_image(image_path)?;
+    let filtered = apply_image_filters(info, filters)?;
+    let (dw, dh) = scale_to_fit(
+        filtered.width,
+        filtered.height,
+        display_width,
+        display_height,
+    );
+
+    let mut generator = crate::pdf_generator::PdfGenerator::new();
+    let image_id = create_image_object(&mut generator, filtered)?;
+    let content = create_image_content_stream(50.0, 50.0, dw, dh, "Im1");
+    let content_id = generator.add_stream_object(
+        format!("<< /Length {} >>\n", content.len()),
+        content,
+    );
+    let page_dict = format!(
+        "<< /Type /Page\n\
+         /Parent 5 0 R\n\
+         /MediaBox [0 0 612 792]\n\
+         /Contents {} 0 R\n\
+         /Resources << /XObject << /Im1 {} 0 R >> >>\n\
+         >>\n",
+        content_id, image_id
+    );
+    let page_id = generator.add_object(page_dict);
+    let pages_dict = format!(
+        "<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n",
+        page_id
+    );
+    let pages_id = generator.add_object(pages_dict);
+    let catalog = format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", pages_id);
+    generator.add_object(catalog);
+    std::fs::write(output_pdf, generator.generate())?;
+    Ok(())
 }
 
 /// Parse PNG IHDR chunk for width, height, bit depth, and color type
@@ -382,37 +681,39 @@ pub fn create_bmp_image_object(
     generator.add_stream_object(image_dict, bmp_data)
 }
 
-/// Create a PDF image XObject from any supported image format
+/// Create a PDF image XObject from any supported image format.
+///
+/// JPEG keeps `/DCTDecode`. PNG/BMP are converted to raw RGB and embedded with
+/// `/FlateDecode` (no PNG predictor) so reconstructed scanlines render correctly.
 pub fn create_image_object(
     generator: &mut crate::pdf_generator::PdfGenerator,
     image_info: ImageInfo,
 ) -> Result<u32> {
     match image_info.format {
-        ImageFormat::Jpeg => {
-            Ok(create_jpeg_image_object(
-                generator,
-                image_info.data,
-                image_info.width,
-                image_info.height,
-            ))
-        }
-        ImageFormat::Png => {
-            Ok(create_png_image_object(
-                generator,
-                image_info.data,
-                image_info.width,
-                image_info.height,
-                image_info.bits_per_component,
-                image_info.color_components,
-            ))
-        }
-        ImageFormat::Bmp => {
-            Ok(create_bmp_image_object(
-                generator,
-                image_info.data,
-                image_info.width,
-                image_info.height,
-            ))
+        ImageFormat::Jpeg => Ok(create_jpeg_image_object(
+            generator,
+            image_info.data,
+            image_info.width,
+            image_info.height,
+        )),
+        ImageFormat::Png | ImageFormat::Bmp => {
+            let raw = ensure_raw_rgb(image_info)?;
+            let compressed = crate::compression::compress_deflate(&raw.data)?;
+            let dict = format!(
+                "<< /Type /XObject\n\
+                 /Subtype /Image\n\
+                 /Width {}\n\
+                 /Height {}\n\
+                 /BitsPerComponent 8\n\
+                 /ColorSpace /DeviceRGB\n\
+                 /Filter /FlateDecode\n\
+                 /Length {}\n\
+                 >>\n",
+                raw.width,
+                raw.height,
+                compressed.len()
+            );
+            Ok(generator.add_stream_object(dict, compressed))
         }
     }
 }
@@ -561,6 +862,89 @@ mod tests {
         assert!(s.contains("Q\n"));
     }
 
+    fn sample_rgb_image() -> ImageInfo {
+        ImageInfo {
+            format: ImageFormat::Bmp,
+            width: 2,
+            height: 2,
+            data: vec![
+                255, 0, 0, // red
+                0, 255, 0, // green
+                0, 0, 255, // blue
+                100, 100, 100, // gray
+            ],
+            bits_per_component: 8,
+            color_components: 3,
+            alt_text: None,
+        }
+    }
+
+    #[test]
+    fn test_image_filter_parse() {
+        assert_eq!(ImageFilter::parse("grayscale").unwrap(), ImageFilter::Grayscale);
+        assert_eq!(ImageFilter::parse("invert").unwrap(), ImageFilter::Invert);
+        assert_eq!(ImageFilter::parse("sepia").unwrap(), ImageFilter::Sepia);
+        assert_eq!(
+            ImageFilter::parse("brightness:40").unwrap(),
+            ImageFilter::Brightness(40)
+        );
+        assert_eq!(
+            ImageFilter::parse("contrast:1.5").unwrap(),
+            ImageFilter::Contrast(1.5)
+        );
+        assert!(ImageFilter::parse("blur").is_err());
+    }
+
+    #[test]
+    fn test_grayscale_filter() {
+        let filtered = sample_rgb_image()
+            .apply_filter(ImageFilter::Grayscale)
+            .unwrap();
+        assert_eq!(filtered.data[0], filtered.data[1]);
+        assert_eq!(filtered.data[1], filtered.data[2]);
+        // Red luminance ≈ 0.299*255 ≈ 76
+        assert!((70..=80).contains(&filtered.data[0]));
+    }
+
+    #[test]
+    fn test_invert_filter() {
+        let filtered = sample_rgb_image()
+            .apply_filter(ImageFilter::Invert)
+            .unwrap();
+        assert_eq!(&filtered.data[0..3], &[0, 255, 255]); // inverted red
+    }
+
+    #[test]
+    fn test_brightness_filter() {
+        let filtered = sample_rgb_image()
+            .apply_filter(ImageFilter::Brightness(50))
+            .unwrap();
+        assert_eq!(filtered.data[0], 255); // clamped
+        assert_eq!(filtered.data[3], 50); // green 0 + 50
+    }
+
+    #[test]
+    fn test_sepia_and_contrast_chain() {
+        let filtered = sample_rgb_image()
+            .apply_filters(&[ImageFilter::Sepia, ImageFilter::Contrast(1.2)])
+            .unwrap();
+        assert_eq!(filtered.data.len(), 12);
+        assert_eq!(filtered.format, ImageFormat::Bmp);
+    }
+
+    #[test]
+    fn test_jpeg_filter_rejected() {
+        let jpeg = ImageInfo {
+            format: ImageFormat::Jpeg,
+            width: 1,
+            height: 1,
+            data: vec![0xFF, 0xD8, 0xFF],
+            bits_per_component: 8,
+            color_components: 3,
+            alt_text: None,
+        };
+        assert!(jpeg.apply_filter(ImageFilter::Grayscale).is_err());
+    }
 }
 
 #[cfg(test)]

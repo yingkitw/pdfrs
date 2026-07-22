@@ -918,6 +918,7 @@ impl PdfDocument {
 
     pub fn get_text(&self) -> Result<String> {
         let mut text = String::new();
+        let tounicode = collect_tounicode_gid_map(self);
         // Matches (text) Tj — single string show
         let tj_re = re_tj();
         // Matches <hex> Tj — hex string show
@@ -982,7 +983,7 @@ impl PdfDocument {
                     // Extract <hex> Tj
                     for caps in tj_hex_re.captures_iter(line) {
                         let hex_str = caps[1].replace(char::is_whitespace, "");
-                        let decoded = decode_pdf_hex_string(&hex_str);
+                        let decoded = decode_pdf_hex_string_with_map(&hex_str, Some(&tounicode));
                         if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
                             text.push(' ');
                         }
@@ -1008,7 +1009,7 @@ impl PdfDocument {
                         // Extract hex strings
                         for hex_caps in tj_hex_str_re.captures_iter(array_content) {
                             let hex_str = hex_caps[1].replace(char::is_whitespace, "");
-                            let decoded = decode_pdf_hex_string(&hex_str);
+                            let decoded = decode_pdf_hex_string_with_map(&hex_str, Some(&tounicode));
                             if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
                                 text.push(' ');
                             }
@@ -2060,6 +2061,10 @@ pub fn unescape_pdf_string(s: &str) -> String {
 }
 
 pub fn decode_pdf_hex_string(s: &str) -> String {
+    decode_pdf_hex_string_with_map(s, None)
+}
+
+fn decode_pdf_hex_string_with_map(s: &str, tounicode: Option<&HashMap<u16, char>>) -> String {
     let hex_str: String = s.chars().filter(|c| !c.is_whitespace()).collect();
     let mut bytes = Vec::new();
     
@@ -2080,11 +2085,51 @@ pub fn decode_pdf_hex_string(s: &str) -> String {
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         decode_utf16be(&bytes[2..])
     } else {
-        if let Some(decoded) = decode_unicode_glyph_id_bytes(&bytes) {
+        if let Some(decoded) = decode_unicode_glyph_id_bytes_with_map(&bytes, tounicode) {
             return decoded;
         }
         String::from_utf8_lossy(&bytes).to_string()
     }
+}
+
+fn collect_tounicode_gid_map(doc: &PdfDocument) -> HashMap<u16, char> {
+    let mut map = HashMap::new();
+    let pair_re = regex::Regex::new(r"<([0-9A-Fa-f]{4})>\s*<([0-9A-Fa-f]+)>").unwrap();
+    for obj in doc.objects.values() {
+        let PdfObject::Stream { data, .. } = obj else {
+            continue;
+        };
+        let processed = decompress_stream(data);
+        let content = String::from_utf8_lossy(&processed);
+        if !(content.contains("beginbfchar") || content.contains("begincmap")) {
+            continue;
+        }
+        for caps in pair_re.captures_iter(&content) {
+            let Ok(gid) = u16::from_str_radix(&caps[1], 16) else {
+                continue;
+            };
+            let uni_hex = &caps[2];
+            if uni_hex.len() < 4 || !uni_hex.len().is_multiple_of(4) {
+                continue;
+            }
+            let mut units = Vec::new();
+            for i in (0..uni_hex.len()).step_by(4) {
+                if let Ok(unit) = u16::from_str_radix(&uni_hex[i..i + 4], 16) {
+                    units.push(unit);
+                }
+            }
+            let mut bytes = Vec::with_capacity(units.len() * 2);
+            for u in units {
+                bytes.push((u >> 8) as u8);
+                bytes.push((u & 0xFF) as u8);
+            }
+            let decoded = decode_utf16be(&bytes);
+            if let Some(ch) = decoded.chars().next() {
+                map.insert(gid, ch);
+            }
+        }
+    }
+    map
 }
 
 fn resolve_unicode_ttf_path_for_extraction() -> Option<String> {
@@ -2118,13 +2163,37 @@ fn build_unicode_gid_reverse_map() -> Option<HashMap<u16, char>> {
             reverse_map.entry(glyph.0).or_insert(ch);
         }
     }
-
     Some(reverse_map)
 }
 
-fn decode_unicode_glyph_id_bytes(bytes: &[u8]) -> Option<String> {
+fn decode_unicode_glyph_id_bytes_with_map(
+    bytes: &[u8],
+    tounicode: Option<&HashMap<u16, char>>,
+) -> Option<String> {
     if bytes.len() < 2 || !bytes.len().is_multiple_of(2) {
         return None;
+    }
+
+    if let Some(map) = tounicode
+        && !map.is_empty()
+    {
+        let mut out = String::with_capacity(bytes.len() / 2);
+        let mut known = 0usize;
+        let total = bytes.len() / 2;
+        for chunk in bytes.chunks_exact(2) {
+            let gid = u16::from_be_bytes([chunk[0], chunk[1]]);
+            if let Some(ch) = map.get(&gid) {
+                out.push(*ch);
+                known += 1;
+            } else if gid == 0 {
+                out.push(' ');
+            } else {
+                out.push('\u{FFFD}');
+            }
+        }
+        if known * 10 >= total * 6 {
+            return Some(out);
+        }
     }
 
     static GID_REVERSE_MAP: OnceLock<Option<HashMap<u16, char>>> = OnceLock::new();

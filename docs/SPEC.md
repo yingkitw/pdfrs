@@ -43,6 +43,12 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR4.2**: Embed JPEG images in PDF files (DCTDecode)
 - **FR4.3**: Support image positioning and sizing with aspect-ratio scaling
 - **FR4.4**: CLI `add-image` command fully wired
+- **FR4.5**: Image filters and effects — grayscale, invert, brightness, contrast, sepia on BMP/PNG; `filter-image` CLI
+- **FR4.6**: Vector graphics — lines, rectangles, ellipses, polygons, cubic Bézier paths via `VectorCanvas`; `draw-vector` CLI
+- **FR4.7**: SVG path import — parse SVG `d` attributes (`M/L/H/V/C/S/Q/T/Z`) into PDF paths; `draw-svg` CLI
+- **FR4.8**: Markdown image embedding — `![alt](path)` loads JPEG/PNG/BMP, scales to content width, and registers `/XObject` resources
+- **FR4.9**: Markdown charts — fenced ` ```chart bar|line|pie` ` blocks render vector bar, line, and pie charts
+- **FR4.10**: Academic thesis layout — Roman/Arabic/hidden folios, running headers, in-document TOC, numbered figure/table captions, `[@cite]` citations + bibliography
 
 #### FR5: CLI Interface
 
@@ -58,7 +64,8 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR6.2**: Page numbering in footer
 - **FR6.3**: Code block rendering with reduced font size (0.85x)
 - **FR6.4**: Horizontal rule rendering
-- **FR6.5**: Configurable page layout (portrait/landscape)
+- **FR6.5**: Configurable page layout (portrait/landscape; optional RTL via `PageLayout::with_rtl` / `md-to-pdf --rtl`)
+- **FR6.12**: Localized validation/CLI messages (`i18n` module; `--lang` / `PDFRS_LANG`; en/es/de/fr/zh/he/ar) and locale number formatting
 - **FR6.6**: Structured element pipeline (Markdown → Elements → PDF)
 - **FR6.7**: Unicode-aware line wrapping and width estimation (ASCII/CJK/emoji-aware)
 - **FR6.8**: Unicode-safe text emission for non-ASCII text in line/code/math rendering (UTF-16BE for Base-14 path; glyph-ID CID encoding for embedded Type0/CIDFont path)
@@ -91,7 +98,8 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 
 #### FR10: Extended Markdown Elements
 
-- **FR10.1**: Image elements (`![alt](path)`) parsed and rendered
+- **FR10.1**: Image elements (`![alt](path)`) parsed and embedded as PDF XObjects (JPEG/PNG/BMP)
+- **FR10.1b**: Chart elements from fenced ` ```chart` ` blocks (bar / line / pie)
 - **FR10.2**: Standalone link elements (`[text](url)`) parsed and rendered in blue
 - **FR10.3**: Page break elements (`<!-- pagebreak -->` or `\pagebreak`)
 - **FR10.4**: Inline code elements rendered with gray color
@@ -377,7 +385,7 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 
 - Embedded/TrueType font support
 - Full tagged PDF output for accessibility
-- Vector graphics (SVG) support
+- Vector graphics (SVG) support — PDF path primitives + SVG `d` path import implemented (`vector` module); full SVG document rendering (groups, transforms, text) still open
 - Digital signatures
 - WebAssembly compilation
 - Rustdoc API documentation with examples
@@ -410,6 +418,8 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 #### FR15: Developer Experience Features
 
 - **FR15.1**: Type-safe PDF builder API with compile-time guarantees
+- **FR15.1b**: Plugin system — `ParserPlugin` / `GeneratorPlugin`, `PluginRegistry`, `CalloutPlugin`, `md-to-pdf --plugins`, `PdfBuilder::add_markdown_with_plugins`
+- **FR15.1c**: Document outlines/bookmarks — headings emit `/Outlines` with `/PageMode /UseOutlines`
 - **FR15.2**: Property-based testing for PDF generation
 - **FR15.3**: Diff/patch support for PDF version control
 - **FR15.4**: Hot-reload PDF preview during development
@@ -429,7 +439,7 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 - **FR17.2**: PDF/A-3 and PDF/UA (universal accessibility) — includes `check_screen_reader_compliance_bytes()` and `check-screen-reader` CLI for PDF/UA + text-extraction validation
 - **FR17.3**: Embedded attachments with metadata
 - **FR17.4**: Portfolio and collection support
-- **FR17.5**: 3D annotations and rich media
+- **FR17.5**: 3D annotations and rich media — ✅ U3D via `ThreeDAnnotation` / `create_pdf_with_3d_annotation*`, `embed-3d` CLI (`/Subtype /3D` + `/Subtype /U3D` stream)
 
 #### FR18: Intelligent Optimization
 
@@ -438,6 +448,8 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 - **FR18.3**: Object deduplication across pages
 - **FR18.4**: Automatic optimization profiles (web, print, archive, ebook)
 - **FR18.5**: Quality-aware compression (maintain visual quality)
+- **FR18.6**: Linearized PDF / Fast Web View — ✅ `linearize_pdf_bytes`, `linearize-pdf` CLI, Web/Ebook optimize profiles
+- **FR18.7**: Incremental PDF updates — ✅ append-only `/Prev` updates via `incremental` module + `incremental-update` CLI
 
 #### FR19: Security & Validation
 
@@ -472,11 +484,9 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 
 ### Phase 5: Web & Modern (1 month)
 - [x] FR16.1-16.4: WASM support and canvas viewer
-- [x] FR17.1-17.4: Advanced formats (PDF 2.0, PDF/A-3, PDF/UA, attachments, portfolios)
-- [ ] FR17.5: 3D annotations
+- [x] FR17.1-17.5: Advanced formats (PDF 2.0, PDF/A-3, PDF/UA, attachments, portfolios, U3D 3D annotations)
 - [ ] FR16.5: Real-time collaborative editing
 
 ### Phase 6: Security & Advanced (1 month)
 - [ ] FR19.1-19.5: Security features
-- [ ] FR17.3: Attachments
 - [ ] Production hardening

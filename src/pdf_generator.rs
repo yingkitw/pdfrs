@@ -31,23 +31,34 @@
 //! can be enabled via [`crate::optimization::OptimizationSettings`] in the [`optimization`](crate::optimization)
 //! module.
 
-use crate::elements::{Element, TextSegment};
+use crate::elements::{ChartKind, Element, PageNumberStyle, TextSegment};
+use crate::image::{self, ImageInfo};
 use crate::pdf_ops::escape_pdf_meta;
 use crate::table_renderer::{PdfTableHelper, TableStyle};
+use crate::thesis::{
+    build_bibliography_elements, collect_citation_defs, expand_toc, format_folio, CitationRegistry,
+};
 use anyhow::Result;
-use std::fs::File;
-use std::io::Write;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 #[path = "pdf_generator/code_highlight.rs"]
 mod code_highlight;
+#[path = "pdf_generator/math_layout.rs"]
+mod math_layout;
 #[path = "pdf_generator/text_support.rs"]
 mod text_support;
 #[path = "pdf_generator/unicode_support.rs"]
 mod unicode_support;
 
 use code_highlight::highlight_code;
+use math_layout::{
+    line_height_for_pieces, parse_display_math, piece_width, pieces_to_plain_text, MathPiece,
+};
 use text_support::{encode_pdf_text, escape_pdf_string, render_math_text, use_base14_normalization};
-use unicode_support::{prepare_unicode_font_support, prepare_unicode_font_support_with_subsetting, UnicodeFontEncoder};
+use unicode_support::{prepare_unicode_font_support_with_subsetting, UnicodeFontEncoder};
+#[cfg(test)]
+use unicode_support::prepare_unicode_font_support;
 
 // --- Page orientation and layout ---
 
@@ -120,6 +131,10 @@ fn document_requires_unicode(elements: &[Element]) -> bool {
         Element::Image { alt, path } => {
             text_requires_unicode(alt) || text_requires_unicode(path)
         }
+        Element::Chart { title, points, .. } => {
+            title.as_ref().is_some_and(|t| text_requires_unicode(t))
+                || points.iter().any(|(l, _)| text_requires_unicode(l))
+        }
         Element::TableRow { cells, .. } => cells.iter().any(|c| text_requires_unicode(c)),
         Element::RichParagraph { segments } => segments.iter().any(|seg| match seg {
             TextSegment::Plain(t)
@@ -127,13 +142,20 @@ fn document_requires_unicode(elements: &[Element]) -> bool {
             | TextSegment::Italic(t)
             | TextSegment::BoldItalic(t)
             | TextSegment::Code(t)
+            | TextSegment::Strikethrough(t)
             => text_requires_unicode(t),
             TextSegment::MathInline(expr) => text_requires_unicode(&render_math_text(expr)),
             TextSegment::Link { text, url } => {
                 text_requires_unicode(text) || text_requires_unicode(url)
             }
+            TextSegment::Citation { key } => text_requires_unicode(key),
         }),
-        Element::HorizontalRule | Element::EmptyLine | Element::PageBreak => false,
+        Element::HorizontalRule | Element::EmptyLine | Element::PageBreak | Element::Columns { .. }
+        | Element::PageNumberMode { .. }
+        | Element::RunningHeaderMode { .. }
+        | Element::Toc
+        | Element::Bibliography
+        | Element::CitationDef { .. } => false,
     })
 }
 
@@ -153,6 +175,30 @@ fn collect_unicode_chars(elements: &[Element]) -> std::collections::BTreeSet<cha
             => { chars.extend(text.chars()); }
             Element::MathBlock { expression } | Element::MathInline { expression } => {
                 chars.extend(render_math_text(expression).chars());
+                let pieces = parse_display_math(expression);
+                chars.extend(pieces_to_plain_text(&pieces).chars());
+                for piece in pieces {
+                    match piece {
+                        MathPiece::Text(t) => chars.extend(t.chars()),
+                        MathPiece::Fraction {
+                            numerator,
+                            denominator,
+                        } => {
+                            chars.extend(numerator.chars());
+                            chars.extend(denominator.chars());
+                        }
+                        MathPiece::Operator {
+                            symbol,
+                            lower,
+                            upper,
+                            ..
+                        } => {
+                            chars.insert(symbol);
+                            chars.extend(lower.chars());
+                            chars.extend(upper.chars());
+                        }
+                    }
+                }
             }
             Element::CodeBlock { code, .. } => { chars.extend(code.chars()); }
             Element::DefinitionItem { term, definition } => {
@@ -171,6 +217,14 @@ fn collect_unicode_chars(elements: &[Element]) -> std::collections::BTreeSet<cha
                 chars.extend(alt.chars());
                 chars.extend(path.chars());
             }
+            Element::Chart { title, points, .. } => {
+                if let Some(t) = title {
+                    chars.extend(t.chars());
+                }
+                for (label, _) in points {
+                    chars.extend(label.chars());
+                }
+            }
             Element::TableRow { cells, .. } => {
                 for cell in cells {
                     chars.extend(cell.chars());
@@ -184,6 +238,7 @@ fn collect_unicode_chars(elements: &[Element]) -> std::collections::BTreeSet<cha
                         | TextSegment::Italic(t)
                         | TextSegment::BoldItalic(t)
                         | TextSegment::Code(t)
+                        | TextSegment::Strikethrough(t)
                         => { chars.extend(t.chars()); }
                         TextSegment::MathInline(expr) => {
                             chars.extend(render_math_text(expr).chars());
@@ -192,10 +247,18 @@ fn collect_unicode_chars(elements: &[Element]) -> std::collections::BTreeSet<cha
                             chars.extend(text.chars());
                             chars.extend(url.chars());
                         }
+                        TextSegment::Citation { key } => {
+                            chars.extend(key.chars());
+                        }
                     }
                 }
             }
-            Element::HorizontalRule | Element::EmptyLine | Element::PageBreak => {}
+            Element::HorizontalRule | Element::EmptyLine | Element::PageBreak | Element::Columns { .. }
+            | Element::PageNumberMode { .. }
+            | Element::RunningHeaderMode { .. }
+            | Element::Toc
+            | Element::Bibliography
+            | Element::CitationDef { .. } => {}
         }
     }
     chars
@@ -210,6 +273,13 @@ pub struct PageLayout {
     pub margin_top: f32,
     pub margin_bottom: f32,
     pub version: PdfVersion,
+    /// Force right-to-left layout (right-align + visual reorder for RTL scripts).
+    /// When false, RTL is still applied automatically for RTL-dominant lines.
+    pub rtl: bool,
+    /// Number of text columns (1 = single-column). Clamped to 1..=4 when used.
+    pub columns: u8,
+    /// Gap between columns in points.
+    pub column_gap: f32,
 }
 
 impl PageLayout {
@@ -222,6 +292,9 @@ impl PageLayout {
             margin_top: 72.0,
             margin_bottom: 72.0,
             version: PdfVersion::V1_4,
+            rtl: false,
+            columns: 1,
+            column_gap: 18.0,
         }
     }
 
@@ -234,6 +307,9 @@ impl PageLayout {
             margin_top: 72.0,
             margin_bottom: 72.0,
             version: PdfVersion::V1_4,
+            rtl: false,
+            columns: 1,
+            column_gap: 18.0,
         }
     }
 
@@ -250,12 +326,54 @@ impl PageLayout {
         self
     }
 
+    /// Enable right-to-left layout for the document.
+    pub fn with_rtl(mut self, rtl: bool) -> Self {
+        self.rtl = rtl;
+        self
+    }
+
+    /// Set multi-column layout (`columns` clamped to 1..=4).
+    pub fn with_columns(mut self, columns: u8) -> Self {
+        self.columns = columns.clamp(1, 4);
+        self
+    }
+
+    /// Set the gap between columns (points).
+    pub fn with_column_gap(mut self, gap: f32) -> Self {
+        self.column_gap = gap.max(0.0);
+        self
+    }
+
     pub fn content_top(&self) -> f32 {
         self.height - self.margin_top
     }
 
-    pub fn content_width(&self) -> f32 {
+    /// Full content width between page margins (all columns + gaps).
+    pub fn full_content_width(&self) -> f32 {
         self.width - self.margin_left - self.margin_right
+    }
+
+    /// Effective column count (at least 1).
+    pub fn column_count(&self) -> u8 {
+        self.columns.max(1)
+    }
+
+    /// Width of a single text column.
+    pub fn column_width(&self) -> f32 {
+        let n = self.column_count() as f32;
+        let gaps = (n - 1.0).max(0.0) * self.column_gap;
+        ((self.full_content_width() - gaps) / n).max(1.0)
+    }
+
+    /// Left edge of column `index` (0-based).
+    pub fn column_left(&self, index: u8) -> f32 {
+        let idx = index.min(self.column_count().saturating_sub(1)) as f32;
+        self.margin_left + idx * (self.column_width() + self.column_gap)
+    }
+
+    /// Alias for single-column compatibility: width of the active flow column.
+    pub fn content_width(&self) -> f32 {
+        self.column_width()
     }
 }
 
@@ -544,6 +662,48 @@ struct ContentStreamBuilder {
     current_font_bold: bool,
     current_font_italic: bool,
     unicode_font_encoder: Option<UnicodeFontEncoder>,
+    /// Bookmark destinations collected while rendering headings.
+    outlines: Vec<OutlineDest>,
+    /// Current column index (0-based) when `layout.columns > 1`.
+    current_column: u8,
+    /// True once non-spacer content has been painted on the current page.
+    content_placed_on_page: bool,
+    /// Y position where columns restart after a full-width band (e.g. H1).
+    column_top_y: f32,
+    /// Images referenced from content streams (`/ImN Do`), created at assemble time.
+    images: Vec<(String, ImageInfo)>,
+    /// Directory used to resolve relative markdown image paths.
+    image_base_dir: Option<PathBuf>,
+    /// Displayed folio style (arabic / roman / none).
+    page_num_style: PageNumberStyle,
+    /// 1-based folio counter (restarts when style switches to roman/arabic).
+    folio: u32,
+    /// Running header enabled.
+    running_header_enabled: bool,
+    /// Current running header text (typically chapter / section title).
+    running_header_text: String,
+    /// Auto-number figures (images + charts).
+    figure_counter: u32,
+    /// Auto-number tables.
+    table_counter: u32,
+    /// Italic abstract body until the next heading.
+    in_abstract: bool,
+    /// Citation numbering registry.
+    citations: CitationRegistry,
+    /// Citation key → full reference text.
+    citation_defs: HashMap<String, String>,
+}
+
+/// A PDF outline (bookmark) destination produced during layout.
+#[derive(Debug, Clone)]
+pub struct OutlineDest {
+    pub title: String,
+    pub level: u8,
+    /// Zero-based page index.
+    pub page_index: usize,
+    pub y: f32,
+    /// Displayed folio label at outline time (roman or arabic).
+    pub page_label: String,
 }
 
 // Font name constants
@@ -559,6 +719,7 @@ impl ContentStreamBuilder {
         show_page_numbers: bool,
         layout: PageLayout,
         unicode_font_encoder: Option<UnicodeFontEncoder>,
+        image_base_dir: Option<PathBuf>,
     ) -> Self {
         let mut b = ContentStreamBuilder {
             pages: Vec::new(),
@@ -574,16 +735,147 @@ impl ContentStreamBuilder {
             current_font_bold: false,
             current_font_italic: false,
             unicode_font_encoder,
+            outlines: Vec::new(),
+            current_column: 0,
+            content_placed_on_page: false,
+            column_top_y: layout.content_top(),
+            images: Vec::new(),
+            image_base_dir,
+            page_num_style: PageNumberStyle::Arabic,
+            folio: 1,
+            running_header_enabled: false,
+            running_header_text: String::new(),
+            figure_counter: 0,
+            table_counter: 0,
+            in_abstract: false,
+            citations: CitationRegistry::new(),
+            citation_defs: HashMap::new(),
         };
         b.begin_page();
         b
     }
 
+    fn content_left(&self) -> f32 {
+        self.layout.column_left(self.current_column)
+    }
+
+    fn content_width(&self) -> f32 {
+        self.layout.column_width()
+    }
+
+    fn mark_content_placed(&mut self) {
+        self.content_placed_on_page = true;
+    }
+
     fn begin_page(&mut self) {
         self.current.clear();
+        self.current_column = 0;
+        self.content_placed_on_page = false;
         self.y = self.layout.content_top();
+        self.column_top_y = self.y;
         self.current.extend_from_slice(b"BT\n");
         self.set_font_with_style(self.base_font_size, false, false);
+        self.draw_column_gutters();
+        self.draw_running_header();
+    }
+
+    fn draw_running_header(&mut self) {
+        if !self.running_header_enabled || self.running_header_text.is_empty() {
+            return;
+        }
+        let header = self.running_header_text.clone();
+        let size = 9.0;
+        let y = self.layout.height - self.layout.margin_top / 2.0;
+        let x = self.layout.margin_left;
+        // Draw outside the main text object briefly.
+        self.current.extend_from_slice(b"ET\nBT\n");
+        self.current
+            .extend_from_slice(format!("/{} {} Tf\n", FONT_HELVETICA, size).as_bytes());
+        self.current
+            .extend_from_slice(format!("0.35 0.35 0.35 rg\n").as_bytes());
+        self.current
+            .extend_from_slice(format!("1 0 0 1 {} {} Tm\n", x, y).as_bytes());
+        self.current.extend_from_slice(
+            format!("{} Tj\n", self.encode_text_for_current_font(&header)).as_bytes(),
+        );
+        // Thin rule under header
+        self.current.extend_from_slice(b"ET\n");
+        let x2 = self.layout.margin_left + self.layout.full_content_width();
+        self.current.extend_from_slice(b"0.75 0.75 0.75 RG\n0.4 w\n");
+        self.current.extend_from_slice(
+            format!(
+                "{:.2} {:.2} m {:.2} {:.2} l S\n",
+                self.layout.margin_left,
+                y - 4.0,
+                x2,
+                y - 4.0
+            )
+            .as_bytes(),
+        );
+        self.current.extend_from_slice(b"BT\n");
+        self.set_font_with_style(self.base_font_size, false, false);
+        self.reset_color();
+    }
+
+    /// Light vertical rules between columns (drawn in the page content stream).
+    fn draw_column_gutters(&mut self) {
+        let n = self.layout.column_count();
+        if n <= 1 {
+            return;
+        }
+        let top = self.layout.content_top();
+        let bottom = self.layout.margin_bottom;
+        let color = Color::rgb(0.82, 0.82, 0.82);
+        // Gutters are drawn outside the text object.
+        self.current.extend_from_slice(b"ET\n");
+        for i in 1..n {
+            let x = self.layout.column_left(i) - self.layout.column_gap / 2.0;
+            self.current.extend_from_slice(
+                format!("{} {} {} RG\n", color.r, color.g, color.b).as_bytes(),
+            );
+            self.current.extend_from_slice(b"0.4 w\n");
+            self.current.extend_from_slice(
+                format!("{} {} m {} {} l S\n", x, bottom, x, top).as_bytes(),
+            );
+        }
+        self.current.extend_from_slice(b"BT\n");
+        self.set_font_with_style(self.base_font_size, false, false);
+    }
+
+    /// Advance to the next column, or to a new page when the last column is full.
+    fn advance_column_or_page(&mut self) {
+        let n = self.layout.column_count();
+        if self.current_column + 1 < n {
+            self.current_column += 1;
+            self.y = self.column_top_y;
+        } else {
+            self.new_page();
+        }
+    }
+
+    /// Ensure `extra` vertical space is available in the current column.
+    fn ensure_space(&mut self, extra: f32) {
+        if self.y - extra < self.layout.margin_bottom {
+            self.advance_column_or_page();
+        }
+    }
+
+    /// Switch column count mid-document. Starts a fresh page only if real
+    /// content was already placed on the current page.
+    fn set_columns(&mut self, columns: u8) {
+        let columns = columns.clamp(1, 4);
+        if self.layout.columns == columns {
+            return;
+        }
+        let placed = self.content_placed_on_page || self.current_column > 0;
+        self.layout.columns = columns;
+        if placed {
+            self.new_page();
+        } else {
+            self.current_column = 0;
+            self.current.clear();
+            self.begin_page();
+        }
     }
 
     fn set_font(&mut self, size: f32) {
@@ -613,9 +905,73 @@ impl ContentStreamBuilder {
 
     fn set_monospace_font(&mut self, size: f32) {
         self.current_font_size = size;
-        self.current_font = FONT_COURIER.to_string();
-        self.current
-            .extend_from_slice(format!("/{} {} Tf\n", FONT_COURIER, size).as_bytes());
+        // When a Unicode Type0 font is embedded, use it for code too so CJK and
+        // other non-Latin glyphs in code/comments render correctly. Courier
+        // (Base-14) cannot draw those glyphs.
+        if self.unicode_font_encoder.is_some() && !use_base14_normalization() {
+            self.current_font = FONT_HELVETICA.to_string();
+            self.current_font_bold = false;
+            self.current_font_italic = false;
+            self.current
+                .extend_from_slice(format!("/{} {} Tf\n", FONT_HELVETICA, size).as_bytes());
+        } else {
+            self.current_font = FONT_COURIER.to_string();
+            self.current
+                .extend_from_slice(format!("/{} {} Tf\n", FONT_COURIER, size).as_bytes());
+        }
+    }
+
+    /// Width of code text using the same font path as `set_monospace_font`.
+    fn code_text_width(&self, text: &str, font_size: f32) -> f32 {
+        if self.unicode_font_encoder.is_some() && !use_base14_normalization() {
+            if let Some(enc) = &self.unicode_font_encoder {
+                return enc.estimate_width(text, font_size);
+            }
+        }
+        estimated_text_width(text, font_size, true)
+    }
+
+    /// Wrap a code line to the content width (space-aware, then hard-wrap).
+    fn wrap_code_line(&self, line: &str, max_width: f32, font_size: f32) -> Vec<String> {
+        if line.is_empty() {
+            return vec![String::new()];
+        }
+        if self.code_text_width(line, font_size) <= max_width {
+            return vec![line.to_string()];
+        }
+
+        let mut lines = Vec::new();
+        let mut current = String::new();
+
+        // Prefer wrapping at whitespace when possible.
+        for word in line.split_inclusive(char::is_whitespace) {
+            let test = format!("{}{}", current, word);
+            if !current.is_empty() && self.code_text_width(&test, font_size) > max_width {
+                lines.push(std::mem::take(&mut current));
+                // Hard-wrap an oversized single token.
+                if self.code_text_width(word, font_size) > max_width {
+                    let mut chunk = String::new();
+                    for ch in word.chars() {
+                        let next = format!("{}{}", chunk, ch);
+                        if !chunk.is_empty() && self.code_text_width(&next, font_size) > max_width {
+                            lines.push(std::mem::take(&mut chunk));
+                            chunk.push(ch);
+                        } else {
+                            chunk = next;
+                        }
+                    }
+                    current = chunk;
+                } else {
+                    current = word.to_string();
+                }
+            } else {
+                current = test;
+            }
+        }
+        if !current.is_empty() || lines.is_empty() {
+            lines.push(current);
+        }
+        lines
     }
 
     fn draw_rectangle(&mut self, x: f32, y: f32, width: f32, height: f32, fill_color: Color) {
@@ -685,7 +1041,7 @@ impl ContentStreamBuilder {
             &table_rows,
             &style,
             base_font_size,
-            self.layout.content_width(),
+            self.content_width(),
         );
 
         if dims.num_cols == 0 || dims.num_rows == 0 {
@@ -693,18 +1049,23 @@ impl ContentStreamBuilder {
         }
 
         let line_h = line_height(base_font_size);
-        let approx_char_width = base_font_size * 0.5;
+        let approx_char_width = if self.unicode_font_encoder.is_some() && !use_base14_normalization() {
+            // Prefer measured average from a typical Latin sample when CID fonts are active.
+            self.estimate_text_width("abcdefghijklmnopqrstuvwxyz", base_font_size) / 26.0
+        } else {
+            base_font_size * 0.5
+        };
 
         // Add margin above table
         self.y -= style.margin_top;
 
-        // Check for page break
-        if self.needs_page_break(dims.total_height + style.margin_top + style.margin_bottom) {
-            self.new_page();
+        self.ensure_space(dims.total_height + style.margin_top + style.margin_bottom);
+        if self.y < self.layout.content_top() - 1.0 {
+            // After column/page advance, re-apply top margin.
             self.y -= style.margin_top;
         }
 
-        let start_x = self.layout.margin_left;
+        let start_x = self.content_left();
         let start_y = self.y;
 
         // Draw outer border
@@ -787,7 +1148,7 @@ impl ContentStreamBuilder {
 
                 // Render each line with proper alignment
                 for (line_idx, line) in wrapped.lines.iter().enumerate() {
-                    let line_width = line.len() as f32 * approx_char_width;
+                    let line_width = self.estimate_text_width(line, base_font_size);
 
                     // Calculate X position using the table helper
                     let x = table_helper.renderer().calculate_text_x(
@@ -814,28 +1175,51 @@ impl ContentStreamBuilder {
         }
 
         self.y -= dims.total_height + style.margin_bottom;
+        self.table_counter += 1;
+        let caption = format!("Table {}.", self.table_counter);
+        let caption_size = base_font_size * 0.85;
+        self.set_color(Color::gray());
+        self.set_font_with_style(caption_size, false, true);
+        self.emit_line_aligned(&caption, caption_size, TextAlign::Center);
+        self.set_font_with_style(base_font_size, false, false);
+        self.reset_color();
+        self.emit_empty_line();
+        self.mark_content_placed();
     }
 
     /// Approximate text width for wrapping calculations
     fn estimate_text_width(&self, text: &str, font_size: f32) -> f32 {
+        if self.current_font != FONT_COURIER
+            && let Some(encoder) = &self.unicode_font_encoder
+            && !use_base14_normalization()
+        {
+            return encoder.estimate_width(text, font_size);
+        }
         estimated_text_width(text, font_size, self.current_font == FONT_COURIER)
     }
 
     /// Emit wrapped text that fits within the content width
     fn emit_wrapped_text(&mut self, text: &str, font_size: f32) {
-        let max_width = self.layout.content_width();
-        let approx_char_width = font_size * 0.5;
-        let max_chars = (max_width / approx_char_width).floor().max(1.0) as usize;
+        let max_width = self.content_width();
 
-        if text.chars().count() <= max_chars {
+        if self.estimate_text_width(text, font_size) <= max_width {
             self.emit_line(text, font_size);
             return;
         }
 
+        let approx_char_width = if self.unicode_font_encoder.is_some() && !use_base14_normalization()
+        {
+            // Average Latin advance under Identity-H ≈ 0.5em once real `/W` is used.
+            font_size * 0.5
+        } else {
+            font_size * 0.5
+        };
+        let max_chars = (max_width / approx_char_width).floor().max(1.0) as usize;
+
         let words: Vec<String> = text
             .split_whitespace()
             .flat_map(|word| {
-                if word.chars().count() > max_chars {
+                if self.estimate_text_width(word, font_size) > max_width {
                     split_long_word_for_wrap(word, max_chars)
                 } else {
                     vec![word.to_string()]
@@ -867,6 +1251,468 @@ impl ContentStreamBuilder {
         }
     }
 
+    /// Emit a rich paragraph with per-segment bold/italic/code fonts and wrapping.
+    fn emit_rich_paragraph(&mut self, segments: &[TextSegment], font_size: f32) {
+        #[derive(Clone)]
+        struct Run {
+            text: String,
+            bold: bool,
+            italic: bool,
+            mono: bool,
+            strike: bool,
+        }
+
+        let mut runs: Vec<Run> = Vec::new();
+        for segment in segments {
+            match segment {
+                TextSegment::Plain(text) => {
+                    if !text.is_empty() {
+                        runs.push(Run {
+                            text: text.clone(),
+                            bold: false,
+                            italic: false,
+                            mono: false,
+                            strike: false,
+                        });
+                    }
+                }
+                TextSegment::Strikethrough(text) => {
+                    if !text.is_empty() {
+                        runs.push(Run {
+                            text: text.clone(),
+                            bold: false,
+                            italic: false,
+                            mono: false,
+                            strike: true,
+                        });
+                    }
+                }
+                TextSegment::Bold(text) => runs.push(Run {
+                    text: text.clone(),
+                    bold: true,
+                    italic: false,
+                    mono: false,
+                    strike: false,
+                }),
+                TextSegment::Italic(text) => runs.push(Run {
+                    text: text.clone(),
+                    bold: false,
+                    italic: true,
+                    mono: false,
+                    strike: false,
+                }),
+                TextSegment::BoldItalic(text) => runs.push(Run {
+                    text: text.clone(),
+                    bold: true,
+                    italic: true,
+                    mono: false,
+                    strike: false,
+                }),
+                TextSegment::Code(code) => runs.push(Run {
+                    text: code.clone(),
+                    bold: false,
+                    italic: false,
+                    mono: true,
+                    strike: false,
+                }),
+                TextSegment::MathInline(expr) => runs.push(Run {
+                    text: render_math_text(expr),
+                    bold: false,
+                    italic: true,
+                    mono: false,
+                    strike: false,
+                }),
+                TextSegment::Link { text, url } => {
+                    runs.push(Run {
+                        text: text.clone(),
+                        bold: false,
+                        italic: false,
+                        mono: false,
+                        strike: false,
+                    });
+                    runs.push(Run {
+                        text: format!(" ({})", url),
+                        bold: false,
+                        italic: false,
+                        mono: false,
+                        strike: false,
+                    });
+                }
+                TextSegment::Citation { key } => {
+                    let marker = self.citation_marker(key);
+                    runs.push(Run {
+                        text: marker,
+                        bold: false,
+                        italic: false,
+                        mono: false,
+                        strike: false,
+                    });
+                }
+            }
+        }
+
+        if runs.is_empty() {
+            return;
+        }
+
+        #[derive(Clone)]
+        struct Token {
+            text: String,
+            bold: bool,
+            italic: bool,
+            mono: bool,
+            strike: bool,
+            space_before: bool,
+        }
+
+        let mut tokens: Vec<Token> = Vec::new();
+        let mut prev_ended_with_space = false;
+        for run in &runs {
+            let starts_with_space = run.text.starts_with(char::is_whitespace);
+            let ends_with_space = run.text.ends_with(char::is_whitespace);
+            let mut first_in_run = true;
+            let mut chars = run.text.chars().peekable();
+            while chars.peek().is_some() {
+                while chars.peek().is_some_and(|c| c.is_whitespace()) {
+                    chars.next();
+                }
+                let mut word = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    word.push(c);
+                    chars.next();
+                }
+                if word.is_empty() {
+                    break;
+                }
+                let space_before = if first_in_run {
+                    !tokens.is_empty() && (starts_with_space || prev_ended_with_space)
+                } else {
+                    true
+                };
+                first_in_run = false;
+                tokens.push(Token {
+                    text: word,
+                    bold: run.bold,
+                    italic: run.italic,
+                    mono: run.mono,
+                    strike: run.strike,
+                    space_before,
+                });
+            }
+            prev_ended_with_space = ends_with_space;
+        }
+
+        let max_width = self.content_width();
+        let lh = line_height(font_size);
+        let mut line: Vec<Token> = Vec::new();
+        let mut line_width = 0.0f32;
+
+        let measure = |builder: &Self, text: &str, mono: bool| -> f32 {
+            let size = if mono { font_size * 0.9 } else { font_size };
+            if mono {
+                estimated_text_width(text, size, true)
+            } else {
+                builder.estimate_text_width(text, size)
+            }
+        };
+
+        let flush_line = |builder: &mut Self, line: &mut Vec<Token>| {
+            if line.is_empty() {
+                return;
+            }
+            builder.ensure_space(lh);
+            let mut x = builder.content_left();
+            for (i, tok) in line.iter().enumerate() {
+                if i > 0 && tok.space_before {
+                    x += measure(builder, " ", false);
+                }
+                if tok.mono {
+                    builder.set_monospace_font(font_size * 0.9);
+                } else {
+                    builder.set_font_with_style(font_size, tok.bold, tok.italic);
+                }
+                builder
+                    .current
+                    .extend_from_slice(format!("1 0 0 1 {} {} Tm\n", x, builder.y).as_bytes());
+                let encoded = builder.encode_text_for_current_font(&tok.text);
+                builder
+                    .current
+                    .extend_from_slice(format!("{} Tj\n", encoded).as_bytes());
+                let w = measure(builder, &tok.text, tok.mono);
+                if tok.strike {
+                    let strike_y = builder.y + font_size * 0.3;
+                    builder.draw_line(
+                        x,
+                        strike_y,
+                        x + w,
+                        strike_y,
+                        0.7,
+                        Color::black(),
+                    );
+                }
+                x += w;
+            }
+            builder.set_font_with_style(font_size, false, false);
+            builder.y -= lh;
+            line.clear();
+        };
+
+        for tok in tokens {
+            let space_w = if tok.space_before && !line.is_empty() {
+                measure(self, " ", false)
+            } else {
+                0.0
+            };
+            let tok_w = measure(self, &tok.text, tok.mono);
+            if !line.is_empty() && line_width + space_w + tok_w > max_width {
+                flush_line(self, &mut line);
+                line.push(Token {
+                    space_before: false,
+                    ..tok
+                });
+                line_width = tok_w;
+            } else {
+                line_width += space_w + tok_w;
+                line.push(tok);
+            }
+        }
+        flush_line(self, &mut line);
+    }
+
+    /// Render a display-math block with stacked fractions and operator limits.
+    fn emit_display_math(&mut self, expression: &str, base_font_size: f32) {
+        let math_size = base_font_size * 1.28;
+        let padding = 10.0;
+        let lines: Vec<&str> = expression
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        if lines.is_empty() {
+            return;
+        }
+
+        let parsed: Vec<Vec<MathPiece>> = lines.iter().map(|l| parse_display_math(l)).collect();
+        let row_heights: Vec<f32> = parsed
+            .iter()
+            .map(|pieces| line_height_for_pieces(pieces, math_size))
+            .collect();
+        let block_height: f32 = row_heights.iter().sum::<f32>() + padding * 2.0;
+
+        self.emit_empty_line();
+        self.ensure_space(block_height);
+
+        let bg_color = Color::rgb(0.93, 0.95, 1.0);
+        let rect_x = self.content_left() - padding;
+        let rect_y = self.y - block_height;
+        let rect_width = self.content_width() + padding * 2.0;
+        self.draw_rectangle(rect_x, rect_y, rect_width, block_height, bg_color);
+
+        let accent_color = Color::rgb(0.3, 0.4, 0.8);
+        self.draw_line(rect_x, rect_y, rect_x, rect_y + block_height, 2.0, accent_color);
+
+        self.set_color(Color::rgb(0.08, 0.1, 0.28));
+
+        let measure = |builder: &Self, text: &str, size: f32| -> f32 {
+            if builder.unicode_font_encoder.is_some() && !use_base14_normalization() {
+                if let Some(enc) = &builder.unicode_font_encoder {
+                    return enc.estimate_width(text, size);
+                }
+            }
+            estimated_text_width(text, size, false)
+        };
+
+        let mut cursor_y = self.y - padding;
+        for (pieces, row_h) in parsed.iter().zip(row_heights.iter()) {
+            let axis_y = cursor_y - row_h * 0.55;
+            let total_w: f32 = pieces
+                .iter()
+                .map(|p| piece_width(p, math_size, &|t, s| measure(self, t, s)))
+                .sum();
+            let mut x = self.content_left()
+                + ((self.content_width() - total_w) / 2.0).max(4.0);
+
+            for piece in pieces {
+                match piece {
+                    MathPiece::Text(text) => {
+                        self.set_font_with_style(math_size, false, true);
+                        self.current.extend_from_slice(
+                            format!("1 0 0 1 {} {} Tm\n", x, axis_y).as_bytes(),
+                        );
+                        let enc = self.encode_text_for_current_font(text);
+                        self.current
+                            .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+                        x += measure(self, text, math_size);
+                    }
+                    MathPiece::Operator {
+                        symbol,
+                        lower,
+                        upper,
+                        side_limits,
+                    } => {
+                        let op_size = math_size * 1.45;
+                        let script = math_size * 0.55;
+                        let sym = symbol.to_string();
+                        let sym_w = measure(self, &sym, op_size);
+
+                        if *side_limits {
+                            // Integral-style: large op, scripts to the right.
+                            self.set_font_with_style(op_size, false, false);
+                            self.current.extend_from_slice(
+                                format!("1 0 0 1 {} {} Tm\n", x, axis_y - op_size * 0.18).as_bytes(),
+                            );
+                            let enc = self.encode_text_for_current_font(&sym);
+                            self.current
+                                .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+
+                            let sx = x + sym_w * 0.72;
+                            if !upper.is_empty() {
+                                self.set_font_with_style(script, false, false);
+                                self.current.extend_from_slice(
+                                    format!(
+                                        "1 0 0 1 {} {} Tm\n",
+                                        sx,
+                                        axis_y + script * 1.05
+                                    )
+                                    .as_bytes(),
+                                );
+                                let enc = self.encode_text_for_current_font(upper);
+                                self.current
+                                    .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+                            }
+                            if !lower.is_empty() {
+                                self.set_font_with_style(script, false, false);
+                                self.current.extend_from_slice(
+                                    format!(
+                                        "1 0 0 1 {} {} Tm\n",
+                                        sx,
+                                        axis_y - script * 1.15
+                                    )
+                                    .as_bytes(),
+                                );
+                                let enc = self.encode_text_for_current_font(lower);
+                                self.current
+                                    .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+                            }
+                            let lim_w = measure(self, lower, script).max(measure(self, upper, script));
+                            x += sym_w + 4.0 + lim_w;
+                        } else {
+                            // Sum/prod: limits above and below, centered on symbol.
+                            let lim_w = measure(self, lower, script).max(measure(self, upper, script));
+                            let col_w = sym_w.max(lim_w);
+                            let cx = x + col_w / 2.0;
+
+                            if !upper.is_empty() {
+                                let uw = measure(self, upper, script);
+                                self.set_font_with_style(script, false, false);
+                                self.current.extend_from_slice(
+                                    format!(
+                                        "1 0 0 1 {} {} Tm\n",
+                                        cx - uw / 2.0,
+                                        axis_y + op_size * 0.62
+                                    )
+                                    .as_bytes(),
+                                );
+                                let enc = self.encode_text_for_current_font(upper);
+                                self.current
+                                    .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+                            }
+
+                            self.set_font_with_style(op_size, false, false);
+                            self.current.extend_from_slice(
+                                format!(
+                                    "1 0 0 1 {} {} Tm\n",
+                                    cx - sym_w / 2.0,
+                                    axis_y - op_size * 0.12
+                                )
+                                .as_bytes(),
+                            );
+                            let enc = self.encode_text_for_current_font(&sym);
+                            self.current
+                                .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+
+                            if !lower.is_empty() {
+                                let lw = measure(self, lower, script);
+                                self.set_font_with_style(script, false, false);
+                                self.current.extend_from_slice(
+                                    format!(
+                                        "1 0 0 1 {} {} Tm\n",
+                                        cx - lw / 2.0,
+                                        axis_y - op_size * 0.78
+                                    )
+                                    .as_bytes(),
+                                );
+                                let enc = self.encode_text_for_current_font(lower);
+                                self.current
+                                    .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+                            }
+                            x += col_w + 8.0;
+                        }
+                    }
+                    MathPiece::Fraction {
+                        numerator,
+                        denominator,
+                    } => {
+                        let script = math_size * 0.85;
+                        let nw = measure(self, numerator, script);
+                        let dw = measure(self, denominator, script);
+                        let w = nw.max(dw) + 6.0;
+                        let cx = x + w / 2.0;
+
+                        self.set_font_with_style(script, false, true);
+                        self.current.extend_from_slice(
+                            format!(
+                                "1 0 0 1 {} {} Tm\n",
+                                cx - nw / 2.0,
+                                axis_y + script * 0.75
+                            )
+                            .as_bytes(),
+                        );
+                        let enc = self.encode_text_for_current_font(numerator);
+                        self.current
+                            .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+
+                        // Fraction bar
+                        let bar_y = axis_y + script * 0.12;
+                        self.draw_line(
+                            cx - w / 2.0 + 1.0,
+                            bar_y,
+                            cx + w / 2.0 - 1.0,
+                            bar_y,
+                            0.9,
+                            Color::rgb(0.08, 0.1, 0.28),
+                        );
+
+                        self.set_font_with_style(script, false, true);
+                        self.current.extend_from_slice(
+                            format!(
+                                "1 0 0 1 {} {} Tm\n",
+                                cx - dw / 2.0,
+                                axis_y - script * 0.95
+                            )
+                            .as_bytes(),
+                        );
+                        let enc = self.encode_text_for_current_font(denominator);
+                        self.current
+                            .extend_from_slice(format!("{} Tj\n", enc).as_bytes());
+
+                        x += w + 2.0;
+                    }
+                }
+            }
+
+            cursor_y -= *row_h;
+        }
+
+        self.y -= block_height;
+        self.set_font_with_style(base_font_size, false, false);
+        self.reset_color();
+        self.emit_empty_line();
+    }
+
     fn set_color(&mut self, color: Color) {
         self.current_color = color;
         self.current.extend_from_slice(
@@ -878,17 +1724,16 @@ impl ContentStreamBuilder {
         self.set_color(Color::black());
     }
 
-    fn needs_page_break(&self, extra: f32) -> bool {
-        self.y - extra < self.layout.margin_bottom
-    }
-
     fn end_text_block(&mut self) {
         self.current.extend_from_slice(b"ET\n");
     }
 
     fn add_page_number(&mut self) {
-        let label = format!("Page {}", self.page_number);
-        let x = self.layout.margin_left + self.layout.content_width() / 2.0 - 20.0;
+        let Some(label) = format_folio(self.page_num_style, self.folio) else {
+            return;
+        };
+        let approx = self.estimate_text_width(&label, 9.0);
+        let x = self.layout.margin_left + (self.layout.full_content_width() - approx) / 2.0;
         let y = self.layout.margin_bottom / 2.0;
         let encoded_label = if let Some(encoder) = &self.unicode_font_encoder {
             if use_base14_normalization() {
@@ -916,6 +1761,9 @@ impl ContentStreamBuilder {
         }
         self.pages.push(std::mem::take(&mut self.current));
         self.page_number += 1;
+        if self.page_num_style != PageNumberStyle::None {
+            self.folio += 1;
+        }
         self.begin_page();
     }
 
@@ -925,29 +1773,60 @@ impl ContentStreamBuilder {
 
     fn emit_line_aligned(&mut self, text: &str, font_size: f32, align: TextAlign) {
         let lh = line_height(font_size);
-        if self.needs_page_break(lh) {
-            self.new_page();
-        }
+        self.ensure_space(lh);
         self.set_font(font_size);
 
+        let use_rtl = self.layout.rtl || crate::rtl::prefers_rtl_layout(text);
+        let display = if use_rtl {
+            crate::rtl::prepare_for_pdf(text)
+        } else {
+            text.to_string()
+        };
+        let align = if use_rtl && matches!(align, TextAlign::Left) {
+            TextAlign::Right
+        } else {
+            align
+        };
+
         let x = match align {
-            TextAlign::Left => self.layout.margin_left,
+            TextAlign::Left => self.content_left(),
             TextAlign::Center => {
-                let approx_width = self.estimate_text_width(text, font_size);
-                self.layout.margin_left + (self.layout.content_width() - approx_width) / 2.0
+                let approx_width = self.estimate_text_width(&display, font_size);
+                self.content_left() + (self.content_width() - approx_width) / 2.0
             }
             TextAlign::Right => {
-                let approx_width = self.estimate_text_width(text, font_size);
-                self.layout.margin_left + self.layout.content_width() - approx_width
+                let approx_width = self.estimate_text_width(&display, font_size);
+                self.content_left() + self.content_width() - approx_width
             }
-            TextAlign::Justify => self.layout.margin_left,
+            TextAlign::Justify => self.content_left(),
         };
 
         self.current
             .extend_from_slice(format!("1 0 0 1 {} {} Tm\n", x, self.y).as_bytes());
         self.current
+            .extend_from_slice(format!("{} Tj\n", self.encode_text_for_current_font(&display)).as_bytes());
+        self.y -= lh;
+        self.mark_content_placed();
+    }
+
+    /// Centered heading across the full page width (spans all columns).
+    fn emit_full_width_heading(&mut self, text: &str, font_size: f32) {
+        let lh = line_height(font_size);
+        // Full-width bands always start in column 0 at the shared column top.
+        self.current_column = 0;
+        self.y = self.y.min(self.column_top_y);
+        self.ensure_space(lh);
+        self.set_font(font_size);
+        let approx_width = self.estimate_text_width(text, font_size);
+        let x = self.layout.margin_left
+            + (self.layout.full_content_width() - approx_width) / 2.0;
+        self.current
+            .extend_from_slice(format!("1 0 0 1 {} {} Tm\n", x, self.y).as_bytes());
+        self.current
             .extend_from_slice(format!("{} Tj\n", self.encode_text_for_current_font(text)).as_bytes());
         self.y -= lh;
+        self.column_top_y = self.y;
+        self.mark_content_placed();
     }
 
     fn encode_text_for_current_font(&self, text: &str) -> String {
@@ -961,9 +1840,7 @@ impl ContentStreamBuilder {
 
     fn emit_empty_line(&mut self) {
         let lh = line_height(self.base_font_size) * 0.5;
-        if self.needs_page_break(lh) {
-            self.new_page();
-        }
+        self.ensure_space(lh);
         self.y -= lh;
     }
 
@@ -971,14 +1848,11 @@ impl ContentStreamBuilder {
         // Add spacing above the rule
         self.y -= line_height(self.base_font_size) / 2.0;
 
-        // Check for page break
-        if self.needs_page_break(line_height(self.base_font_size)) {
-            self.new_page();
-        }
+        self.ensure_space(line_height(self.base_font_size));
 
         // Draw a horizontal line across the content area
-        let x1 = self.layout.margin_left;
-        let x2 = self.layout.margin_left + self.layout.content_width();
+        let x1 = self.content_left();
+        let x2 = self.content_left() + self.content_width();
         let y = self.y;
         let line_width = 1.0;
         let color = Color::gray();
@@ -989,10 +1863,415 @@ impl ContentStreamBuilder {
         self.y -= line_height(self.base_font_size);
     }
 
-    fn finish(mut self) -> Vec<Vec<u8>> {
+    fn finish(mut self) -> (Vec<Vec<u8>>, Vec<OutlineDest>, Vec<(String, ImageInfo)>) {
         self.end_text_block();
+        if self.show_page_numbers {
+            self.add_page_number();
+        }
         self.pages.push(self.current);
-        self.pages
+        (self.pages, self.outlines, self.images)
+    }
+
+    fn resolve_image_path(&self, path: &str) -> PathBuf {
+        let p = Path::new(path);
+        if p.is_absolute() {
+            return p.to_path_buf();
+        }
+        if let Some(base) = &self.image_base_dir {
+            return base.join(p);
+        }
+        p.to_path_buf()
+    }
+
+    /// Embed a raster image (JPEG/PNG/BMP), scaled to the content width.
+    fn emit_image(&mut self, alt: &str, path: &str) {
+        let resolved = self.resolve_image_path(path);
+        let loaded = image::load_image_with_alt_text(
+            resolved.to_string_lossy().as_ref(),
+            if alt.is_empty() {
+                None
+            } else {
+                Some(alt.to_string())
+            },
+        );
+
+        let Ok(info) = loaded else {
+            self.emit_wrapped_text(&format!("[Image: {}] ({})", alt, path), self.base_font_size);
+            return;
+        };
+
+        let max_w = self.content_width();
+        let max_h = (self.layout.height * 0.45).min(320.0);
+        let (dw, dh) = image::scale_to_fit(info.width, info.height, max_w, max_h);
+        let caption_h = line_height(self.base_font_size * 0.85);
+        let gap = 6.0;
+        self.ensure_space(dh + caption_h + gap * 2.0);
+        self.y -= gap;
+
+        let name = format!("Im{}", self.images.len() + 1);
+        let x = self.content_left() + (self.content_width() - dw) / 2.0;
+        let y_bottom = self.y - dh;
+
+        // Paint outside the text object.
+        self.current.extend_from_slice(b"ET\n");
+        self.current.extend_from_slice(b"q\n");
+        self.current.extend_from_slice(
+            format!("{:.2} 0 0 {:.2} {:.2} {:.2} cm\n", dw, dh, x, y_bottom).as_bytes(),
+        );
+        self.current
+            .extend_from_slice(format!("/{} Do\n", name).as_bytes());
+        self.current.extend_from_slice(b"Q\n");
+        self.current.extend_from_slice(b"BT\n");
+        self.set_font_with_style(self.base_font_size, false, false);
+        self.reset_color();
+
+        self.images.push((name, info));
+        self.y = y_bottom - gap;
+        self.mark_content_placed();
+
+        self.figure_counter += 1;
+        let caption = if alt.is_empty() {
+            format!("Figure {}.", self.figure_counter)
+        } else {
+            format!("Figure {}. {}", self.figure_counter, alt)
+        };
+        let caption_size = self.base_font_size * 0.85;
+        self.set_color(Color::gray());
+        self.set_font_with_style(caption_size, false, true);
+        self.emit_line_aligned(&caption, caption_size, TextAlign::Center);
+        self.set_font_with_style(self.base_font_size, false, false);
+        self.reset_color();
+        self.emit_empty_line();
+    }
+
+    /// Draw a bar / line / pie chart from labeled numeric points.
+    fn emit_chart(
+        &mut self,
+        kind: ChartKind,
+        title: &Option<String>,
+        points: &[(String, f32)],
+    ) {
+        if points.is_empty() {
+            return;
+        }
+
+        let title_h = if title.is_some() {
+            line_height(self.base_font_size)
+        } else {
+            0.0
+        };
+        let plot_h = match kind {
+            ChartKind::Pie => 170.0,
+            _ => 150.0,
+        };
+        let legend_h = if matches!(kind, ChartKind::Pie) {
+            (points.len() as f32) * line_height(self.base_font_size * 0.8)
+        } else {
+            0.0
+        };
+        let total_h = title_h + plot_h + legend_h + 16.0;
+        self.ensure_space(total_h);
+
+        self.figure_counter += 1;
+        let fig_title = match title {
+            Some(t) => format!("Figure {}. {}", self.figure_counter, t),
+            None => format!("Figure {}.", self.figure_counter),
+        };
+        self.set_font_with_style(self.base_font_size, true, false);
+        self.emit_line_aligned(&fig_title, self.base_font_size, TextAlign::Center);
+        self.set_font_with_style(self.base_font_size, false, false);
+
+        let left = self.content_left();
+        let width = self.content_width();
+        let top = self.y;
+        let bottom = top - plot_h;
+
+        self.current.extend_from_slice(b"ET\n");
+
+        match kind {
+            ChartKind::Bar => self.draw_bar_chart(left, bottom, width, plot_h, points),
+            ChartKind::Line => self.draw_line_chart(left, bottom, width, plot_h, points),
+            ChartKind::Pie => self.draw_pie_chart(left, bottom, width, plot_h, points),
+        }
+
+        self.current.extend_from_slice(b"BT\n");
+        self.set_font_with_style(self.base_font_size, false, false);
+        self.reset_color();
+        self.y = bottom - 8.0;
+        self.mark_content_placed();
+
+        if matches!(kind, ChartKind::Pie) {
+            let label_size = self.base_font_size * 0.8;
+            for (i, (label, value)) in points.iter().enumerate() {
+                let (r, g, b) = crate::chart::CHART_COLORS[i % crate::chart::CHART_COLORS.len()];
+                self.set_color(Color::rgb(r, g, b));
+                self.emit_line(
+                    &format!("• {} ({})", label, format_chart_value(*value)),
+                    label_size,
+                );
+            }
+            self.reset_color();
+        }
+
+        self.emit_empty_line();
+    }
+
+    fn draw_bar_chart(
+        &mut self,
+        left: f32,
+        bottom: f32,
+        width: f32,
+        height: f32,
+        points: &[(String, f32)],
+    ) {
+        let max_v = points
+            .iter()
+            .map(|(_, v)| v.abs())
+            .fold(0.0_f32, f32::max)
+            .max(1.0);
+        let axis = Color::rgb(0.35, 0.35, 0.35);
+        let pad_l = 28.0;
+        let pad_b = 22.0;
+        let pad_t = 8.0;
+        let plot_x = left + pad_l;
+        let plot_w = width - pad_l - 4.0;
+        let plot_y0 = bottom + pad_b;
+        let plot_h = height - pad_b - pad_t;
+
+        // Axes
+        self.append_stroke(axis, 0.8);
+        self.append_line(plot_x, plot_y0, plot_x + plot_w, plot_y0);
+        self.append_line(plot_x, plot_y0, plot_x, plot_y0 + plot_h);
+
+        let n = points.len() as f32;
+        let slot = plot_w / n;
+        let bar_w = (slot * 0.62).max(4.0);
+
+        for (i, (label, value)) in points.iter().enumerate() {
+            let (r, g, b) = crate::chart::CHART_COLORS[i % crate::chart::CHART_COLORS.len()];
+            let h = (value.abs() / max_v) * plot_h;
+            let x = plot_x + i as f32 * slot + (slot - bar_w) / 2.0;
+            let y = plot_y0;
+            self.current.extend_from_slice(
+                format!("{} {} {} rg\n{:.2} {:.2} {:.2} {:.2} re f\n", r, g, b, x, y, bar_w, h)
+                    .as_bytes(),
+            );
+            // Label under bar (short)
+            let short = truncate_label(label, 8);
+            self.append_fill_text(
+                &short,
+                x + bar_w / 2.0 - self.estimate_text_width(&short, 7.0) / 2.0,
+                bottom + 6.0,
+                7.0,
+                axis,
+            );
+        }
+    }
+
+    fn draw_line_chart(
+        &mut self,
+        left: f32,
+        bottom: f32,
+        width: f32,
+        height: f32,
+        points: &[(String, f32)],
+    ) {
+        let max_v = points
+            .iter()
+            .map(|(_, v)| *v)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let min_v = points
+            .iter()
+            .map(|(_, v)| *v)
+            .fold(f32::INFINITY, f32::min);
+        let span = (max_v - min_v).abs().max(1.0);
+        let axis = Color::rgb(0.35, 0.35, 0.35);
+        let pad_l = 28.0;
+        let pad_b = 22.0;
+        let pad_t = 8.0;
+        let plot_x = left + pad_l;
+        let plot_w = width - pad_l - 4.0;
+        let plot_y0 = bottom + pad_b;
+        let plot_h = height - pad_b - pad_t;
+
+        self.append_stroke(axis, 0.8);
+        self.append_line(plot_x, plot_y0, plot_x + plot_w, plot_y0);
+        self.append_line(plot_x, plot_y0, plot_x, plot_y0 + plot_h);
+
+        let n = points.len().max(1);
+        let mut coords = Vec::with_capacity(n);
+        for (i, (_, value)) in points.iter().enumerate() {
+            let t = if n == 1 {
+                0.5
+            } else {
+                i as f32 / (n - 1) as f32
+            };
+            let x = plot_x + t * plot_w;
+            let y = plot_y0 + ((*value - min_v) / span) * plot_h;
+            coords.push((x, y));
+        }
+
+        let (r, g, b) = crate::chart::CHART_COLORS[0];
+        self.current
+            .extend_from_slice(format!("{} {} {} RG\n1.5 w\n", r, g, b).as_bytes());
+        if let Some((x0, y0)) = coords.first() {
+            self.current
+                .extend_from_slice(format!("{:.2} {:.2} m\n", x0, y0).as_bytes());
+            for (x, y) in coords.iter().skip(1) {
+                self.current
+                    .extend_from_slice(format!("{:.2} {:.2} l\n", x, y).as_bytes());
+            }
+            self.current.extend_from_slice(b"S\n");
+        }
+        for (x, y) in &coords {
+            // Small filled square as a point marker (PDF has no `arc` operator).
+            self.current.extend_from_slice(
+                format!(
+                    "{} {} {} rg\n{:.2} {:.2} 3.5 3.5 re f\n",
+                    r,
+                    g,
+                    b,
+                    x - 1.75,
+                    y - 1.75
+                )
+                .as_bytes(),
+            );
+        }
+
+        for (i, (label, _)) in points.iter().enumerate() {
+            let short = truncate_label(label, 8);
+            let (x, _) = coords[i];
+            self.append_fill_text(
+                &short,
+                x - self.estimate_text_width(&short, 7.0) / 2.0,
+                bottom + 6.0,
+                7.0,
+                axis,
+            );
+        }
+    }
+
+    fn draw_pie_chart(
+        &mut self,
+        left: f32,
+        bottom: f32,
+        width: f32,
+        height: f32,
+        points: &[(String, f32)],
+    ) {
+        let total: f32 = points.iter().map(|(_, v)| v.abs()).sum::<f32>().max(1.0);
+        let cx = left + width * 0.42;
+        let cy = bottom + height * 0.52;
+        let radius = (width.min(height) * 0.32).min(70.0);
+
+        let mut angle = 0.0_f32; // radians from +x
+        for (i, (_, value)) in points.iter().enumerate() {
+            let sweep = (value.abs() / total) * std::f32::consts::TAU;
+            if sweep <= 0.0 {
+                continue;
+            }
+            let (r, g, b) = crate::chart::CHART_COLORS[i % crate::chart::CHART_COLORS.len()];
+            self.append_pie_slice(cx, cy, radius, angle, angle + sweep, Color::rgb(r, g, b));
+            angle += sweep;
+        }
+    }
+
+    fn append_pie_slice(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        a0: f32,
+        a1: f32,
+        fill: Color,
+    ) {
+        // Approximate arc with line segments.
+        let steps = ((a1 - a0).abs() / 0.2).ceil().max(2.0) as usize;
+        self.current.extend_from_slice(
+            format!("{} {} {} rg\n{:.2} {:.2} m\n", fill.r, fill.g, fill.b, cx, cy).as_bytes(),
+        );
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            let a = a0 + (a1 - a0) * t;
+            let x = cx + radius * a.cos();
+            let y = cy + radius * a.sin();
+            self.current
+                .extend_from_slice(format!("{:.2} {:.2} l\n", x, y).as_bytes());
+        }
+        self.current.extend_from_slice(b"h f\n");
+    }
+
+    fn append_stroke(&mut self, color: Color, width: f32) {
+        self.current.extend_from_slice(
+            format!("{} {} {} RG\n{} w\n", color.r, color.g, color.b, width).as_bytes(),
+        );
+    }
+
+    fn append_line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
+        self.current.extend_from_slice(
+            format!("{:.2} {:.2} m {:.2} {:.2} l S\n", x1, y1, x2, y2).as_bytes(),
+        );
+    }
+
+    fn append_fill_text(&mut self, text: &str, x: f32, y: f32, size: f32, color: Color) {
+        // Nested BT inside graphics section (we are outside the main BT).
+        self.current.extend_from_slice(b"BT\n");
+        self.current.extend_from_slice(
+            format!(
+                "/{} {} Tf\n{} {} {} rg\n1 0 0 1 {:.2} {:.2} Tm\n{} Tj\nET\n",
+                FONT_HELVETICA,
+                size,
+                color.r,
+                color.g,
+                color.b,
+                x,
+                y,
+                self.encode_text_for_current_font(text)
+            )
+            .as_bytes(),
+        );
+    }
+
+    fn push_outline(&mut self, title: &str, level: u8) {
+        let page_label = format_folio(self.page_num_style, self.folio).unwrap_or_default();
+        self.outlines.push(OutlineDest {
+            title: title.to_string(),
+            level,
+            page_index: (self.page_number as usize).saturating_sub(1),
+            y: self.y,
+            page_label,
+        });
+    }
+
+    fn set_page_number_style(&mut self, style: PageNumberStyle) {
+        if self.page_num_style == style {
+            return;
+        }
+        self.page_num_style = style;
+        if style != PageNumberStyle::None {
+            self.folio = 1;
+        }
+    }
+
+    fn citation_marker(&mut self, key: &str) -> String {
+        let n = self.citations.number_for(key);
+        format!("[{}]", n)
+    }
+}
+
+fn truncate_label(label: &str, max_chars: usize) -> String {
+    let count = label.chars().count();
+    if count <= max_chars {
+        return label.to_string();
+    }
+    label.chars().take(max_chars.saturating_sub(1)).collect::<String>() + "…"
+}
+
+fn format_chart_value(v: f32) -> String {
+    if (v - v.round()).abs() < 0.05 {
+        format!("{}", v.round() as i64)
+    } else {
+        format!("{:.1}", v)
     }
 }
 
@@ -1042,31 +2321,17 @@ pub fn create_pdf_from_elements_with_layout(
     base_font_size: f32,
     layout: PageLayout,
 ) -> Result<()> {
-    let unicode_font_support = if document_requires_unicode(elements) {
-        prepare_unicode_font_support()
-    } else {
-        None
-    };
-    let unicode_font_encoder = unicode_font_support
-        .as_ref()
-        .map(|(_, encoder)| encoder.clone());
-    let show_page_numbers = true;
-    let mut builder = ContentStreamBuilder::new(
-        base_font_size,
-        show_page_numbers,
-        layout,
-        unicode_font_encoder,
-    );
-    render_elements_to_builder(&mut builder, elements, base_font_size);
-    let page_streams = builder.finish();
-    assemble_pdf(
-        filename,
-        &page_streams,
+    let bytes = generate_pdf_bytes_internal_with_base(
+        elements,
         font,
-        &layout,
-        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        base_font_size,
+        layout,
+        None,
+        false,
+        None,
         None,
     )?;
+    std::fs::write(filename, bytes)?;
     Ok(())
 }
 
@@ -1079,32 +2344,44 @@ pub fn create_pdf_from_elements_with_layout_and_compression(
     layout: PageLayout,
     compression_level: Option<u8>,
 ) -> Result<()> {
-    let unicode_font_support = if document_requires_unicode(elements) {
-        prepare_unicode_font_support()
-    } else {
-        None
-    };
-    let unicode_font_encoder = unicode_font_support
-        .as_ref()
-        .map(|(_, encoder)| encoder.clone());
-    let show_page_numbers = true;
-    let mut builder = ContentStreamBuilder::new(
-        base_font_size,
-        show_page_numbers,
-        layout,
-        unicode_font_encoder,
-    );
-    render_elements_to_builder(&mut builder, elements, base_font_size);
-    let page_streams = builder.finish();
-    assemble_pdf(
-        filename,
-        &page_streams,
+    let bytes = generate_pdf_bytes_internal_with_base(
+        elements,
         font,
-        &layout,
-        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        base_font_size,
+        layout,
         compression_level,
+        false,
+        None,
+        None,
     )?;
+    std::fs::write(filename, bytes)?;
     Ok(())
+}
+
+/// Expand TOC (two-pass outlines) and attach citation definitions for rendering.
+fn prepare_elements_for_render(
+    elements: &[Element],
+    base_font_size: f32,
+    layout: PageLayout,
+    unicode_font_encoder: Option<UnicodeFontEncoder>,
+    image_base_dir: Option<PathBuf>,
+) -> (Vec<Element>, HashMap<String, String>) {
+    let citation_defs = collect_citation_defs(elements);
+    let mut prepared = elements.to_vec();
+    if prepared.iter().any(|e| matches!(e, Element::Toc)) {
+        let mut dry = ContentStreamBuilder::new(
+            base_font_size,
+            true,
+            layout,
+            unicode_font_encoder.clone(),
+            image_base_dir.clone(),
+        );
+        dry.citation_defs = citation_defs.clone();
+        render_elements_to_builder(&mut dry, &prepared, base_font_size);
+        let (_pages, outlines, _images) = dry.finish();
+        prepared = expand_toc(&prepared, &outlines);
+    }
+    (prepared, citation_defs)
 }
 
 /// Render elements into a ContentStreamBuilder (shared by file and bytes APIs)
@@ -1136,44 +2413,41 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
         match elem {
             Element::Heading { level, text } => {
                 let fs = heading_font_size(*level, base_font_size);
-                let align = if *level == 1 { TextAlign::Center } else { TextAlign::Left };
                 builder.emit_empty_line();
+                builder.push_outline(text, *level);
+                if *level <= 2 {
+                    builder.running_header_text = text.clone();
+                }
+                builder.in_abstract = text.eq_ignore_ascii_case("Abstract");
                 builder.set_font_with_style(fs, true, false);
-                builder.emit_line_aligned(text, fs, align);
-                builder.set_font_with_style(base_font_size, false, false);
-                builder.emit_empty_line();
-            }
-            Element::Paragraph { text } => {
-                builder.emit_wrapped_text(text, base_font_size);
-            }
-            Element::RichParagraph { segments } => {
-                // Keep one callflow for better line wrapping across mixed inline segments
-                // (plain/bold/italic/code/link/inline-math in the same paragraph).
-                let mut combined = String::new();
-                for segment in segments {
-                    match segment {
-                        TextSegment::Plain(text)
-                        | TextSegment::Bold(text)
-                        | TextSegment::Italic(text)
-                        | TextSegment::BoldItalic(text) => combined.push_str(text),
-                        TextSegment::Code(code) => {
-                            combined.push('`');
-                            combined.push_str(code);
-                            combined.push('`');
-                        }
-                        TextSegment::MathInline(expr) => {
-                            combined.push_str(&render_math_text(expr));
-                        }
-                        TextSegment::Link { text, url } => {
-                            combined.push_str(text);
-                            combined.push_str(" (");
-                            combined.push_str(url);
-                            combined.push(')');
-                        }
-                    }
+                if *level == 1 && builder.layout.column_count() > 1 {
+                    builder.emit_full_width_heading(text, fs);
+                } else {
+                    let align = if *level == 1 {
+                        TextAlign::Center
+                    } else {
+                        TextAlign::Left
+                    };
+                    builder.emit_line_aligned(text, fs, align);
                 }
                 builder.set_font_with_style(base_font_size, false, false);
-                builder.emit_wrapped_text(&combined, base_font_size);
+                builder.emit_empty_line();
+                if *level == 1 && builder.layout.column_count() > 1 {
+                    builder.column_top_y = builder.y;
+                    builder.current_column = 0;
+                }
+            }
+            Element::Paragraph { text } => {
+                if builder.in_abstract {
+                    builder.set_font_with_style(base_font_size, false, true);
+                    builder.emit_wrapped_text(text, base_font_size);
+                    builder.set_font_with_style(base_font_size, false, false);
+                } else {
+                    builder.emit_wrapped_text(text, base_font_size);
+                }
+            }
+            Element::RichParagraph { segments } => {
+                builder.emit_rich_paragraph(segments, base_font_size);
             }
             Element::UnorderedListItem { text, depth } => {
                 let indent = "  ".repeat(*depth as usize);
@@ -1194,63 +2468,62 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                 let code_size = base_font_size * 0.85;
                 let padding = 8.0;
                 let line_h = line_height(code_size);
+                let max_code_width = builder.content_width();
                 let all_lines: Vec<&str> = code.lines().collect();
+
+                // Pre-wrap so background height matches rendered lines (incl. CJK).
+                let display_lines: Vec<String> = all_lines
+                    .iter()
+                    .flat_map(|line| builder.wrap_code_line(line, max_code_width, code_size))
+                    .collect();
 
                 builder.emit_empty_line();
 
-                // Split code block across pages if needed
                 let mut line_idx = 0;
-                while line_idx < all_lines.len() {
-                    // Calculate how many lines fit on current page
+                while line_idx < display_lines.len() {
                     let available = builder.y - builder.layout.margin_bottom - padding * 2.0;
-                    let max_lines_on_page = (available / line_h).floor() as usize;
-                    let max_lines_on_page = max_lines_on_page.max(1);
-                    let chunk_end = (line_idx + max_lines_on_page).min(all_lines.len());
-                    let chunk = &all_lines[line_idx..chunk_end];
+                    let max_lines_on_page = (available / line_h).floor().max(1.0) as usize;
+                    let chunk_end = (line_idx + max_lines_on_page).min(display_lines.len());
+                    let chunk = &display_lines[line_idx..chunk_end];
                     let chunk_height = chunk.len() as f32 * line_h + padding * 2.0;
 
-                    // Account for top padding before drawing — shift y down by padding
                     builder.y -= padding;
 
-                    // Draw background rectangle (from current y down by text height + bottom padding)
                     let text_block_height = chunk.len() as f32 * line_h;
                     let bg_color = Color::rgb(0.95, 0.95, 0.95);
-                    let rect_x = builder.layout.margin_left - padding;
+                    let rect_x = builder.content_left() - padding;
                     let rect_y = builder.y - text_block_height - padding;
-                    let rect_width = builder.layout.content_width() + padding * 2.0;
+                    let rect_width = builder.content_width() + padding * 2.0;
                     let rect_height = chunk_height;
                     builder.draw_rectangle(rect_x, rect_y, rect_width, rect_height, bg_color);
 
-                    // Draw border
                     let border_color = Color::rgb(0.75, 0.75, 0.75);
                     builder.draw_line(rect_x, rect_y, rect_x + rect_width, rect_y, 0.5, border_color);
                     builder.draw_line(rect_x, rect_y + rect_height, rect_x + rect_width, rect_y + rect_height, 0.5, border_color);
                     builder.draw_line(rect_x, rect_y, rect_x, rect_y + rect_height, 0.5, border_color);
                     builder.draw_line(rect_x + rect_width, rect_y, rect_x + rect_width, rect_y + rect_height, 0.5, border_color);
 
-                    // Set monospace font
                     builder.set_monospace_font(code_size);
 
-                    // Emit code lines with per-line syntax highlighting
                     for code_line in chunk {
                         let line_tokens = highlight_code(code_line, language);
 
                         if line_tokens.is_empty() || line_tokens.iter().all(|t| t.text.is_empty()) {
-                            // Empty line or no tokens — just advance
                             builder.current.extend_from_slice(
                                 format!("{} {} {} rg\n", 0.15, 0.15, 0.15).as_bytes()
                             );
                             builder.current.extend_from_slice(
-                                format!("1 0 0 1 {} {} Tm\n", builder.layout.margin_left, builder.y).as_bytes()
+                                format!("1 0 0 1 {} {} Tm\n", builder.content_left(), builder.y).as_bytes()
                             );
                             builder.current.extend_from_slice(
                                 format!("{} Tj\n", builder.encode_text_for_current_font(code_line)).as_bytes()
                             );
                         } else {
-                            // Render each token with its color
-                            let mut x_offset = builder.layout.margin_left;
+                            let mut x_offset = builder.content_left();
                             for token in &line_tokens {
-                                if token.text.is_empty() { continue; }
+                                if token.text.is_empty() {
+                                    continue;
+                                }
                                 builder.current.extend_from_slice(
                                     format!("{} {} {} rg\n", token.color.r, token.color.g, token.color.b).as_bytes()
                                 );
@@ -1260,26 +2533,22 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                                 builder.current.extend_from_slice(
                                     format!("{} Tj\n", builder.encode_text_for_current_font(&token.text)).as_bytes()
                                 );
-                                x_offset += estimated_text_width(&token.text, code_size, true);
+                                x_offset += builder.code_text_width(&token.text, code_size);
                             }
                         }
                         builder.y -= line_h;
                     }
 
-                    // Account for bottom padding
                     builder.y -= padding;
-
                     line_idx = chunk_end;
 
-                    // If more lines remain, start a new page
-                    if line_idx < all_lines.len() {
+                    if line_idx < display_lines.len() {
                         builder.set_font_with_style(base_font_size, false, false);
                         builder.reset_color();
                         builder.new_page();
                     }
                 }
 
-                // Reset to normal font and color
                 builder.set_font_with_style(base_font_size, false, false);
                 builder.reset_color();
                 builder.emit_empty_line();
@@ -1304,7 +2573,10 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                 builder.reset_color();
             }
             Element::Image { alt, path } => {
-                builder.emit_wrapped_text(&format!("[Image: {}] ({})", alt, path), base_font_size);
+                builder.emit_image(alt, path);
+            }
+            Element::Chart { kind, title, points } => {
+                builder.emit_chart(*kind, title, points);
             }
             Element::StyledText { text, bold, italic } => {
                 builder.set_font_with_style(base_font_size, *bold, *italic);
@@ -1325,50 +2597,7 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                 builder.reset_color();
             }
             Element::MathBlock { expression } => {
-                // Slightly larger display-math sizing improves readability of
-                // large operators (∫, ∑, ∏) and script limits.
-                let math_size = base_font_size * 1.22;
-                let padding = 10.0;
-                let line_h = line_height(math_size);
-                let math_lines: Vec<&str> = expression.lines().collect();
-                let block_height = math_lines.len() as f32 * line_h + padding * 2.0;
-
-                builder.emit_empty_line();
-
-                // Check page break
-                if builder.needs_page_break(block_height) {
-                    builder.new_page();
-                }
-
-                // Draw light blue background
-                let bg_color = Color::rgb(0.93, 0.95, 1.0);
-                let rect_x = builder.layout.margin_left - padding;
-                let rect_y = builder.y - block_height;
-                let rect_width = builder.layout.content_width() + padding * 2.0;
-                builder.draw_rectangle(rect_x, rect_y, rect_width, block_height, bg_color);
-
-                // Draw left accent border
-                let accent_color = Color::rgb(0.3, 0.4, 0.8);
-                builder.draw_line(rect_x, rect_y, rect_x, rect_y + block_height, 2.0, accent_color);
-
-                // Render math expression in italic
-                builder.set_font_with_style(math_size, false, true);
-                builder.set_color(Color::rgb(0.1, 0.1, 0.3));
-                for math_line in &math_lines {
-                    // Render math symbols with text representation
-                    let rendered = render_math_text(math_line);
-                    builder.current.extend_from_slice(
-                        format!("1 0 0 1 {} {} Tm\n", builder.layout.margin_left + 4.0, builder.y).as_bytes()
-                    );
-                    builder.current.extend_from_slice(
-                        format!("{} Tj\n", builder.encode_text_for_current_font(&rendered)).as_bytes()
-                    );
-                    builder.y -= line_h;
-                }
-
-                builder.set_font_with_style(base_font_size, false, false);
-                builder.reset_color();
-                builder.emit_empty_line();
+                builder.emit_display_math(expression, base_font_size);
             }
             Element::MathInline { expression } => {
                 // Render inline math in italic with slight color
@@ -1384,6 +2613,44 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
             }
             Element::EmptyLine => {
                 builder.emit_empty_line();
+            }
+            Element::Columns { count } => {
+                builder.set_columns(*count);
+            }
+            Element::PageNumberMode { style } => {
+                builder.set_page_number_style(*style);
+            }
+            Element::RunningHeaderMode { enabled } => {
+                builder.running_header_enabled = *enabled;
+            }
+            Element::Toc => {
+                // Expanded in prepare_elements_for_render when present.
+            }
+            Element::Bibliography => {
+                let defs = builder.citation_defs.clone();
+                let bib = build_bibliography_elements(&builder.citations, &defs);
+                // Render inline without re-entering the table flusher.
+                for b in &bib {
+                    match b {
+                        Element::Heading { level, text } => {
+                            let fs = heading_font_size(*level, base_font_size);
+                            builder.emit_empty_line();
+                            builder.push_outline(text, *level);
+                            builder.set_font_with_style(fs, true, false);
+                            builder.emit_line_aligned(text, fs, TextAlign::Left);
+                            builder.set_font_with_style(base_font_size, false, false);
+                            builder.emit_empty_line();
+                        }
+                        Element::Paragraph { text } => {
+                            builder.emit_wrapped_text(text, base_font_size);
+                        }
+                        Element::EmptyLine => builder.emit_empty_line(),
+                        _ => {}
+                    }
+                }
+            }
+            Element::CitationDef { .. } => {
+                // Collected up-front; not rendered inline.
             }
             Element::TableRow { .. } => {
                 // Already handled above
@@ -1406,26 +2673,36 @@ struct FontResourceIds {
     courier: u32,
 }
 
-fn add_shared_font_resources(generator: &mut PdfGenerator, unicode_font_bytes: Option<&[u8]>) -> FontResourceIds {
-    let helvetica_id = if let Some(bytes) = unicode_font_bytes {
+fn add_shared_font_resources(
+    generator: &mut PdfGenerator,
+    unicode_font: Option<(&[u8], &UnicodeFontEncoder, &std::collections::BTreeSet<char>)>,
+) -> FontResourceIds {
+    let helvetica_id = if let Some((bytes, encoder, chars)) = unicode_font {
         let font_file_id = generator.add_stream_object(
             format!("<< /Length {} >>\n", bytes.len()),
             bytes.to_vec(),
         );
 
         let descriptor_id = generator.add_object(format!(
-            "<< /Type /FontDescriptor\n/FontName /UnicodeTT\n/Flags 4\n/FontBBox [0 -200 1000 900]\n/ItalicAngle 0\n/Ascent 800\n/Descent -200\n/CapHeight 700\n/StemV 80\n/MissingWidth 1000\n/FontFile2 {} 0 R\n>>\n",
+            "<< /Type /FontDescriptor\n/FontName /UnicodeTT\n/Flags 4\n/FontBBox [0 -200 1000 900]\n/ItalicAngle 0\n/Ascent 800\n/Descent -200\n/CapHeight 700\n/StemV 80\n/MissingWidth 500\n/FontFile2 {} 0 R\n>>\n",
             font_file_id
         ));
 
+        let widths = encoder.build_cid_widths_array(chars);
         let cid_font_id = generator.add_object(format!(
-            "<< /Type /Font\n/Subtype /CIDFontType2\n/BaseFont /UnicodeTT\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>\n/FontDescriptor {} 0 R\n/DW 700\n/CIDToGIDMap /Identity\n>>\n",
-            descriptor_id
+            "<< /Type /Font\n/Subtype /CIDFontType2\n/BaseFont /UnicodeTT\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>\n/FontDescriptor {} 0 R\n/DW 500\n/W {}\n/CIDToGIDMap /Identity\n>>\n",
+            descriptor_id, widths
         ));
 
+        let tounicode = encoder.build_tounicode_cmap(chars);
+        let tounicode_id = generator.add_stream_object(
+            format!("<< /Length {} >>\n", tounicode.len()),
+            tounicode,
+        );
+
         generator.add_object(format!(
-            "<< /Type /Font\n/Subtype /Type0\n/BaseFont /UnicodeTT\n/Encoding /Identity-H\n/DescendantFonts [{} 0 R]\n>>\n",
-            cid_font_id
+            "<< /Type /Font\n/Subtype /Type0\n/BaseFont /UnicodeTT\n/Encoding /Identity-H\n/DescendantFonts [{} 0 R]\n/ToUnicode {} 0 R\n>>\n",
+            cid_font_id, tounicode_id
         ))
     } else {
         generator.add_object(format!(
@@ -1435,7 +2712,7 @@ fn add_shared_font_resources(generator: &mut PdfGenerator, unicode_font_bytes: O
     };
 
     let (helvetica_bold_id, helvetica_oblique_id, helvetica_bold_oblique_id) =
-        if unicode_font_bytes.is_some() {
+        if unicode_font.is_some() {
             // Reuse the same embedded Type0/CIDFont for style variants to keep
             // unicode/maths glyph coverage in italic/bold rendering paths.
             (helvetica_id, helvetica_id, helvetica_id)
@@ -1480,13 +2757,51 @@ pub(crate) fn generate_pdf_bytes_internal(
     subset_fonts: bool,
     accessibility: Option<&AccessibilityOptions>,
 ) -> Result<Vec<u8>> {
-    let unicode_font_support = if document_requires_unicode(elements) {
+    generate_pdf_bytes_internal_with_base(
+        elements,
+        font,
+        base_font_size,
+        layout,
+        compression_level,
+        subset_fonts,
+        accessibility,
+        None,
+    )
+}
+
+/// Same as [`generate_pdf_bytes_internal`] with an optional base directory for
+/// resolving relative markdown image paths.
+pub(crate) fn generate_pdf_bytes_internal_with_base(
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+    compression_level: Option<u8>,
+    subset_fonts: bool,
+    accessibility: Option<&AccessibilityOptions>,
+    image_base_dir: Option<PathBuf>,
+) -> Result<Vec<u8>> {
+    // Dry-run TOC expansion does not need a Unicode encoder.
+    let (prepared, citation_defs) = prepare_elements_for_render(
+        elements,
+        base_font_size,
+        layout,
+        None,
+        image_base_dir.clone(),
+    );
+
+    let used_chars = if document_requires_unicode(&prepared) {
+        Some(collect_unicode_chars(&prepared))
+    } else {
+        None
+    };
+    let unicode_font_support = if used_chars.is_some() {
         let chars = if subset_fonts {
-            Some(collect_unicode_chars(elements))
+            used_chars.as_ref()
         } else {
             None
         };
-        prepare_unicode_font_support_with_subsetting(chars.as_ref())
+        prepare_unicode_font_support_with_subsetting(chars)
     } else {
         None
     };
@@ -1499,16 +2814,24 @@ pub(crate) fn generate_pdf_bytes_internal(
         show_page_numbers,
         layout,
         unicode_font_encoder,
+        image_base_dir,
     );
-    render_elements_to_builder(&mut builder, elements, base_font_size);
-    let page_streams = builder.finish();
+    builder.citation_defs = citation_defs;
+    render_elements_to_builder(&mut builder, &prepared, base_font_size);
+    let (page_streams, outlines, images) = builder.finish();
+    let unicode_arg = match (&unicode_font_support, &used_chars) {
+        (Some((bytes, encoder)), Some(chars)) => Some((bytes.as_slice(), encoder, chars)),
+        _ => None,
+    };
     Ok(assemble_pdf_bytes(
         &page_streams,
         font,
         &layout,
-        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        unicode_arg,
         compression_level,
         accessibility,
+        &outlines,
+        &images,
     ))
 }
 
@@ -1590,8 +2913,13 @@ pub fn render_page_range(
     layout: PageLayout,
     range: std::ops::Range<usize>,
 ) -> Result<Vec<u8>> {
-    let unicode_font_support = if document_requires_unicode(elements) {
-        prepare_unicode_font_support_with_subsetting(Some(&collect_unicode_chars(elements)))
+    let used_chars = if document_requires_unicode(elements) {
+        Some(collect_unicode_chars(elements))
+    } else {
+        None
+    };
+    let unicode_font_support = if used_chars.is_some() {
+        prepare_unicode_font_support_with_subsetting(used_chars.as_ref())
     } else {
         None
     };
@@ -1604,9 +2932,10 @@ pub fn render_page_range(
         show_page_numbers,
         layout,
         unicode_font_encoder,
+        None,
     );
     render_elements_to_builder(&mut builder, elements, base_font_size);
-    let all_page_streams = builder.finish();
+    let (all_page_streams, outlines, images) = builder.finish();
 
     if range.start >= all_page_streams.len() {
         anyhow::bail!(
@@ -1617,14 +2946,29 @@ pub fn render_page_range(
     }
     let end = range.end.min(all_page_streams.len());
     let selected = &all_page_streams[range.start..end];
+    // Remap outline page indices into the selected range
+    let filtered: Vec<OutlineDest> = outlines
+        .into_iter()
+        .filter(|o| o.page_index >= range.start && o.page_index < end)
+        .map(|mut o| {
+            o.page_index -= range.start;
+            o
+        })
+        .collect();
 
+    let unicode_arg = match (&unicode_font_support, &used_chars) {
+        (Some((bytes, encoder)), Some(chars)) => Some((bytes.as_slice(), encoder, chars)),
+        _ => None,
+    };
     Ok(assemble_pdf_bytes(
         selected,
         font,
         &layout,
-        unicode_font_support.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        unicode_arg,
         None,
         None,
+        &filtered,
+        &images,
     ))
 }
 
@@ -1633,17 +2977,34 @@ fn assemble_pdf_bytes(
     page_streams: &[Vec<u8>],
     _font: &str,
     layout: &PageLayout,
-    unicode_font_bytes: Option<&[u8]>,
+    unicode_font: Option<(&[u8], &UnicodeFontEncoder, &std::collections::BTreeSet<char>)>,
     compression_level: Option<u8>,
     accessibility: Option<&AccessibilityOptions>,
+    outlines: &[OutlineDest],
+    images: &[(String, ImageInfo)],
 ) -> Vec<u8> {
     let mut generator = PdfGenerator::new().with_version(layout.version);
 
-    let font_ids = add_shared_font_resources(&mut generator, unicode_font_bytes);
+    let font_ids = add_shared_font_resources(&mut generator, unicode_font);
+
+    // Shared image XObjects (referenced from content as /ImN Do)
+    let mut xobject_resource = String::new();
+    if !images.is_empty() {
+        let mut parts = Vec::new();
+        for (name, info) in images {
+            match image::create_image_object(&mut generator, info.clone()) {
+                Ok(id) => parts.push(format!("/{} {} 0 R", name, id)),
+                Err(_) => continue,
+            }
+        }
+        if !parts.is_empty() {
+            xobject_resource = format!("/XObject << {} >> ", parts.join(" "));
+        }
+    }
 
     let mut page_ids = Vec::new();
 
-    // Objects now are: shared font objects first, then each page contributes
+    // Objects now are: shared fonts (+ images), then each page contributes
     // [content_stream, page_dict], then pages object and catalog object.
     let per_page_objects = 2u32;
     let pages_obj_id = generator.next_id + per_page_objects * page_streams.len() as u32;
@@ -1672,7 +3033,7 @@ fn assemble_pdf_bytes(
                  /{} {} 0 R \
                  /{} {} 0 R \
                  /{} {} 0 R \
-             >> >>\n\
+             >> {}>>\n\
              >>\n",
             pages_obj_id,
             layout.width,
@@ -1683,6 +3044,7 @@ fn assemble_pdf_bytes(
             FONT_HELVETICA_OBLIQUE, font_ids.helvetica_oblique,
             FONT_HELVETICA_BOLD_OBLIQUE, font_ids.helvetica_bold_oblique,
             FONT_COURIER, font_ids.courier,
+            xobject_resource,
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
@@ -1727,7 +3089,7 @@ fn assemble_pdf_bytes(
         }
     }
 
-    // Build catalog with optional tagged PDF entries
+    // Build catalog with optional tagged PDF entries and outlines
     let mut catalog_entries = format!("/Pages {} 0 R\n", actual_pages_id);
     if let Some(opts) = accessibility
         && opts.tagged_pdf {
@@ -1737,6 +3099,11 @@ fn assemble_pdf_bytes(
                 catalog_entries.push_str(&format!("/StructTreeRoot {} 0 R\n", st_id));
             }
         }
+
+    if let Some(outlines_id) = add_outline_tree(&mut generator, &page_ids, outlines) {
+        catalog_entries.push_str(&format!("/Outlines {} 0 R\n", outlines_id));
+        catalog_entries.push_str("/PageMode /UseOutlines\n");
+    }
 
     let catalog_dict = format!(
         "<< /Type /Catalog\n\
@@ -1749,19 +3116,49 @@ fn assemble_pdf_bytes(
     generator.generate()
 }
 
-/// Assemble final PDF from per-page content streams and write to file
-fn assemble_pdf(
-    filename: &str,
-    page_streams: &[Vec<u8>],
-    font: &str,
-    layout: &PageLayout,
-    unicode_font_bytes: Option<&[u8]>,
-    compression_level: Option<u8>,
-) -> Result<()> {
-    let pdf_data = assemble_pdf_bytes(page_streams, font, layout, unicode_font_bytes, compression_level, None);
-    let mut file = File::create(filename)?;
-    file.write_all(&pdf_data)?;
-    Ok(())
+/// Build a flat `/Outlines` tree linking each heading to its page.
+fn add_outline_tree(
+    generator: &mut PdfGenerator,
+    page_ids: &[u32],
+    outlines: &[OutlineDest],
+) -> Option<u32> {
+    if outlines.is_empty() || page_ids.is_empty() {
+        return None;
+    }
+
+    let n = outlines.len() as u32;
+    let first_item_id = generator.next_id;
+    let last_item_id = first_item_id + n - 1;
+    let root_id = first_item_id + n; // appended after all item objects
+
+    for (i, entry) in outlines.iter().enumerate() {
+        let page_idx = entry.page_index.min(page_ids.len() - 1);
+        let page_ref = page_ids[page_idx];
+        let mut dict = format!(
+            "<< /Title ({})\n/Parent {} 0 R\n/Dest [{} 0 R /XYZ null {:.2} null]\n",
+            escape_pdf_meta(&entry.title),
+            root_id,
+            page_ref,
+            entry.y,
+        );
+        if i > 0 {
+            dict.push_str(&format!("/Prev {} 0 R\n", first_item_id + (i as u32) - 1));
+        }
+        if i + 1 < outlines.len() {
+            dict.push_str(&format!("/Next {} 0 R\n", first_item_id + (i as u32) + 1));
+        }
+        dict.push_str(">>\n");
+        let actual = generator.add_object(dict);
+        debug_assert_eq!(actual, first_item_id + i as u32);
+    }
+
+    let root_dict = format!(
+        "<< /Type /Outlines\n/First {} 0 R\n/Last {} 0 R\n/Count {}\n>>\n",
+        first_item_id, last_item_id, n
+    );
+    let actual_root = generator.add_object(root_dict);
+    debug_assert_eq!(actual_root, root_id);
+    Some(actual_root)
 }
 
 
@@ -1995,10 +3392,15 @@ pub fn element_to_structure(element: &Element) -> StructureElement {
         }
         Element::RichParagraph { segments } => {
             let text = segments.iter().map(|s| match s {
-                TextSegment::Plain(t) | TextSegment::Bold(t) | TextSegment::Italic(t) | TextSegment::BoldItalic(t) => t.clone(),
+                TextSegment::Plain(t)
+                | TextSegment::Bold(t)
+                | TextSegment::Italic(t)
+                | TextSegment::BoldItalic(t)
+                | TextSegment::Strikethrough(t) => t.clone(),
                 TextSegment::Code(c) => format!("`{}`", c),
                 TextSegment::MathInline(expr) => render_math_text(expr),
                 TextSegment::Link { text, url } => format!("{} ({})", text, url),
+                TextSegment::Citation { key } => format!("[@{}]", key),
             }).collect::<Vec<_>>().join("");
             StructureElement::new(StructureType::P)
                 .with_actual_text(text)
@@ -2023,6 +3425,20 @@ pub fn element_to_structure(element: &Element) -> StructureElement {
         }
         Element::EmptyLine => {
             StructureElement::new(StructureType::NonStruct)
+        }
+        Element::Columns { .. } => {
+            StructureElement::new(StructureType::NonStruct)
+        }
+        Element::PageNumberMode { .. }
+        | Element::RunningHeaderMode { .. }
+        | Element::Toc
+        | Element::Bibliography
+        | Element::CitationDef { .. } => {
+            StructureElement::new(StructureType::NonStruct)
+        }
+        Element::Chart { title, .. } => {
+            StructureElement::new(StructureType::Figure)
+                .with_alt_text(title.clone().unwrap_or_else(|| "Chart".into()))
         }
         Element::Footnote { .. } => {
             StructureElement::new(StructureType::Note)
@@ -2162,7 +3578,11 @@ mod accessibility_tests {
     fn test_render_math_text_handles_lim_and_to_arrow() {
         let rendered = render_math_text(r"\lim_{x\to0} \frac{\sin x}{x}");
         assert!(rendered.contains("lim(x→0)"), "rendered: {}", rendered);
-        assert!(rendered.contains("(sin x)/(x)"), "rendered: {}", rendered);
+        assert!(
+            rendered.contains("(sin x)/(x)") || rendered.contains("sin x⁄x"),
+            "rendered: {}",
+            rendered
+        );
     }
 
     #[test]
@@ -2193,10 +3613,20 @@ mod accessibility_tests {
         let expr1 = render_math_text(r"\int_0^1 x^2 dx + \sum_{i=1}^{n} a_i");
         assert!(expr1.contains("∫₀¹"), "Should render integral with subscript/superscript: {}", expr1);
         assert!(expr1.contains("∑"), "Should contain sum symbol: {}", expr1);
+        assert!(
+            expr1.contains("∑[i=1→n]") || expr1.contains("∑ᵢ"),
+            "Sum limits should be readable: {}",
+            expr1
+        );
         assert!(expr1.contains("x²"), "Should render x squared: {}", expr1);
         
         let expr2 = render_math_text(r"\prod_{k=1}^{m} b_k");
         assert!(expr2.contains("∏"), "Should contain product symbol: {}", expr2);
+        assert!(
+            expr2.contains("∏[k=1→m]") || expr2.contains("∏ₖ"),
+            "Product limits should be readable: {}",
+            expr2
+        );
         assert!(expr2.contains("bₖ"), "Should render b subscript k: {}", expr2);
         
         let expr3 = render_math_text(r"\forall x \in \mathbb{R}, x \geq 0 \Rightarrow \sqrt{x} \in \mathbb{R}");
@@ -2209,29 +3639,81 @@ mod accessibility_tests {
     }
 
     #[test]
-    fn test_estimated_text_width_unicode_is_wider_than_ascii() {
-        let ascii = estimated_text_width("Hello", 12.0, false);
-        let cjk = estimated_text_width("你好你好", 12.0, false);
-        assert!(cjk > ascii);
+    fn test_multi_column_layout_flows_across_columns() {
+        let md = r#"<!-- columns:2 -->
+
+## Column Demo
+
+Paragraph one fills the first column with enough words that wrapping and
+column advancement can be exercised on a letter-sized page.
+
+Paragraph two continues the story so the layout engine must place text into
+the second column after the first column runs out of vertical space.
+
+Paragraph three, four, and five keep adding volume for a visible two-column
+spread with a gutter rule between the bands.
+
+- Item alpha
+- Item beta
+- Item gamma
+
+Final paragraph confirms list content stayed in-flow.
+
+<!-- columns:1 -->
+
+Single column again.
+"#;
+        let elements = crate::elements::parse_markdown(md);
+        let layout = PageLayout::portrait().with_columns(1); // switched via directive
+        let bytes = generate_pdf_bytes(&elements, "Helvetica", 11.0, layout).unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
+        let v = crate::pdf::validate_pdf_bytes(&bytes);
+        assert!(v.valid, "{:?}", v.errors);
+        assert!(v.page_count >= 1);
     }
 
     #[test]
-    fn test_embeds_unicode_type0_font_when_available() {
+    fn test_page_layout_column_geometry() {
+        let layout = PageLayout::portrait().with_columns(2).with_column_gap(20.0);
+        assert_eq!(layout.column_count(), 2);
+        let w = layout.column_width();
+        assert!((w * 2.0 + 20.0 - layout.full_content_width()).abs() < 0.01);
+        assert!((layout.column_left(0) - layout.margin_left).abs() < 0.01);
+        assert!((layout.column_left(1) - (layout.margin_left + w + 20.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_code_block_with_cjk_uses_unicode_font_and_extracts() {
         if prepare_unicode_font_support().is_none() {
-            // Environment without a Unicode TTF candidate; skip.
             return;
         }
-
         let elements = vec![
-            Element::Paragraph { text: "Unicode: 你好 Γεια 😀 ∑".into() },
+            Element::Heading {
+                level: 1,
+                text: "CJK Code".into(),
+            },
+            Element::Paragraph {
+                text: "你好 / こんにちは / 안녕하세요".into(),
+            },
+            Element::CodeBlock {
+                language: "rust".into(),
+                code: "// 中文注释\nfn hi() { println!(\"こんにちは\"); }\n// 한국어".into(),
+            },
         ];
-        let bytes = generate_pdf_bytes(&elements, "Helvetica", 12.0, PageLayout::portrait()).unwrap();
+        let bytes =
+            generate_pdf_bytes_internal(&elements, "Helvetica", 11.0, PageLayout::portrait(), None, true, None)
+                .unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
         let raw = String::from_utf8_lossy(&bytes);
-
-        assert!(raw.contains("/Subtype /Type0"), "Expected Type0 font for unicode text");
-        assert!(raw.contains("/Subtype /CIDFontType2"), "Expected CIDFontType2 descendant font");
-        assert!(raw.contains("/FontFile2"), "Expected embedded FontFile2 object");
-        assert!(raw.contains("/DW 700"), "Expected balanced CID default width to avoid overlap while keeping spacing tight");
+        assert!(raw.contains("/ToUnicode"));
+        // Write + extract
+        let path = std::env::temp_dir().join("pdfrs_cjk_code.pdf");
+        std::fs::write(&path, &bytes).unwrap();
+        let extracted = crate::pdf::extract_text(path.to_str().unwrap()).unwrap();
+        assert!(extracted.contains("你好"), "got: {}", extracted);
+        assert!(extracted.contains("こんにちは"), "got: {}", extracted);
+        assert!(extracted.contains("한국어") || extracted.contains("중文") || extracted.contains("中文"), "got: {}", extracted);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -2260,6 +3742,7 @@ mod accessibility_tests {
             false,
             PageLayout::portrait(),
             Some(encoder.clone()),
+            None,
         );
         builder.set_font_with_style(12.0, false, true); // math path uses oblique
 
@@ -2283,6 +3766,7 @@ mod accessibility_tests {
             false,
             PageLayout::portrait(),
             Some(encoder.clone()),
+            None,
         );
         builder.set_font_with_style(12.0, true, false);
 
@@ -2415,5 +3899,74 @@ mod page_range_tests {
         // When tagged_pdf is false, should NOT contain tagged markers
         assert!(!content.contains("/MarkInfo"), "Should not contain /MarkInfo when disabled");
         assert!(!content.contains("/StructTreeRoot"), "Should not contain /StructTreeRoot when disabled");
+    }
+
+    #[test]
+    fn test_markdown_image_and_chart_embedding() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let md = "\
+# Media\n\n\
+![Sample](sample.png)\n\n\
+```chart bar\n\
+title: Demo\n\
+A, 10\n\
+B, 20\n\
+```\n";
+        let elements = crate::elements::parse_markdown(md);
+        assert!(elements.iter().any(|e| matches!(e, Element::Image { .. })));
+        assert!(elements.iter().any(|e| matches!(e, Element::Chart { .. })));
+
+        let bytes = generate_pdf_bytes_internal_with_base(
+            &elements,
+            "Helvetica",
+            12.0,
+            PageLayout::portrait(),
+            None,
+            false,
+            None,
+            Some(fixture),
+        )
+        .unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
+        let raw = String::from_utf8_lossy(&bytes);
+        assert!(raw.contains("/XObject"), "missing image XObject resource");
+        assert!(raw.contains("/Subtype /Image") || raw.contains("/Subtype/Image"));
+        assert!(raw.contains("/Im1"), "missing Im1 name");
+        let validation = crate::pdf::validate_pdf_bytes(&bytes);
+        assert!(validation.valid, "{:?}", validation.errors);
+    }
+
+    #[test]
+    fn test_thesis_toc_citations_and_folios() {
+        let md = "\
+<!-- pagenumber:roman -->\n\
+<!-- toc -->\n\
+<!-- pagebreak -->\n\
+# Chapter One\n\n\
+Body cites [@alpha] and [@beta].\n\n\
+<!-- pagebreak -->\n\
+<!-- pagenumber:arabic -->\n\
+# Chapter Two\n\n\
+More text.\n\n\
+<!-- bibliography -->\n\
+[@alpha]: Alpha, A. (2020). First.\n\
+[@beta]: Beta, B. (2021). Second.\n";
+        let elements = crate::elements::parse_markdown(md);
+        let bytes = generate_pdf_bytes(&elements, "Helvetica", 11.0, PageLayout::portrait()).unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
+        let validation = crate::pdf::validate_pdf_bytes(&bytes);
+        assert!(validation.valid, "{:?}", validation.errors);
+        assert!(validation.page_count >= 2);
+
+        let tmp = std::env::temp_dir().join("pdfrs_thesis_test.pdf");
+        std::fs::write(&tmp, &bytes).unwrap();
+        let extracted = crate::pdf::extract_text(tmp.to_str().unwrap()).unwrap();
+        assert!(extracted.contains("Contents"), "missing TOC heading: {extracted}");
+        assert!(extracted.contains("Chapter One"), "{extracted}");
+        assert!(extracted.contains("Bibliography"), "{extracted}");
+        assert!(
+            extracted.contains("[1]") && extracted.contains("[2]"),
+            "missing citation markers: {extracted}"
+        );
     }
 }

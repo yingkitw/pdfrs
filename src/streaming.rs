@@ -181,6 +181,10 @@ impl StreamingPdfGenerator {
                     let _ = self.set_font("Courier", code_size);
                     self.write_text(code)?;
                 }
+                TextSegment::Strikethrough(text) => {
+                    let _ = self.set_font("Helvetica", self.base_font_size);
+                    self.write_text(text)?;
+                }
                 TextSegment::MathInline(expr) => {
                     let _ = self.set_font("Helvetica-Oblique", self.base_font_size);
                     self.write_text(expr)?;
@@ -189,6 +193,10 @@ impl StreamingPdfGenerator {
                 TextSegment::Link { text, url } => {
                     let _ = self.set_font("Helvetica", self.base_font_size);
                     self.write_text(&format!("{} ({})", text, url))?;
+                }
+                TextSegment::Citation { key } => {
+                    let _ = self.set_font("Helvetica", self.base_font_size);
+                    self.write_text(&format!("[@{}]", key))?;
                 }
             }
         }

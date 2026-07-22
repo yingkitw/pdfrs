@@ -270,6 +270,7 @@ pub struct OptimizedPdfGenerator {
     layout: PageLayout,
     font: String,
     font_size: f32,
+    image_base_dir: Option<std::path::PathBuf>,
 }
 
 impl OptimizedPdfGenerator {
@@ -282,6 +283,7 @@ impl OptimizedPdfGenerator {
             layout: PageLayout::portrait(),
             font: "Helvetica".to_string(),
             font_size: 12.0,
+            image_base_dir: None,
         }
     }
 
@@ -303,6 +305,12 @@ impl OptimizedPdfGenerator {
         self
     }
 
+    /// Base directory for resolving relative `![alt](path)` image references.
+    pub fn with_image_base_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.image_base_dir = Some(dir.into());
+        self
+    }
+
     /// Generate a PDF from elements with the current optimization settings
     pub fn generate(&self, elements: &[crate::elements::Element], output_path: &str) -> Result<()> {
         let bytes = self.generate_bytes(elements)?;
@@ -316,7 +324,7 @@ impl OptimizedPdfGenerator {
             CompressionLevel::None => None,
             _ => Some(self.settings.compression_level.deflate_level()),
         };
-        crate::pdf_generator::generate_pdf_bytes_internal(
+        let bytes = crate::pdf_generator::generate_pdf_bytes_internal_with_base(
             elements,
             &self.font,
             self.font_size,
@@ -324,7 +332,13 @@ impl OptimizedPdfGenerator {
             level,
             self.settings.subset_fonts,
             None,
-        )
+            self.image_base_dir.clone(),
+        )?;
+        if self.settings.linearize {
+            crate::linearize::linearize_pdf_bytes(&bytes)
+        } else {
+            Ok(bytes)
+        }
     }
 
     /// Get the current optimization settings
@@ -441,7 +455,11 @@ pub fn optimize_pdf_bytes(
     // Deduplicate identical objects (most effective after stream normalization)
     doc.deduplicate_objects();
 
-    Ok(doc.to_bytes())
+    let mut bytes = doc.to_bytes();
+    if settings.linearize {
+        bytes = crate::linearize::linearize_pdf_bytes(&bytes)?;
+    }
+    Ok(bytes)
 }
 
 /// Apply an optimization profile to an existing PDF file

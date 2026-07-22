@@ -45,6 +45,15 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] Complex math formula PDF roundtrip test (limits, fraction, roots, integral/sum/product, set operators, quantifiers)
 - [x] Extended math symbol coverage (mathbb sets, set relations, logic symbols, common function aliases) with regression tests
 - [x] Rebalanced Unicode CID font default width to reduce text overlap while preserving compact spacing
+- [x] Emit per-glyph CID `/W` widths + `/ToUnicode` CMap; fix rich inline styling/wrapping for comprehensive PDF quality
+- [x] Text extraction prefers document ToUnicode maps (works with subset Identity-H fonts)
+- [x] Display-math layout: stacked fractions, ∑/∏ limits above/below, ∫ side scripts
+- [x] Code blocks use Unicode Type0 when embedded (CJK-safe) + wrap long lines to content width
+- [x] Comprehensive fixture covers Chinese / Japanese / Korean prose and CJK-in-code samples
+- [x] Multi-column layout (`PageLayout::with_columns`, `<!-- columns:N -->`, gutter rules, CLI `--columns`)
+- [x] Markdown image embedding in md→PDF (`![alt](path)` → `/XObject`, relative to markdown/fixture dir)
+- [x] Markdown charts (` ```chart bar|line|pie` ` → vector charts via `chart` module)
+- [x] Academic thesis elements — `<!-- pagenumber:roman|arabic|none -->`, running headers, `<!-- toc -->`, figure/table numbering, `[@key]` citations + `<!-- bibliography -->`
 
 ---
 
@@ -155,6 +164,10 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR18.2**: Font subsetting to reduce file size — `prepare_unicode_font_support_with_subsetting()` with `subsetter` crate; collects used chars/glyphs, builds `GlyphRemapper`, subsets embedded TrueType font; `OptimizedPdfGenerator` respects `subset_fonts` setting; integration test verifies smaller PDF with embedded font
 - [x] **FR18.3**: Object deduplication across pages — `PdfDocument::deduplicate_objects()` with deterministic content hashing and reference rewriting, integrated into `optimize_pdf_bytes()`
 - [x] **FR18.4**: Optimization profiles (web, print, archive, ebook)
+- [x] **FR18.6**: Linearized PDF (Fast Web View) — `linearize` module writes `/Linearized` dict with `/L` `/O` `/E` `/N` `/T`, first-page object priority; `linearize-pdf` CLI; Web/Ebook profiles set `linearize: true` and `optimize_pdf_bytes` / `OptimizedPdfGenerator` apply it
+- [x] **FR18.7**: Incremental PDF updates — `incremental` module appends objects + xref/trailer with `/Prev`; `incremental_set_info` / `incremental_add_text_annotation`; `incremental-update` CLI; capability showcase validates prefix preservation
+- [x] **Capability showcase** — `tests/fixtures/capability_showcase.md` + `tests/capability_validation.rs` (plugins, outlines, pages, linearize, incremental, vector/SVG/3D)
+- [x] **Comprehensive PDF generator** — `comprehensive` module + bundled fixture `tests/fixtures/comprehensive_document.md`; CLI `generate-comprehensive` (default `comprehensive.pdf`); test `tests/comprehensive_pdf.rs` writes `tests/output/comprehensive_document.pdf` and root `comprehensive.pdf`
 
 ### 🟡 High Impact
 
@@ -178,7 +191,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] **FR17.2**: PDF/A-3 and PDF/UA validation — `validate_pdf_a3_bytes()` extends PDF/A-1b checks with embedded file requirement; `validate_pdf_ua_bytes()` checks /MarkInfo, /StructTreeRoot, /Lang, Title, no encryption, embedded fonts; `validate-pdfa3` and `validate-pdfua` CLI commands
 - [x] **FR17.3**: Embedded file attachments — `PdfDocument::embed_file()` creates /EmbeddedFile stream and /Filespec objects, wires them into catalog's /Names -> /EmbeddedFiles name tree; `attach-file` CLI command
 - [x] **FR17.4**: PDF portfolios and collections — `create_portfolio_pdf()` bundles multiple files into a portfolio PDF with `/Collection` catalog entry, schema (Name/Description columns), sort order, and embedded files; `create-portfolio` CLI command
-- [ ] **FR17.5**: 3D annotations (U3D)
+- [x] **FR17.5**: 3D annotations (U3D) — `ThreeDAnnotation`, `create_pdf_with_3d_annotation` / `_bytes` embed `/Type /3D` `/Subtype /U3D` stream + `/Subtype /3D` annotation with `/3DD` / `/3DA`; `embed-3d` CLI; `pdf_contains_3d_u3d()` helper
 
 #### FR19: Security
 - [x] **FR19.1**: Malformed PDF sanitization — `PdfDocument::sanitize()` removes JavaScript (`/JS`, `/JavaScript`), launch actions (`/S /Launch`), external file references, additional actions (`/AA`), and `OpenAction` from catalog; `sanitize-pdf` CLI command
@@ -212,11 +225,11 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Page rotation — `rotate` CLI command (0/90/180/270°)
 
 - [x] Advanced image features
-  - [ ] Image filters and effects
+  - [x] Image filters and effects — `ImageFilter` (grayscale, invert, brightness, contrast, sepia), PNG scanline reconstruction, `apply_image_filters()` / `create_filtered_image_pdf()`; `filter-image` CLI
   - [x] Multiple images per page — `create_pdf_with_images` API
   - [x] Image overlay and watermarking
   - [x] Image extraction from PDFs — `extract-images` CLI command (JPEG DCTDecode + raw binary fallback)
-  - [ ] Vector graphics support
+  - [x] Vector graphics support — `vector` module with `VectorCanvas` / `VectorShape` (line, rect, ellipse, polygon, Bézier path); PDF operators `m`/`l`/`c`/`re`/`S`/`f`/`B`; `draw-vector` CLI demo
 
 - [x] Form and annotation support
   - [x] Interactive form fields
@@ -242,10 +255,10 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Full tagged PDF generation in output — `generate_tagged_pdf_bytes()` creates `/StructTreeRoot`, `/MarkInfo << /Marked true >>`, `/Lang`, and `/Title` in catalog/Info dictionary; generated PDFs pass `validate_pdf_ua_bytes()` checks
   - [x] Screen reader compliance testing — `check_screen_reader_compliance_bytes()` combines PDF/UA validation with text-extraction checks; `check-screen-reader` CLI command; integration test for complex tagged Markdown
 
-- [ ] Localization
-  - [ ] Multi-language error messages
-  - [ ] Locale-specific formatting
-  - [ ] RTL text support
+- [x] Localization
+  - [x] Multi-language error messages — `i18n` module (`Locale`, `MsgId`, `t`/`tf`); catalogs for en/es/de/fr/zh/he/ar; `localize_validation()`; CLI global `--lang` (also `PDFRS_LANG` / `LANG`)
+  - [x] Locale-specific formatting — `format_integer` / `format_decimal` (thousands + decimal separators per locale)
+  - [x] RTL text support — `rtl` module (Hebrew/Arabic detection, visual reorder, punctuation mirroring); auto RTL for RTL-dominant lines; `PageLayout::with_rtl()` / `md-to-pdf --rtl`
 
 ---
 
@@ -264,11 +277,12 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] Rust API documentation (rustdoc with examples) — module-level `//!` docs added to all public modules (`elements`, `pdf_generator`, `pdf_ops`, `pdf`, `image`, `compression`, `builder`, `streaming`, `parallel`, `wasm`); cross-referenced types and runnable examples in `lib.rs`
   - [x] Example usage patterns (examples/ directory) — `examples/basic.rs` (generate PDF from Markdown), `examples/merge.rs` (merge PDFs), `examples/optimize.rs` (optimize with Web profile), `examples/watermark.rs` (add text watermark)
 
-- [ ] Plugin system
-  - [ ] Plugin architecture
-  - [ ] Custom parser plugins
-  - [ ] Custom generator plugins
-  - [ ] Third-party integrations
+- [x] Plugin system
+  - [x] Plugin architecture — `plugin` module with `ParserPlugin` / `GeneratorPlugin` traits and `PluginRegistry`
+  - [x] Custom parser plugins — line hook via `parse_markdown_with_hook`; built-in `CalloutPlugin` (`:::note` / `:::warning` / …)
+  - [x] Custom generator plugins — `transform_element` pass before PDF render; `PdfBuilder::add_markdown_with_plugins`
+  - [x] Third-party integrations — CLI `md-to-pdf --plugins callouts`; register custom plugins via `PluginRegistry`
+- [x] Document outlines / bookmarks — headings emit `/Outlines` + `/PageMode /UseOutlines` during PDF assembly
 
 ### 🟢 Medium
 
@@ -335,8 +349,8 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] PDF 2.0 specification research — `PdfVersion` enum with V1_4/V2_0; header generation; UTF-8 string support foundation laid
 - [ ] Advanced compression algorithms
 - [ ] Machine learning for OCR integration
-- [ ] Vector graphics (SVG) support
-- [ ] 3D PDF support investigation
+- [x] Vector graphics (SVG) support — SVG path `d` parser (`M/L/H/V/C/S/Q/T/Z`) → `VectorCanvas`; `draw-svg` CLI (`--path` / `--file`)
+- [x] 3D PDF support investigation — U3D 3D annotations via `embed-3d` (FR17.5)
 
 ### Brainstorming (Competitive Intelligence — 2026-07)
 
@@ -347,11 +361,15 @@ Capabilities in peer projects worth prioritizing:
 - **Office/HTML round-trip conversion** (Gigapdf) — DOCX/ODT/HTML ↔ PDF beyond Markdown
 - **True redaction** (Gigapdf) — remove content from streams, not just opaque overlays
 - **OCR for scanned PDFs** (Gigapdf) — built-in recognizer without Tesseract
-- **Vector path / SVG drawing** (better-pdf) — `drawSvgPath`, polygons, outlines/bookmarks
-- **Incremental PDF saves** (better-pdf) — append-only updates for faster edit workflows
+- ~~**Vector path / SVG drawing**~~ — shipped: `vector` + SVG path `d` import (`draw-svg`); still open: full SVG docs (groups/transforms/text)
+- ~~**Document outlines / bookmarks**~~ — shipped: `/Outlines` from headings + `/PageMode /UseOutlines`
+- ~~**Linearized (web-optimized) PDF**~~ — shipped: `linearize` module + `linearize-pdf` CLI; Web/Ebook optimize profiles apply `/Linearized`
+- ~~**Incremental PDF saves**~~ — shipped: `incremental` module (`incremental_set_info`, `incremental_add_text_annotation`, `/Prev` trailer); `incremental-update` CLI
+- **PRC 3D / rich media** (Acrobat) — beyond U3D: PRC streams, `/RichMedia` annotations
 - **Web Worker offloading** (MantisPDF) — keep UI responsive during large WASM operations
 - **IndexedDB WASM module caching** (PDFNova) — instant reload of WASM binary in browser
 - **Multi-language bindings** (PDF Oxide) — Python/JS/Go/C# from same Rust core
+- ~~**Plugin hooks for Element → PDF**~~ — shipped: `ParserPlugin` / `GeneratorPlugin` + `CalloutPlugin`
 
 ---
 

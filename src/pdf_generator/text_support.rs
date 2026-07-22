@@ -58,9 +58,17 @@ fn to_subscript(text: &str) -> Option<String> {
 }
 
 fn render_operator_with_limits(symbol: &str, lower: &str, upper: &str) -> String {
-    match (to_subscript(lower), to_superscript(upper)) {
-        (Some(lo), Some(up)) => format!("{}{}{}", symbol, lo, up),
-        _ => format!("{}[{}→{}]", symbol, lower, upper),
+    // Unicode sub/superscripts only for simple digit/letter limits.
+    // Expressions like k=1 contain `=` / multi-glyph forms that often miss
+    // glyphs in subset fonts and look broken inline.
+    let simple = |s: &str| s.chars().all(|c| c.is_ascii_alphanumeric());
+    if simple(lower) && simple(upper) {
+        match (to_subscript(lower), to_superscript(upper)) {
+            (Some(lo), Some(up)) => format!("{}{}{}", symbol, lo, up),
+            _ => format!("{}[{}→{}]", symbol, lower, upper),
+        }
+    } else {
+        format!("{}[{}→{}]", symbol, lower, upper)
     }
 }
 
@@ -135,10 +143,26 @@ pub(super) fn render_math_text(expr: &str) -> String {
     s = s.replace("\\mathbb{P}", "ℙ");
     s = s.replace("\\mathbb{H}", "ℍ");
 
-    // Handle \frac{a}{b} -> (a)/(b)
+    // Handle \frac{a}{b} -> a⁄b (unicode fraction slash) when both sides are simple,
+    // otherwise (a)/(b). Display math uses a stacked fraction renderer separately.
     let frac_re = Regex::new(r"\\frac\{([^}]*)\}\{([^}]*)\}").unwrap();
     while frac_re.is_match(&s) {
-        s = frac_re.replace_all(&s, "($1)/($2)").to_string();
+        s = frac_re
+            .replace_all(&s, |caps: &Captures| {
+                let num = caps[1].trim();
+                let den = caps[2].trim();
+                let simple = |t: &str| {
+                    !t.is_empty()
+                        && t.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '(' || c == ')')
+                };
+                if simple(num) && simple(den) {
+                    format!("{}⁄{}", num, den)
+                } else {
+                    format!("({})/({})", num, den)
+                }
+            })
+            .to_string();
     }
 
     // Handle \sqrt[n]{x} -> √[n](x) (do this first, before simple sqrt)

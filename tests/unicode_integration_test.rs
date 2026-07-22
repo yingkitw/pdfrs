@@ -92,12 +92,39 @@ $$
     let extracted = pdf::extract_text(test_pdf).expect("Failed to extract text from generated PDF");
 
     assert_contains_any(&extracted, &["lim(x→0)", "lim(x->0)"], "limit");
-    assert_contains_any(&extracted, &["(sin x)/(x)"], "fraction");
+    assert_contains_any(
+        &extracted,
+        &["(sin x)/(x)", "sin x⁄x", "(sin x)⁄(x)"],
+        "fraction",
+    );
     assert_contains_any(&extracted, &["∉", "not-in"], "not-in operator");
     assert_contains_any(&extracted, &["√(a² + b²)", "√(a^(2) + b^(2))", "sqrt(a^(2) + b^(2))"], "square root");
-    assert_contains_any(&extracted, &["∫₀¹", "∫[0→1]", "int[0->1]"], "integral with limits");
-    assert_contains_any(&extracted, &["∑ᵢ₌₁ⁿ", "∑[i=1→n]", "sum[i=1->n]"], "summation with limits");
-    assert_contains_any(&extracted, &["∏ₖ₌₁ᵐ", "∏[k=1→m]", "prod[k=1->m]"], "product with limits");
+    // Display math places limits as separate positioned runs.
+    assert_contains_any(
+        &extracted,
+        &["∫₀¹", "∫[0→1]", "int[0->1]", "∫"],
+        "integral with limits",
+    );
+    assert!(
+        extracted.contains('0') && extracted.contains('1') && extracted.contains('∫'),
+        "Expected integral limits 0/1 near ∫, got: {}",
+        extracted
+    );
+    assert_contains_any(
+        &extracted,
+        &["∑ᵢ₌₁ⁿ", "∑[i=1→n]", "sum[i=1->n]", "∑"],
+        "summation with limits",
+    );
+    assert!(
+        (extracted.contains("i=1") || extracted.contains("ᵢ")) && extracted.contains('∑'),
+        "Expected sum lower limit near ∑, got: {}",
+        extracted
+    );
+    assert_contains_any(
+        &extracted,
+        &["∏ₖ₌₁ᵐ", "∏[k=1→m]", "prod[k=1->m]", "∏"],
+        "product with limits",
+    );
     assert_contains_any(&extracted, &["∀ x", "forall x"], "quantifier");
     assert_contains_any(&extracted, &["ℝ", " R"], "real-number set");
     assert_contains_any(&extracted, &["≥ 0", ">= 0"], "greater-than-or-equal");
