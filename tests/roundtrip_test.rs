@@ -444,8 +444,8 @@ fn test_full_features_roundtrip() {
         "adobe.com",
         // Images
         "Rust Logo",
-        "rust-logo.png",
         "PDF Icon",
+        "Figure",
         // Horizontal rules
         "Content above the rule",
         "Content below the rule",

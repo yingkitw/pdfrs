@@ -360,7 +360,8 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 - [x] Propagate image embed / XObject failures instead of silent placeholder
 - [x] Sync Element count (27) + SPEC multi-column FR + fix AGENTS.md domain copy
 - [x] Tighten `comprehensive_pdf` asserts (Chart/Columns/Image/Toc); wire `syntect` highlighting
-- [ ] Split mega-files: `pdf_generator.rs`, `pdf_ops.rs`, `pdf.rs`, `main.rs` (incremental)
+- [x] Split mega-files (incremental): accessibility → `pdf_generator/accessibility.rs`; REPL → `cli_repl.rs`; remove dead `generate_with_info`; dedupe `escape_pdf_string`; drop scratch examples
+- [ ] Further splits: `ContentStreamBuilder`, `pdf_ops` domain clusters, `pdf` validation module
 
 ### Brainstorming (Competitive Intelligence — 2026-07)
 

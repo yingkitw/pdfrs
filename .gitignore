@@ -1,9 +1,9 @@
 # Build artifacts
 /target
-AGENTS.md
 
-# Generated PDF files
+# Generated PDF files (keep committed samples like comprehensive.pdf via git -f if needed)
 *.pdf
+!comprehensive.pdf
 
 # Output directories
 /examples/output/

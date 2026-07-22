@@ -95,266 +95,93 @@ Most PDF tools specialize in one lane: a typesetter (Typst/LaTeX), a converter t
 - **Multi-column**: `<!-- columns:N -->` and `--columns`
 - **Thesis**: TOC, Roman/Arabic folios, running headers, citations/bibliography
 
-## Installation
-
-### From Source
+## Install
 
 ```bash
 git clone https://github.com/yingkitw/pdfrs.git
 cd pdfrs
 cargo build --release
+# binary: ./target/release/pdfcli
+# optional: cargo install --path .
 ```
 
-The binary will be available at `target/release/pdfcli`.
+## Quick start
 
-## Usage
-
-### Basic Commands
-
-#### Create a Simple PDF
+Three commands cover most work:
 
 ```bash
-pdfcli create output.pdf "Hello, World!"
+# 1) Markdown → PDF
+pdfcli md-to-pdf notes.md notes.pdf
+
+# 2) Read a PDF back as text / Markdown
+pdfcli extract notes.pdf
+pdfcli pdf-to-md notes.pdf notes.md
+
+# 3) Try the full demo document
+pdfcli generate-comprehensive          # writes comprehensive.pdf
 ```
 
-#### Create PDF with Custom Font and Size
+Add the release binary to your `PATH`, or run it as `./target/release/pdfcli …`.
+
+## Everyday CLI
+
+| Do this | Command |
+|---|---|
+| Markdown → PDF | `pdfcli md-to-pdf in.md out.pdf` |
+| PDF → Markdown | `pdfcli pdf-to-md in.pdf out.md` |
+| Extract text | `pdfcli extract in.pdf` |
+| Create from a string | `pdfcli create out.pdf "Hello"` |
+| Merge | `pdfcli merge a.pdf b.pdf -o out.pdf` |
+| Split pages 2–5 | `pdfcli split in.pdf -o out.pdf --start 2 --end 5` |
+| Rotate 90° | `pdfcli rotate in.pdf -o out.pdf --angle 90` |
+| Validate | `pdfcli validate in.pdf` |
+| Sample showcase | `pdfcli generate-comprehensive` |
+
+### Useful flags (md-to-pdf)
 
 ```bash
-pdfcli create output.pdf "Hello, World!" --font "Times-Roman" --font-size 14
+pdfcli md-to-pdf in.md out.pdf --font Helvetica --font-size 12
+pdfcli md-to-pdf in.md out.pdf --landscape
+pdfcli md-to-pdf in.md out.pdf --columns 2
+pdfcli md-to-pdf in.md out.pdf --rtl                 # Hebrew / Arabic
+pdfcli md-to-pdf in.md out.pdf --plugins callouts    # :::note / :::warning / …
+pdfcli md-to-pdf-meta in.md out.pdf --title "Doc" --author "Ada"
 ```
 
-#### Convert Markdown to PDF
+Fonts: `Helvetica`, `Times-Roman`, `Courier` (plus other Base-14 names). Non-ASCII/CJK embeds a Unicode TTF automatically.
+
+### More commands
 
 ```bash
-pdfcli md-to-pdf input.md output.pdf
+pdfcli merge a.pdf b.pdf -o out.pdf
+pdfcli split in.pdf -o out.pdf --start 2 --end 5
+pdfcli rotate in.pdf -o out.pdf --angle 90
+pdfcli linearize-pdf in.pdf -o web.pdf
+pdfcli incremental-update in.pdf -o out.pdf --title "Updated" --author "Ada"
+pdfcli add-image doc.pdf photo.jpg --x 100 --y 100 --width 200 --height 200
+pdfcli --lang es validate doc.pdf          # en es de fr zh he ar
+pdfcli --help                              # full command list
 ```
 
-#### Convert Markdown to PDF with Custom Styling
+## Library (Rust)
 
-```bash
-pdfcli md-to-pdf input.md output.pdf --font "Helvetica" --font-size 12
-```
-
-#### Extract Text from PDF
-
-```bash
-pdfcli extract input.pdf
-```
-
-#### Convert PDF to Markdown
-
-```bash
-pdfcli pdf-to-md input.pdf output.md
-```
-
-#### Add Image to PDF
-
-```bash
-pdfcli add-image document.pdf image.jpg --x 100 --y 100 --width 200 --height 200
-```
-
-#### Filter Image into a PDF
-
-```bash
-pdfcli filter-image photo.bmp -o filtered.pdf --filter grayscale --filter brightness:20
-```
-
-Supports BMP/PNG with filters: `grayscale`, `invert`, `sepia`, `brightness:N`, `contrast:F`.
-
-#### Draw Vector Graphics Demo
-
-```bash
-pdfcli draw-vector diagram.pdf
-pdfcli draw-vector diagram.pdf --landscape
-```
-
-#### Draw SVG Path
-
-```bash
-pdfcli draw-svg out.pdf --path "M72 72 L300 72 L186 220 Z" --fill
-pdfcli draw-svg out.pdf --file icon.svg
-```
-
-#### Landscape PDF
-
-```bash
-pdfcli md-to-pdf input.md output.pdf --landscape
-```
-
-#### RTL (Hebrew / Arabic)
-
-```bash
-pdfcli md-to-pdf hebrew.md output.pdf --rtl
-```
-
-RTL-dominant lines are also auto-detected and right-aligned even without `--rtl`.
-
-#### Embed a U3D 3D model
-
-```bash
-pdfcli embed-3d model.pdf scene.u3d --label "Assembly" --activate-on-open
-```
-
-#### Localized validation messages
-
-```bash
-pdfcli --lang es validate document.pdf
-pdfcli --lang de validate document.pdf
-```
-
-Supported: `en`, `es`, `de`, `fr`, `zh`, `he`, `ar` (or set `PDFRS_LANG`).
-
-#### Markdown plugins (callouts)
-
-```bash
-pdfcli md-to-pdf notes.md out.pdf --plugins callouts
-```
-
-Supports fenced callouts: `:::note`, `:::warning`, `:::tip`, `:::danger`, `:::info`.
-
-Headings automatically become PDF bookmarks (`/Outlines`).
-
-#### Generate comprehensive sample PDF
-
-```bash
-pdfcli generate-comprehensive
-pdfcli generate-comprehensive -o web.pdf --linearize
-cargo test --test comprehensive_pdf
-```
-
-Produces a multi-page document covering headings/bookmarks, tables, code, math,
-callouts, quotes, footnotes, images, charts, multi-column layout, thesis TOC/citations,
-page breaks, and light RTL probes. Writes [**comprehensive.pdf**](comprehensive.pdf) by
-default (also refreshed when `cargo test --test comprehensive_pdf` runs).
-
-#### Capability showcase (validation fixture)
-
-```bash
-# Library + CLI coverage lives in tests/capability_validation.rs
-cargo test --test capability_validation
-
-# Generate from the fixture:
-pdfcli md-to-pdf tests/fixtures/capability_showcase.md out.pdf --plugins callouts --profile web
-pdfcli incremental-update out.pdf -o out2.pdf --title "Updated" --author "Ada"
-```
-
-Artifacts are written under `tests/output/capability_*.pdf` when the test runs.
-
-#### Linearize (Fast Web View)
-
-```bash
-pdfcli linearize-pdf input.pdf -o web.pdf
-pdfcli optimize-pdf input.pdf -o web.pdf --profile web   # also linearizes
-```
-
-#### Incremental update (append-only)
-
-```bash
-pdfcli incremental-update input.pdf -o updated.pdf --title "New Title" --author "Ada"
-pdfcli incremental-update input.pdf -o noted.pdf --note "Please review"
-```
-
-#### Merge PDFs
-
-```bash
-pdfcli merge file1.pdf file2.pdf file3.pdf -o merged.pdf
-```
-
-#### Split PDF (extract pages 2-5)
-
-```bash
-pdfcli split input.pdf -o pages2to5.pdf --start 2 --end 5
-```
-
-#### Rotate PDF
-
-```bash
-pdfcli rotate input.pdf -o rotated.pdf --angle 90
-```
-
-#### Create PDF with Metadata
-
-```bash
-pdfcli md-to-pdf-meta input.md output.pdf --title "My Document" --author "Author Name" --subject "Topic"
-```
-
-### Supported Fonts
-
-- Helvetica
-- Times-Roman
-- Courier
-- And other standard PDF Type 1 fonts
-
-## Examples
-
-### Creating a Multi-page Document
-
-```bash
-pdfcli create long-document.pdf "$(cat document.txt)" --font-size 10
-```
-
-### Converting Complex Markdown
-
-````bash
-# Create a sample markdown file
-cat > sample.md << EOF
-# Sample Document
-
-This is a **bold** text with *italic* formatting.
-
-## Tables
-
-| Name | Age | Country |
-|------|-----|---------|
-| John | 25  | USA     |
-| Jane | 30  | UK      |
-
-### Lists
-
-1. First item
-2. Second item
-   - Nested item
-   - Another nested item
-
-### Code Examples
+Add to `Cargo.toml`: `pdfrs = "0.1"`
 
 ```rust
-fn main() {
-    println!("Hello, PDF!");
+use pdfrs::{elements, pdf, pdf_generator::{generate_pdf_bytes, PageLayout}};
+
+fn main() -> anyhow::Result<()> {
+    let elements = elements::parse_markdown("# Hello\n\nFrom **pdfrs**.");
+    let pdf_bytes = generate_pdf_bytes(&elements, "Helvetica", 12.0, PageLayout::portrait())?;
+    assert!(pdf::validate_pdf_bytes(&pdf_bytes).valid);
+    std::fs::write("hello.pdf", pdf_bytes)?;
+    Ok(())
 }
-````
-
-EOF
-
-# Convert to PDF
-
-pdfcli md-to-pdf sample.md sample.pdf --font "Times-Roman" --font-size 12
-
 ```
 
-## Library Usage
+Relative images in Markdown: use `generate_pdf_bytes_with_image_base(...)` with the markdown file’s directory.
 
-```rust
-use pdfrs::{elements, pdf_generator, pdf};
-
-// Parse markdown into elements
-let elements = elements::parse_markdown("# Hello\n\nWorld");
-
-// Generate PDF bytes in memory
-let layout = pdf_generator::PageLayout::portrait();
-let pdf_bytes = pdf_generator::generate_pdf_bytes(
-    &elements, "Helvetica", 12.0, layout
-).unwrap();
-
-// Validate the generated PDF
-let validation = pdf::validate_pdf_bytes(&pdf_bytes);
-assert!(validation.valid);
-assert!(validation.page_count >= 1);
-```
-
-## WebAssembly
-
-Generate PDFs in the browser with the optional `wasm` feature:
+## Browser (WASM)
 
 ```bash
 ./scripts/build-wasm.sh
@@ -362,7 +189,7 @@ python3 -m http.server 8080
 # open http://localhost:8080/wasm/example.html
 ```
 
-The demo generates PDFs from Markdown via WASM and previews them on canvas. See [wasm/README.md](wasm/README.md) for the JavaScript API and viewer utilities.
+Details: [wasm/README.md](wasm/README.md).
 
 ## Architecture
 

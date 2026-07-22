@@ -75,7 +75,7 @@ fn render_operator_with_limits(symbol: &str, lower: &str, upper: &str) -> String
 /// Convert LaTeX-like math notation to readable text for PDF rendering.
 /// Since Type1 fonts don't support full LaTeX glyph rendering, we convert
 /// common math commands to their text/symbol equivalents.
-pub(super) fn render_math_text(expr: &str) -> String {
+pub(crate) fn render_math_text(expr: &str) -> String {
     let mut s = expr.to_string();
 
     // Greek letters
@@ -283,7 +283,7 @@ pub(super) fn render_math_text(expr: &str) -> String {
 }
 
 /// Escape a PDF string literal (for ASCII-only text)
-pub(super) fn escape_pdf_string(text: &str) -> String {
+pub(crate) fn escape_pdf_string(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('(', "\\(")
         .replace(')', "\\)")

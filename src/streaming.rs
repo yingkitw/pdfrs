@@ -5,10 +5,10 @@
 //! large reports or server scenarios where early bytes can be streamed.
 
 use crate::elements::{Element, TextSegment};
-use crate::pdf_generator::{PageLayout, PdfGenerator, Color};
+use crate::pdf_generator::{escape_pdf_string, Color, PageLayout, PdfGenerator};
 use anyhow::Result;
 use std::fs::File;
-use std::io::{Write, BufWriter};
+use std::io::{BufWriter, Write};
 
 /// Streaming PDF generator that writes pages to disk as they're generated
 /// instead of buffering everything in memory.
@@ -49,15 +49,6 @@ pub struct StreamingPdfGenerator {
 struct FontState {
     size: f32,
     name: String,
-}
-
-fn escape_pdf_string(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('(', "\\(")
-        .replace(')', "\\)")
-        .replace('\r', "\\r")
-        .replace('\n', "\\n")
-        .replace('\t', "\\t")
 }
 
 impl StreamingPdfGenerator {

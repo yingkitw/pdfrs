@@ -294,8 +294,19 @@ pub fn create_pdf_with_metadata(
     let content = fs::read_to_string(markdown_file)?;
     let elements = crate::elements::parse_markdown(&content);
     let layout = crate::pdf_generator::PageLayout::from_orientation(orientation);
+    let image_base = std::path::Path::new(markdown_file)
+        .parent()
+        .map(|p| p.to_path_buf());
 
-    create_pdf_elements_with_metadata(output_file, &elements, font, font_size, layout, metadata)
+    create_pdf_elements_with_metadata_and_images(
+        output_file,
+        &elements,
+        font,
+        font_size,
+        layout,
+        metadata,
+        image_base,
+    )
 }
 
 /// Low-level: create PDF from elements with metadata
@@ -307,8 +318,34 @@ pub fn create_pdf_elements_with_metadata(
     layout: crate::pdf_generator::PageLayout,
     metadata: &PdfMetadata,
 ) -> Result<()> {
+    create_pdf_elements_with_metadata_and_images(
+        filename,
+        elements,
+        font,
+        base_font_size,
+        layout,
+        metadata,
+        None,
+    )
+}
+
+fn create_pdf_elements_with_metadata_and_images(
+    filename: &str,
+    elements: &[crate::elements::Element],
+    font: &str,
+    base_font_size: f32,
+    layout: crate::pdf_generator::PageLayout,
+    metadata: &PdfMetadata,
+    image_base_dir: Option<std::path::PathBuf>,
+) -> Result<()> {
     let show_page_numbers = true;
-    let page_streams = build_page_streams(elements, base_font_size, show_page_numbers, layout)?;
+    let page_streams = build_page_streams(
+        elements,
+        base_font_size,
+        show_page_numbers,
+        layout,
+        image_base_dir,
+    )?;
 
     assemble_pdf_with_metadata(filename, &page_streams, font, &layout, metadata)?;
     Ok(())
@@ -383,12 +420,17 @@ fn build_page_streams(
     base_font_size: f32,
     _show_page_numbers: bool,
     layout: crate::pdf_generator::PageLayout,
+    image_base_dir: Option<std::path::PathBuf>,
 ) -> Result<Vec<Vec<u8>>> {
-    let bytes = crate::pdf_generator::generate_pdf_bytes(
+    let bytes = crate::pdf_generator::generate_pdf_bytes_internal_with_base(
         elements,
         "Helvetica",
         base_font_size,
         layout,
+        None,
+        false,
+        None,
+        image_base_dir,
     )?;
     let doc = crate::pdf::PdfDocument::load_from_bytes(&bytes)?;
     let streams = extract_page_streams(&doc);
@@ -487,65 +529,14 @@ fn assemble_pdf_with_metadata(
     );
     generator.add_object(catalog_dict);
 
-    // Generate with info reference
-    let pdf_data = if let Some(info) = info_id {
-        generate_with_info(&generator, info)
-    } else {
-        generator.generate()
-    };
+    if let Some(info) = info_id {
+        generator.info_id = Some(info);
+    }
+    let pdf_data = generator.generate();
 
     let mut file = std::fs::File::create(filename)?;
     std::io::Write::write_all(&mut file, &pdf_data)?;
     Ok(())
-}
-
-/// Generate PDF bytes with an /Info reference in the trailer
-fn generate_with_info(generator: &crate::pdf_generator::PdfGenerator, info_id: u32) -> Vec<u8> {
-    let mut pdf = Vec::new();
-
-    pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
-
-    let mut offsets = Vec::new();
-    let mut current_offset = pdf.len() as u32;
-
-    for obj in &generator.objects {
-        offsets.push(current_offset);
-        let obj_header = format!("{} {} obj\n", obj.id, obj.generation);
-        pdf.extend_from_slice(obj_header.as_bytes());
-        pdf.extend_from_slice(obj.content.as_bytes());
-
-        if obj.is_stream
-            && let Some(data) = &obj.stream_data {
-                pdf.extend_from_slice(b"stream\n");
-                pdf.extend_from_slice(data);
-                pdf.extend_from_slice(b"\nendstream\n");
-            }
-
-        pdf.extend_from_slice(b"endobj\n");
-        current_offset = pdf.len() as u32;
-    }
-
-    let xref_offset = pdf.len() as u32;
-    pdf.extend_from_slice(format!("xref\n0 {}\n", generator.objects.len() + 1).as_bytes());
-    pdf.extend_from_slice(b"0000000000 65535 f \n");
-
-    for offset in offsets {
-        pdf.extend_from_slice(format!("{:010} 00000 n \n", offset).as_bytes());
-    }
-
-    pdf.extend_from_slice(b"trailer\n");
-    pdf.extend_from_slice(b"<<\n");
-    pdf.extend_from_slice(format!("/Size {}\n", generator.objects.len() + 1).as_bytes());
-    if !generator.objects.is_empty() {
-        pdf.extend_from_slice(format!("/Root {} 0 R\n", generator.objects.len()).as_bytes());
-    }
-    pdf.extend_from_slice(format!("/Info {} 0 R\n", info_id).as_bytes());
-    pdf.extend_from_slice(b">>\n");
-    pdf.extend_from_slice(b"startxref\n");
-    pdf.extend_from_slice(format!("{}\n", xref_offset).as_bytes());
-    pdf.extend_from_slice(b"%%EOF\n");
-
-    pdf
 }
 
 /// Rotate pages in a PDF. Creates a new PDF with /Rotate applied to each page.
@@ -1014,7 +1005,7 @@ pub fn create_pdf_with_all_annotations(
 ) -> Result<()> {
     let elements = crate::elements::parse_markdown(text);
     let layout = crate::pdf_generator::PageLayout::portrait();
-    let page_streams = build_page_streams(&elements, 12.0, true, layout)?;
+    let page_streams = build_page_streams(&elements, 12.0, true, layout, None)?;
     if page_streams.is_empty() {
         return Err(anyhow!("No page content generated"));
     }
@@ -1103,7 +1094,7 @@ pub fn create_pdf_with_annotations(
     let layout = crate::pdf_generator::PageLayout::portrait();
 
     // Build page content
-    let page_streams = build_page_streams(&elements, 12.0, true, layout)?;
+    let page_streams = build_page_streams(&elements, 12.0, true, layout, None)?;
     if page_streams.is_empty() {
         return Err(anyhow!("No page content generated"));
     }
@@ -1455,7 +1446,7 @@ pub fn create_pdf_with_form_fields(
 ) -> Result<()> {
     let elements = crate::elements::parse_markdown(text);
     let layout = crate::pdf_generator::PageLayout::portrait();
-    let page_streams = build_page_streams(&elements, 12.0, true, layout)?;
+    let page_streams = build_page_streams(&elements, 12.0, true, layout, None)?;
     if page_streams.is_empty() {
         return Err(anyhow!("No page content generated"));
     }

@@ -3,6 +3,7 @@
 //! This module provides password protection and permission management for PDF documents.
 
 use anyhow::{anyhow, Result};
+use crate::pdf_generator::escape_pdf_string;
 
 /// PDF permission flags for controlling what operations are allowed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -410,12 +411,6 @@ impl DigitalSignature {
         dict.push_str(">>");
         dict
     }
-}
-
-fn escape_pdf_string(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('(', "\\(")
-        .replace(')', "\\)")
 }
 
 fn escape_pdf_name(name: &str) -> String {

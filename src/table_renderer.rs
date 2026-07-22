@@ -322,12 +322,7 @@ impl PdfTableHelper {
 
     /// Escape special PDF string characters (public static helper)
     pub fn escape_pdf_string_static(text: &str) -> String {
-        text.replace('\\', "\\\\")
-            .replace('(', "\\(")
-            .replace(')', "\\)")
-            .replace('\r', "\\r")
-            .replace('\n', "\\n")
-            .replace('\t', "\\t")
+        crate::pdf_generator::escape_pdf_string(text)
     }
 
     /// Escape special PDF string characters (instance method)
