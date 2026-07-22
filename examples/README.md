@@ -30,13 +30,13 @@ This will generate PDFs from all example markdown files and validate the output.
 Demonstrates comprehensive unicode support including:
 - **Multiple Scripts:** Chinese (中文), Japanese (日本語), Korean (한국어), Arabic (العربية), Greek (Ελληνικά), Cyrillic (Русский)
 - **Mathematical Symbols:** ∀ ∃ ∈ ∉ ∑ ∏ ∫ ∂ ∇ √ ∞ ≠ ≈ ≤ ≥
-- **Currency Symbols:** $ € £ ¥ ₹ ₽ ₩ ₿
-- **Special Characters:** Arrows, stars, checkmarks, emojis
+- **Currency Symbols:** $ € £ ¥ ₩ ₪ ¢
+- **Special Characters:** Arrows, stars, checkmarks, box drawing
 - **Diacritical Marks:** Àà Áá Ââ Ãã Ää Åå Çç Éé Íí Ññ Öö Üü
 
 **Convert to PDF:**
 ```bash
-cargo run --release --bin pdfcli -- md-to-pdf examples/unicode_showcase.md output/unicode_showcase.pdf
+cargo run --release --bin pdfcli -- md-to-pdf examples/unicode_showcase.md examples/output/unicode_showcase.pdf
 ```
 
 ### 2. Math Showcase (`math_showcase.md`)

@@ -82,7 +82,7 @@ impl OptimizationProfile {
                 compression_level: CompressionLevel::Medium,
                 image_dpi: 250,
                 embed_fonts: true,
-                subset_fonts: false,
+                subset_fonts: true,
                 preserve_metadata: true,
                 tagged_pdf: true,
                 linearize: false,
@@ -496,6 +496,11 @@ mod tests {
         assert!(print_settings.embed_fonts);
         assert!(!print_settings.subset_fonts);
         assert!(!print_settings.linearize);
+
+        let archive_settings = OptimizationProfile::Archive.settings();
+        assert!(archive_settings.embed_fonts);
+        assert!(archive_settings.subset_fonts);
+        assert!(archive_settings.tagged_pdf);
     }
 
     #[test]

@@ -66,6 +66,27 @@ impl UnicodeFontEncoder {
         gid
     }
 
+    /// True when the underlying (pre-subset) font has a glyph for `ch`.
+    fn has_glyph(&self, ch: char) -> bool {
+        let bytes = self
+            .original_font_bytes
+            .as_ref()
+            .unwrap_or(&self.font_bytes);
+        ttf_parser::Face::parse(bytes, 0)
+            .ok()
+            .and_then(|face| face.glyph_index(ch))
+            .is_some()
+    }
+
+    /// Map unsupported characters to `'?'` so missing glyphs don't hijack ToUnicode.
+    fn display_char(&self, ch: char) -> char {
+        if self.has_glyph(ch) {
+            ch
+        } else {
+            '?'
+        }
+    }
+
     /// Horizontal advance in PDF font units (1/1000 em).
     fn advance_for_gid(&self, gid: u16) -> u16 {
         let Ok(face) = ttf_parser::Face::parse(&self.font_bytes, 0) else {
@@ -81,7 +102,7 @@ impl UnicodeFontEncoder {
     pub(super) fn encode_text_as_glyph_ids(&self, text: &str) -> String {
         let mut bytes = Vec::with_capacity(text.chars().count() * 2);
         for ch in text.chars() {
-            let gid = self.glyph_id_for_char(ch);
+            let gid = self.glyph_id_for_char(self.display_char(ch));
             bytes.push((gid >> 8) as u8);
             bytes.push((gid & 0xFF) as u8);
         }
@@ -94,7 +115,7 @@ impl UnicodeFontEncoder {
     pub(super) fn estimate_width(&self, text: &str, font_size: f32) -> f32 {
         let mut units: u32 = 0;
         for ch in text.chars() {
-            let gid = self.glyph_id_for_char(ch);
+            let gid = self.glyph_id_for_char(self.display_char(ch));
             units += self.advance_for_gid(gid) as u32;
         }
         units as f32 * font_size / 1000.0
@@ -104,11 +125,11 @@ impl UnicodeFontEncoder {
     pub(super) fn build_cid_widths_array(&self, chars: &BTreeSet<char>) -> String {
         let mut widths: BTreeMap<u16, u16> = BTreeMap::new();
         for ch in chars {
-            let gid = self.glyph_id_for_char(*ch);
+            let gid = self.glyph_id_for_char(self.display_char(*ch));
             widths.insert(gid, self.advance_for_gid(gid));
         }
         // Ensure common page chrome / punctuation is covered even if not in the set.
-        for ch in " Page0123456789.-_/".chars() {
+        for ch in " Page0123456789.-_/?".chars() {
             let gid = self.glyph_id_for_char(ch);
             widths.entry(gid).or_insert_with(|| self.advance_for_gid(gid));
         }
@@ -153,10 +174,12 @@ impl UnicodeFontEncoder {
     pub(super) fn build_tounicode_cmap(&self, chars: &BTreeSet<char>) -> Vec<u8> {
         let mut pairs: BTreeMap<u16, char> = BTreeMap::new();
         for ch in chars {
-            let gid = self.glyph_id_for_char(*ch);
-            pairs.entry(gid).or_insert(*ch);
+            let display = self.display_char(*ch);
+            let gid = self.glyph_id_for_char(display);
+            // Only record the display character so missing glyphs don't steal '?'.
+            pairs.entry(gid).or_insert(display);
         }
-        for ch in " Page0123456789.-_/".chars() {
+        for ch in " Page0123456789.-_/?".chars() {
             let gid = self.glyph_id_for_char(ch);
             pairs.entry(gid).or_insert(ch);
         }

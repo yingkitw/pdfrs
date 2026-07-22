@@ -306,6 +306,46 @@ fn test_pdf_hex_string_extraction() {
 }
 
 #[test]
+fn test_missing_glyph_falls_back_to_question_mark() {
+    let test_md = "tests/fixtures/missing_glyph_test.md";
+    let test_pdf = "tests/output/missing_glyph_test.pdf";
+
+    fs::create_dir_all("tests/fixtures").ok();
+    fs::create_dir_all("tests/output").ok();
+
+    // 😀 / ₹ / ₿ are typically absent from Arial Unicode; they must not pollute ToUnicode.
+    let content = "CJK 你好 then missing 😀 ₹ ₿ and euro €";
+    fs::write(test_md, content).expect("Failed to write missing-glyph markdown");
+
+    let result = markdown::markdown_to_pdf(test_md, test_pdf);
+    assert!(result.is_ok(), "Failed to generate PDF: {:?}", result.err());
+
+    let extracted = pdf::extract_text(test_pdf).expect("Failed to extract text");
+    assert!(
+        extracted.contains("你好"),
+        "Expected CJK to survive, got: {}",
+        extracted
+    );
+    assert!(
+        extracted.contains('€'),
+        "Expected supported currency to survive, got: {}",
+        extracted
+    );
+    assert!(
+        extracted.contains('?'),
+        "Expected missing glyphs to become '?', got: {}",
+        extracted
+    );
+    assert!(
+        !extracted.contains('😀') && !extracted.contains('₿'),
+        "Missing glyphs should not round-trip as themselves, got: {}",
+        extracted
+    );
+
+    fs::remove_file(test_md).ok();
+}
+
+#[test]
 fn test_octal_escape_sequences() {
     use pdfrs::pdf::unescape_pdf_string;
     

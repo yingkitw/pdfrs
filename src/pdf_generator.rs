@@ -1492,7 +1492,9 @@ impl ContentStreamBuilder {
     fn emit_display_math(&mut self, expression: &str, base_font_size: f32) {
         let math_size = base_font_size * 1.28;
         let padding = 10.0;
-        let lines: Vec<&str> = expression
+        // Flatten multi-line matrix environments first, then split remaining rows.
+        let flattened = text_support::flatten_math_environments(expression);
+        let lines: Vec<&str> = flattened
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
@@ -3290,6 +3292,49 @@ mod accessibility_tests {
     }
 
     #[test]
+    fn test_render_math_text_nested_frac_and_left_right() {
+        let quadratic = render_math_text(r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}");
+        assert!(
+            !quadratic.contains('\\'),
+            "should not leave raw LaTeX commands: {}",
+            quadratic
+        );
+        assert!(quadratic.contains('±'), "rendered: {}", quadratic);
+        assert!(quadratic.contains('√'), "rendered: {}", quadratic);
+        assert!(
+            quadratic.contains(")/(") || quadratic.contains('⁄'),
+            "fraction should render: {}",
+            quadratic
+        );
+
+        let gaussian = render_math_text(
+            r"\exp\left(-\frac{(x - \mu)^2}{2\sigma^2}\right)",
+        );
+        assert!(
+            !gaussian.contains("≤ft") && !gaussian.contains("\\left"),
+            "\\le must not eat \\left: {}",
+            gaussian
+        );
+        assert!(gaussian.contains("exp"), "rendered: {}", gaussian);
+    }
+
+    #[test]
+    fn test_render_math_text_matrices() {
+        let m = render_math_text(
+            r"\begin{bmatrix} a & b \\ c & d \end{bmatrix}",
+        );
+        assert!(m.contains('[') && m.contains(']'), "rendered: {}", m);
+        assert!(m.contains('a') && m.contains('d'), "rendered: {}", m);
+        assert!(!m.contains("begin"), "rendered: {}", m);
+
+        let v = render_math_text(
+            r"\begin{vmatrix} \hat{i} & \hat{j} \\ a_1 & a_2 \end{vmatrix}",
+        );
+        assert!(v.contains('|'), "rendered: {}", v);
+        assert!(!v.contains("begin"), "rendered: {}", v);
+    }
+
+    #[test]
     fn test_render_math_text_uses_unicode_symbols() {
         let rendered = render_math_text(r"\sum_{i=1}^{n} i \leq n^2 \approx \infty + \sqrt{x}");
         assert!(rendered.contains('∑'));
@@ -3361,7 +3406,11 @@ mod accessibility_tests {
             "Product limits should be readable: {}",
             expr2
         );
-        assert!(expr2.contains("bₖ"), "Should render b subscript k: {}", expr2);
+        assert!(
+            expr2.contains("bₖ") || expr2.contains("b_(k)"),
+            "Should render b subscript k: {}",
+            expr2
+        );
         
         let expr3 = render_math_text(r"\forall x \in \mathbb{R}, x \geq 0 \Rightarrow \sqrt{x} \in \mathbb{R}");
         assert!(expr3.contains("∀"), "Should contain forall: {}", expr3);

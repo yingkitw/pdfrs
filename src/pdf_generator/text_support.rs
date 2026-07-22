@@ -37,16 +37,14 @@ fn to_superscript(text: &str) -> Option<String> {
 }
 
 fn to_subscript(text: &str) -> Option<String> {
+    // Letter subscripts (ₐ ₑ ₜ …) are often missing from system Unicode fonts
+    // and render as '?' after glyph fallback — keep digits/symbols only.
     let mut out = String::new();
     for ch in text.chars() {
         let mapped = match ch {
             '0' => '₀', '1' => '₁', '2' => '₂', '3' => '₃', '4' => '₄',
             '5' => '₅', '6' => '₆', '7' => '₇', '8' => '₈', '9' => '₉',
             '+' => '₊', '-' => '₋', '=' => '₌', '(' => '₍', ')' => '₎',
-            'a' => 'ₐ', 'e' => 'ₑ', 'h' => 'ₕ', 'i' => 'ᵢ', 'j' => 'ⱼ',
-            'k' => 'ₖ', 'l' => 'ₗ', 'm' => 'ₘ', 'n' => 'ₙ', 'o' => 'ₒ',
-            'p' => 'ₚ', 'r' => 'ᵣ', 's' => 'ₛ', 't' => 'ₜ', 'u' => 'ᵤ',
-            'v' => 'ᵥ', 'x' => 'ₓ',
             _ => return None,
         };
         if !is_well_supported(mapped) {
@@ -72,11 +70,172 @@ fn render_operator_with_limits(symbol: &str, lower: &str, upper: &str) -> String
     }
 }
 
+/// Parse `{...}` with nested-brace support. Returns (inner, bytes including braces).
+pub(super) fn parse_brace_group(s: &str) -> Option<(String, usize)> {
+    if !s.starts_with('{') {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((s[1..i].to_string(), i + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Replace `\frac{num}{den}` using nested-brace-aware parsing (not `[^}]*`).
+fn replace_frac_commands(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(pos) = rest.find("\\frac") {
+        out.push_str(&rest[..pos]);
+        let after_cmd = &rest[pos + 5..];
+        if let Some((num, nlen)) = parse_brace_group(after_cmd) {
+            if let Some((den, dlen)) = parse_brace_group(&after_cmd[nlen..]) {
+                let num = num.trim();
+                let den = den.trim();
+                let simple = |t: &str| {
+                    !t.is_empty()
+                        && t.chars().all(|c| {
+                            c.is_ascii_alphanumeric()
+                                || c == '+'
+                                || c == '-'
+                                || c == '('
+                                || c == ')'
+                        })
+                };
+                if simple(num) && simple(den) {
+                    out.push_str(num);
+                    out.push('⁄');
+                    out.push_str(den);
+                } else {
+                    out.push('(');
+                    out.push_str(num);
+                    out.push_str(")/(");
+                    out.push_str(den);
+                    out.push(')');
+                }
+                rest = &after_cmd[nlen + dlen..];
+                continue;
+            }
+        }
+        // Unparseable: keep the command literal and advance past it.
+        out.push_str("\\frac");
+        rest = after_cmd;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Replace `\sqrt[n]{x}` / `\sqrt{x}` with nested-brace awareness.
+fn replace_sqrt_commands(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(pos) = rest.find("\\sqrt") {
+        out.push_str(&rest[..pos]);
+        let mut after = &rest[pos + 5..];
+        let mut index: Option<String> = None;
+        if after.starts_with('[') {
+            if let Some(end) = after.find(']') {
+                index = Some(after[1..end].to_string());
+                after = &after[end + 1..];
+            }
+        }
+        if let Some((body, len)) = parse_brace_group(after) {
+            match index {
+                Some(n) => {
+                    out.push('√');
+                    out.push('[');
+                    out.push_str(&n);
+                    out.push_str("](");
+                    out.push_str(&body);
+                    out.push(')');
+                }
+                None => {
+                    out.push('√');
+                    out.push('(');
+                    out.push_str(&body);
+                    out.push(')');
+                }
+            }
+            rest = &after[len..];
+            continue;
+        }
+        out.push_str("\\sqrt");
+        rest = &rest[pos + 5..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Flatten `\begin{matrix|bmatrix|pmatrix|vmatrix}...\end{...}` (possibly multi-line).
+pub(crate) fn flatten_math_environments(expr: &str) -> String {
+    let mut s = expr.to_string();
+    for env in ["bmatrix", "pmatrix", "vmatrix", "matrix"] {
+        let open = format!("\\begin{{{}}}", env);
+        let close = format!("\\end{{{}}}", env);
+        while let Some(start) = s.find(&open) {
+            let body_start = start + open.len();
+            let Some(rel_end) = s[body_start..].find(&close) else {
+                break;
+            };
+            let body = s[body_start..body_start + rel_end].trim();
+            let rows: Vec<String> = body
+                .split("\\\\")
+                .map(|r| {
+                    r.trim()
+                        .split('&')
+                        .map(str::trim)
+                        .filter(|c| !c.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("  ")
+                })
+                .map(|r| r.trim().to_string())
+                .filter(|r| !r.is_empty())
+                .collect();
+            let (left, right) = match env {
+                "vmatrix" => ("|", "|"),
+                "pmatrix" => ("(", ")"),
+                _ => ("[", "]"),
+            };
+            let replacement = if rows.is_empty() {
+                format!("{}{}", left, right)
+            } else if rows.len() == 1 {
+                format!("{} {} {}", left, rows[0], right)
+            } else {
+                format!("{} {} {}", left, rows.join(" ; "), right)
+            };
+            let end = body_start + rel_end + close.len();
+            s.replace_range(start..end, &replacement);
+        }
+    }
+    s
+}
+
+/// Apply command→replacement pairs longest-first so `\le` cannot eat `\left`.
+fn apply_commands_longest_first(s: &str, commands: &[(&str, &str)]) -> String {
+    let mut cmds: Vec<(&str, &str)> = commands.to_vec();
+    cmds.sort_by_key(|(cmd, _)| std::cmp::Reverse(cmd.len()));
+    let mut out = s.to_string();
+    for (cmd, replacement) in cmds {
+        out = out.replace(cmd, replacement);
+    }
+    out
+}
+
 /// Convert LaTeX-like math notation to readable text for PDF rendering.
 /// Since Type1 fonts don't support full LaTeX glyph rendering, we convert
 /// common math commands to their text/symbol equivalents.
 pub(crate) fn render_math_text(expr: &str) -> String {
-    let mut s = expr.to_string();
+    let mut s = flatten_math_environments(expr);
 
     // Greek letters
     let greek = [
@@ -92,9 +251,10 @@ pub(crate) fn render_math_text(expr: &str) -> String {
         ("\\Delta", "\u{0394}"), ("\\Theta", "\u{0398}"), ("\\Lambda", "\u{039B}"),
         ("\\Xi", "\u{039E}"), ("\\Pi", "\u{03A0}"), ("\\Sigma", "\u{03A3}"),
         ("\\Phi", "\u{03A6}"), ("\\Psi", "\u{03A8}"), ("\\Omega", "\u{03A9}"),
+        ("\\ell", "ℓ"),
     ];
 
-    // Math operators and symbols
+    // Math operators and symbols — applied longest-first later.
     let operators = [
         ("\\infty", "∞"), ("\\infinity", "∞"),
         ("\\pm", "±"), ("\\mp", "∓"),
@@ -126,12 +286,13 @@ pub(crate) fn render_math_text(expr: &str) -> String {
         ("\\,", " "), ("\\;", " "), ("\\!", ""),
         ("\\left", ""), ("\\right", ""),
         ("\\big", ""), ("\\Big", ""), ("\\bigg", ""), ("\\Bigg", ""),
+        ("\\argmax", "argmax"), ("\\argmin", "argmin"),
+        ("\\arg\\max", "argmax"), ("\\arg\\min", "argmin"),
+        ("\\|", "‖"), ("\\vert", "|"), ("\\lvert", "|"), ("\\rvert", "|"),
     ];
 
     // Apply Greek letter replacements (longer patterns first to avoid partial matches)
-    for (cmd, replacement) in &greek {
-        s = s.replace(cmd, replacement);
-    }
+    s = apply_commands_longest_first(&s, &greek);
 
     // Common LaTeX variants and blackboard-bold sets
     s = s.replace("\\not\\in", "∉");
@@ -143,38 +304,20 @@ pub(crate) fn render_math_text(expr: &str) -> String {
     s = s.replace("\\mathbb{P}", "ℙ");
     s = s.replace("\\mathbb{H}", "ℍ");
 
-    // Handle \frac{a}{b} -> a⁄b (unicode fraction slash) when both sides are simple,
-    // otherwise (a)/(b). Display math uses a stacked fraction renderer separately.
-    let frac_re = Regex::new(r"\\frac\{([^}]*)\}\{([^}]*)\}").unwrap();
-    while frac_re.is_match(&s) {
-        s = frac_re
-            .replace_all(&s, |caps: &Captures| {
-                let num = caps[1].trim();
-                let den = caps[2].trim();
-                let simple = |t: &str| {
-                    !t.is_empty()
-                        && t.chars()
-                            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '(' || c == ')')
-                };
-                if simple(num) && simple(den) {
-                    format!("{}⁄{}", num, den)
-                } else {
-                    format!("({})/({})", num, den)
-                }
-            })
-            .to_string();
+    // Nested-brace-aware fraction / root conversion (iterative for nesting).
+    loop {
+        let next = replace_frac_commands(&s);
+        if next == s {
+            break;
+        }
+        s = next;
     }
-
-    // Handle \sqrt[n]{x} -> √[n](x) (do this first, before simple sqrt)
-    let nroot_re = Regex::new(r"\\sqrt\[([^\]]*)\]\{([^}]*)\}").unwrap();
-    while nroot_re.is_match(&s) {
-        s = nroot_re.replace_all(&s, "√[$1]($2)").to_string();
-    }
-
-    // Handle \sqrt{x} -> √(x) (apply iteratively for nested sqrt)
-    let sqrt_re = Regex::new(r"\\sqrt\{([^}]*)\}").unwrap();
-    while sqrt_re.is_match(&s) {
-        s = sqrt_re.replace_all(&s, "√($1)").to_string();
+    loop {
+        let next = replace_sqrt_commands(&s);
+        if next == s {
+            break;
+        }
+        s = next;
     }
 
     // Handle \sum, \prod, \int with limits
@@ -251,26 +394,26 @@ pub(crate) fn render_math_text(expr: &str) -> String {
 
     // Handle \hat{x}, \bar{x}, \vec{x}, \tilde{x}
     let hat_re = Regex::new(r"\\hat\{([^}]*)\}").unwrap();
-    s = hat_re.replace_all(&s, "$1^").to_string();
+    s = hat_re.replace_all(&s, "$1\u{0302}").to_string();
     let bar_re = Regex::new(r"\\bar\{([^}]*)\}").unwrap();
-    s = bar_re.replace_all(&s, "$1_bar").to_string();
+    s = bar_re.replace_all(&s, "$1\u{0304}").to_string();
     let vec_re = Regex::new(r"\\vec\{([^}]*)\}").unwrap();
     s = vec_re.replace_all(&s, "vec($1)").to_string();
+    let tilde_re = Regex::new(r"\\tilde\{([^}]*)\}").unwrap();
+    s = tilde_re.replace_all(&s, "$1\u{0303}").to_string();
 
-    // Handle \log, \ln, \sin, \cos, \tan, \exp
+    // Handle \log, \ln, \sin, \cos, \tan, \exp (longest first for sinh/cosh/tanh)
     for func in &[
-        "log", "ln", "sin", "cos", "tan", "cot", "sec", "csc",
-        "sinh", "cosh", "tanh", "exp", "min", "max", "det", "dim",
+        "sinh", "cosh", "tanh", "log", "ln", "sin", "cos", "tan", "cot", "sec", "csc",
+        "exp", "min", "max", "det", "dim", "arg",
     ] {
         let cmd = format!("\\{}", func);
         s = s.replace(&cmd, func);
     }
 
     // Apply generic operator replacements late to avoid prefix collisions
-    // such as \in replacing the start of \int.
-    for (cmd, replacement) in &operators {
-        s = s.replace(cmd, replacement);
-    }
+    // such as \in replacing the start of \int. Longest-first protects \left/\leq.
+    s = apply_commands_longest_first(&s, &operators);
 
     // Strip remaining braces
     s = s.replace(['{', '}'], "");

@@ -1,6 +1,8 @@
 # Unicode Showcase
 
-This document demonstrates comprehensive unicode support in PDF conversion.
+This document demonstrates comprehensive Unicode support in PDF conversion
+(embedded Type0/CIDFont + ToUnicode). Characters outside the available system
+font are substituted with `?`.
 
 ## Latin Scripts
 
@@ -45,19 +47,13 @@ Hello World! This is English text with special characters: café, naïve, résum
 
 ## Currency Symbols
 
-$ € £ ¥ ₹ ₽ ₩ ₪ ₿
+$ € £ ¥ ₩ ₪ ¢
 
 ## Arrows and Symbols
 
 ← → ↑ ↓ ↔ ↕ ⇐ ⇒ ⇔
 ★ ☆ ♠ ♣ ♥ ♦ ♪ ♫
-✓ ✗ ✔ ✘ ⚠ ⚡ ☀ ☁
-
-## Emojis (if supported)
-
-😀 😁 😂 🤣 😃 😄 😅 😆
-🎉 🎊 🎈 🎁 🎂 🎄 🎃 🎆
-🌍 🌎 🌏 🌐 🌑 🌒 🌓 🌔
+✓ ✗ ✔ ✘ ☀ ☁
 
 ## Special Characters
 

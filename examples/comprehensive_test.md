@@ -86,7 +86,7 @@ fn calculate_pi(iterations: u32) -> f64 {
 ## Section 5: Special Characters and Symbols
 
 ### Currency
-$ € £ ¥ ₹ ₽ ₩ ₿
+$ € £ ¥ ₩ ₪ ¢
 
 ### Math Symbols
 ∀ ∃ ∈ ∉ ∑ ∏ ∫ ∂ ∇ √ ∞ ≠ ≈ ≤ ≥ ± × ÷

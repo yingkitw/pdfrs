@@ -5,7 +5,7 @@
 
 use regex::Regex;
 
-use super::text_support::render_math_text;
+use super::text_support::{flatten_math_environments, parse_brace_group, render_math_text};
 
 /// A laid-out piece of display mathematics.
 #[derive(Debug, Clone, PartialEq)]
@@ -29,7 +29,7 @@ pub(super) enum MathPiece {
 
 /// Parse a LaTeX-like math expression into display pieces.
 pub(super) fn parse_display_math(expr: &str) -> Vec<MathPiece> {
-    let mut s = expr.trim().to_string();
+    let mut s = flatten_math_environments(expr.trim());
     if s.is_empty() {
         return Vec::new();
     }
@@ -50,14 +50,12 @@ pub(super) fn parse_display_math(expr: &str) -> Vec<MathPiece> {
     while i < bytes.len() {
         // Skip whitespace but keep a single space as text when between tokens.
         if bytes[i].is_ascii_whitespace() {
-            let start = i;
             while i < bytes.len() && bytes[i].is_ascii_whitespace() {
                 i += 1;
             }
             if !pieces.is_empty() {
                 pieces.push(MathPiece::Text(" ".to_string()));
             }
-            let _ = start;
             continue;
         }
 
@@ -205,27 +203,6 @@ fn parse_limits(s: &str) -> (String, String, usize) {
     }
 
     (lower, upper, idx)
-}
-
-/// Parse `{...}` with simple nested-brace support. Returns (inner, bytes including braces).
-fn parse_brace_group(s: &str) -> Option<(String, usize)> {
-    if !s.starts_with('{') {
-        return None;
-    }
-    let mut depth = 0usize;
-    for (i, ch) in s.char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((s[1..i].to_string(), i + 1));
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 fn coalesce_text_pieces(pieces: Vec<MathPiece>) -> Vec<MathPiece> {
@@ -385,6 +362,17 @@ mod tests {
             "{:?}",
             pieces
         );
+    }
+
+    #[test]
+    fn flattens_bmatrix_environment() {
+        let pieces = parse_display_math(
+            "\\begin{bmatrix}\na & b \\\\\nc & d\n\\end{bmatrix}",
+        );
+        let plain = pieces_to_plain_text(&pieces);
+        assert!(plain.contains('[') && plain.contains(']'), "{}", plain);
+        assert!(plain.contains('a') && plain.contains('d'), "{}", plain);
+        assert!(!plain.contains("begin"), "{}", plain);
     }
 
     #[test]
