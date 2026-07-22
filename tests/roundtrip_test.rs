@@ -595,10 +595,11 @@ fn test_library_api_generate_validate() {
     assert!(has_empty, "Missing EmptyLine elements");
     println!("[lib_api] All 15 element types found in parsed output");
 
-    // Step 2: Generate PDF bytes in memory
+    // Step 2: Generate PDF bytes in memory (resolve images relative to examples/)
     let layout = pdfrs::pdf_generator::PageLayout::portrait();
-    let pdf_bytes = pdfrs::pdf_generator::generate_pdf_bytes(
-        &elements, "Helvetica", 12.0, layout,
+    let examples_dir = format!("{}/examples", base);
+    let pdf_bytes = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
+        &elements, "Helvetica", 12.0, layout, &examples_dir,
     ).expect("generate_pdf_bytes failed");
     println!("[lib_api] Generated {} bytes of PDF", pdf_bytes.len());
     assert!(pdf_bytes.len() > 5000, "PDF too small: {} bytes", pdf_bytes.len());
@@ -861,10 +862,11 @@ fn test_complex_examples_library_api_batch() {
             "{}: expected >= {} elements, got {}", filename, min_elements, elements.len()
         );
 
-        // Generate portrait
+        // Generate portrait (resolve images relative to examples/)
+        let examples_dir = format!("{}/examples", base);
         let layout_p = pdfrs::pdf_generator::PageLayout::portrait();
-        let bytes_p = pdfrs::pdf_generator::generate_pdf_bytes(
-            &elements, "Helvetica", 12.0, layout_p,
+        let bytes_p = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
+            &elements, "Helvetica", 12.0, layout_p, &examples_dir,
         ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes portrait failed: {}", filename, e));
 
         // Validate portrait
@@ -879,8 +881,8 @@ fn test_complex_examples_library_api_batch() {
 
         // Generate landscape
         let layout_l = pdfrs::pdf_generator::PageLayout::landscape();
-        let bytes_l = pdfrs::pdf_generator::generate_pdf_bytes(
-            &elements, "Times-Roman", 11.0, layout_l,
+        let bytes_l = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
+            &elements, "Times-Roman", 11.0, layout_l, &examples_dir,
         ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes landscape failed: {}", filename, e));
 
         // Validate landscape

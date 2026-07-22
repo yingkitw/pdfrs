@@ -1,27 +1,27 @@
-# PDF-CLI Architecture Documentation
+# pdfrs Architecture Documentation
 
 ## Overview
 
-PDF-CLI is architectured as a modular system with clear separation of concerns. The design prioritizes maintainability, extensibility, and performance while implementing PDF functionality from scratch without external dependencies.
+**pdfrs** is architected as a modular system with clear separation of concerns. The design prioritizes maintainability, extensibility, and performance while implementing PDF functionality from scratch without external PDF libraries. The crate exposes a library API (`pdfrs`) and a CLI binary (`pdfcli`).
 
 ## High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        PDF-CLI CLI                          │
+│                     pdfcli (CLI / WASM)                     │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   PDF I/O   │  │ Markdown I/O│  │   Image I/O         │  │
+│  │   PDF I/O   │  │ Markdown I/O│  │   Image / Chart I/O │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │  PDF Core   │  │  Markdown   │  │   Image Processing │  │
-│  │  Engine     │  │  Parser     │  │   Engine           │  │
+│  │  PDF Core   │  │  Elements / │  │  Thesis / Plugins  │  │
+│  │  Engine     │  │  Markdown   │  │  Linearize / Incr. │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │Compression  │  │   Utility   │  │    Error            │  │
-│  │   Module    │  │  Functions  │  │   Handling          │  │
+│  │Compression  │  │  Security   │  │  Optimization /    │  │
+│  │   Module    │  │  / i18n     │  │  Streaming / Parallel│ │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -39,22 +39,7 @@ PDF-CLI is architectured as a modular system with clear separation of concerns. 
 - Coordinate between modules
 - Handle application-level error reporting (optionally localized via `i18n`)
 
-**Key Components**:
-
-```rust
-struct Cli {
-    command: Commands,
-}
-
-enum Commands {
-    PdfToMd { input: String, output: String },
-    MdToPdf { input: String, output: String, font: String, font_size: f32 },
-    Extract { input: String },
-    Create { output: String, text: String, font: String, font_size: f32 },
-    AddImage { pdf_file: String, image_file: String, x: f32, y: f32, width: f32, height: f32 },
-}
-```
-
+**Key commands** (non-exhaustive): `create`, `md-to-pdf`, `pdf-to-md`, `extract`, `merge`, `split`, `rotate`, `add-image`, `filter-image`, `draw-vector`, `draw-svg`, `embed-3d`, `generate-comprehensive`, `linearize-pdf`, `incremental-update`, `optimize-pdf`, `validate`, …
 ### 2. PDF Core Engine (`src/pdf.rs`)
 
 **Purpose**: PDF parsing and text extraction
@@ -104,7 +89,8 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 
 **Internal Submodules**:
 
-- `src/pdf_generator/code_highlight.rs` — syntax tokenization and color tagging for code blocks
+- `src/pdf_generator/code_highlight.rs` — syntect-based syntax highlighting for code blocks
+- `src/pdf_generator/math_layout.rs` — math layout helpers
 - `src/pdf_generator/text_support.rs` — math-to-text conversion and PDF text encoding helpers
 - `src/pdf_generator/unicode_support.rs` — Unicode TTF discovery/loading and glyph-ID encoder for embedded Type0/CIDFont paths
 
@@ -149,6 +135,7 @@ Text Input → Page Builder → Content Stream Generator → Object Manager → 
 pub enum Element {
     Heading { level: u8, text: String },
     Paragraph { text: String },
+    RichParagraph { segments: Vec<TextSegment> },
     UnorderedListItem { text: String, depth: u8 },
     OrderedListItem { number: u32, text: String, depth: u8 },
     TaskListItem { checked: bool, text: String },
@@ -161,11 +148,22 @@ pub enum Element {
     Link { text: String, url: String },
     Image { alt: String, path: String },
     StyledText { text: String, bold: bool, italic: bool },
+    MathBlock { expression: String },
+    MathInline { expression: String },
     PageBreak,
     HorizontalRule,
     EmptyLine,
+    Columns { count: u8 },
+    Chart { kind: ChartKind, title: Option<String>, points: Vec<(String, f32)> },
+    PageNumberMode { style: PageNumberStyle },
+    RunningHeaderMode { enabled: bool },
+    Toc,
+    Bibliography,
+    CitationDef { key: String, text: String },
 }
 ```
+
+(`Element` has 27 variants.)
 
 **Key Functions**:
 
@@ -203,32 +201,25 @@ Markdown Text → elements::parse_markdown() → Vec<Element> → pdf_generator:
 
 **Architecture Pattern**: Strategy Pattern for different image formats
 
-**Key Components**:
-
-```rust
-pub fn create_jpeg_image_object(
-    generator: &mut PdfGenerator,
-    jpeg_data: Vec<u8>,
-    width: u32,
-    height: u32
-) -> Result<u32>
-
-pub fn create_image_content_stream(
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-    image_name: &str
-) -> Result<Vec<u8>>
-```
-
 **Supported Formats**:
 
 - JPEG (with DCTDecode)
-- PNG (planned)
-- BMP (planned)
+- PNG / BMP (decoded to RGB + FlateDecode)
+- Markdown `![alt](path)` resolves relative to the markdown file (or `image_base_dir`); missing/unloadable images fail generation
 
-### 7. PDF Operations (`src/pdf_ops.rs`)
+### 7. Charts (`src/chart.rs`)
+
+Vector bar / line / pie charts from fenced Markdown ` ```chart` ` blocks → `Element::Chart`.
+
+### 8. Thesis layout (`src/thesis.rs`)
+
+Roman/Arabic/hidden folios, running headers, TOC expansion, citation registry / bibliography.
+
+### 9. Comprehensive sample (`src/comprehensive.rs`)
+
+Bundled multi-feature document used by `generate-comprehensive` and `tests/comprehensive_pdf.rs`.
+
+### 10. PDF Operations (`src/pdf_ops.rs`)
 
 **Purpose**: High-level PDF manipulation operations
 
@@ -252,7 +243,7 @@ pub fn create_image_content_stream(
 - `Color`: RGB color struct for text rendering
 - `TextAlign`: Left/Center alignment enum
 
-### 7b. Internationalization (`src/i18n.rs`)
+### 11. Internationalization (`src/i18n.rs`)
 
 **Purpose**: Localized CLI/validation messages and number formatting
 
@@ -263,7 +254,7 @@ pub fn create_image_content_stream(
 - `localize_validation()`: translate known structural validation strings
 - `format_integer` / `format_decimal`: locale-aware separators
 
-### 7c. Plugin System (`src/plugin.rs`)
+### 12. Plugin System (`src/plugin.rs`)
 
 **Purpose**: Extensible Markdown parsing and element transforms
 
@@ -276,7 +267,7 @@ pub fn create_image_content_stream(
 
 Document bookmarks (`/Outlines`) are produced automatically from headings during PDF assembly in `pdf_generator`.
 
-### 7d. Linearization (`src/linearize.rs`)
+### 13. Linearization (`src/linearize.rs`)
 
 **Purpose**: Fast Web View / progressive PDF loading
 
@@ -286,7 +277,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `is_linearized` — detect Fast Web View structure
 - Wired into `optimize_pdf_bytes` when `OptimizationSettings.linearize` is true (Web/Ebook profiles)
 
-### 7e. Incremental Updates (`src/incremental.rs`)
+### 14. Incremental Updates (`src/incremental.rs`)
 
 **Purpose**: Append-only PDF saves without rewriting prior bytes
 
@@ -297,7 +288,14 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `incremental_add_text_annotation` — append a text note + catalog override
 - `is_incremental_pdf` — detect multiple `%%EOF` markers
 
-### 8. PDF Validation (`src/pdf.rs` — validation functions)
+### 15. Streaming / optimization / vector / security
+
+- `src/streaming.rs` — memory-efficient streaming generation
+- `src/optimization.rs` — web/print/archive/ebook profiles
+- `src/vector.rs` — paths / SVG `d` import
+- `src/security.rs` — permissions; protected encrypt/decrypt returns `Err` until real crypto lands
+
+### 16. PDF Validation (`src/pdf.rs` — validation functions)
 
 **Purpose**: Validate PDF structural integrity
 
@@ -322,7 +320,7 @@ pub struct PdfValidation {
 
 **Validation Checks**: PDF header, %%EOF marker, xref table, trailer, /Catalog, /Pages, page count, object/endobj pairing, stream/endstream pairing, /Root reference.
 
-### 9. Compression Module (`src/compression.rs`)
+### 17. Compression Module (`src/compression.rs`)
 
 **Purpose**: Handle PDF stream compression
 
@@ -437,36 +435,35 @@ Error
 
 ```
 tests/
-├── unit/ (Module-specific tests)
-│   ├── pdf_tests.rs
-│   ├── markdown_tests.rs
-│   └── image_tests.rs
-├── integration/ (End-to-end tests)
-│   ├── conversion_tests.rs
-│   └── cli_tests.rs
-└── performance/ (Benchmarks)
-    ├── parsing_benchmarks.rs
-    └── generation_benchmarks.rs
+├── integration.rs
+├── comprehensive_pdf.rs
+├── roundtrip_test.rs
+├── capability_validation.rs
+├── unicode_integration_test.rs
+└── fixtures/          # markdown, sample.png, certs
+benches/
+└── pdf_benchmarks.rs
 ```
 
 ### Test Strategies
 
-- **Unit Tests**: Individual module functionality
-- **Integration Tests**: Module interactions
-- **Property Tests**: Input validation and edge cases
-- **Performance Tests**: Resource usage and speed
+- **Unit Tests**: Individual module functionality (`cargo test --lib`)
+- **Integration Tests**: CLI and library end-to-end flows
+- **Property Tests**: Input validation and edge cases (`proptest`)
+- **Doctests**: Public API examples in module docs
 
 ## Extensibility Design
 
-### Plugin Architecture (Future)
+### Plugin Architecture
 
 ```
 Plugin Interface
-├── Parser Plugins (New formats)
-├── Generator Plugins (New output formats)
-├── Filter Plugins (Text processing)
-└── Compression Plugins (New algorithms)
+├── ParserPlugin (Markdown → Elements)
+├── GeneratorPlugin (Elements → PDF hooks)
+└── CalloutPlugin (shipped default)
 ```
+
+Shipped: `PluginRegistry`, `--plugins callouts`, `PdfBuilder::add_markdown_with_plugins`.
 
 ### Configuration System (Future)
 

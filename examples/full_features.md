@@ -108,9 +108,9 @@ This document demonstrates footnote support[^1]. Multiple footnotes can be used 
 
 [PDF Specification](https://www.adobe.com/devnet/pdf/pdf_reference.html)
 
-![Rust Logo](images/rust-logo.png)
+![Rust Logo](../tests/fixtures/sample.png)
 
-![PDF Icon](images/pdf-icon.svg)
+![PDF Icon](../tests/fixtures/sample.png)
 
 ## Horizontal Rules
 

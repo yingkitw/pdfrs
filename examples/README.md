@@ -228,8 +228,10 @@ fn main() {
 
 - **Main Documentation:** `../README.md`
 - **Validation Report:** `../docs/VALIDATION_REPORT.md`
-- **Architecture:** `../docs/ARCHITECTURE.md`
-- **TODO:** `../docs/TODO.md`
+- **Architecture:** [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
+- **TODO:** [`../TODO.md`](../TODO.md)
+- **SPEC:** [`../SPEC.md`](../SPEC.md)
+- **README:** [`../README.md`](../README.md)
 
 ## Contributing
 
@@ -242,4 +244,5 @@ When adding new examples:
 
 ## License
 
-Apache-2.0
+MIT
+

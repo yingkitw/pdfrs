@@ -219,15 +219,19 @@ impl StreamingPdfGenerator {
         Ok(())
     }
 
-    /// Add elements (same as normal PDF generation)
+    /// Add elements. Unsupported layout-heavy types fall back to plain text so
+    /// content is never silently dropped; prefer `generate_pdf_bytes` for full fidelity.
     pub fn add_elements(&mut self, elements: &[Element]) -> Result<()> {
-        // For now, just process paragraphs and headings
         for elem in elements {
             match elem {
                 Element::Heading { level, text } => {
                     self.add_heading(text, *level)?;
                 }
-                Element::Paragraph { text } => {
+                Element::Paragraph { text }
+                | Element::StyledText { text, .. }
+                | Element::InlineCode { code: text }
+                | Element::MathInline { expression: text }
+                | Element::MathBlock { expression: text } => {
                     self.add_paragraph(text)?;
                 }
                 Element::RichParagraph { segments } => {
@@ -236,11 +240,71 @@ impl StreamingPdfGenerator {
                 Element::CodeBlock { code, language } => {
                     self.add_code_block(code, language)?;
                 }
-                Element::EmptyLine => {
-                    self.current_y -= (self.base_font_size + 4.0) * 0.5;
+                Element::UnorderedListItem { text, depth } => {
+                    let indent = "  ".repeat(*depth as usize);
+                    self.add_paragraph(&format!("{}- {}", indent, text))?;
                 }
-                _ => {
-                    // Skip other elements for now
+                Element::OrderedListItem { number, text, depth } => {
+                    let indent = "  ".repeat(*depth as usize);
+                    self.add_paragraph(&format!("{}{}. {}", indent, number, text))?;
+                }
+                Element::TaskListItem { checked, text } => {
+                    let marker = if *checked { "[x]" } else { "[ ]" };
+                    self.add_paragraph(&format!("{} {}", marker, text))?;
+                }
+                Element::BlockQuote { text, depth } => {
+                    let prefix = "> ".repeat(*depth as usize);
+                    self.add_paragraph(&format!("{}{}", prefix, text))?;
+                }
+                Element::DefinitionItem { term, definition } => {
+                    self.add_paragraph(term)?;
+                    self.add_paragraph(&format!("  {}", definition))?;
+                }
+                Element::Footnote { label, text } => {
+                    self.add_paragraph(&format!("[{}] {}", label, text))?;
+                }
+                Element::Link { text, url } => {
+                    self.add_paragraph(&format!("{} ({})", text, url))?;
+                }
+                Element::Image { alt, path } => {
+                    self.add_paragraph(&format!("[Image: {}] ({})", alt, path))?;
+                }
+                Element::Chart { kind, title, points } => {
+                    let kind = match kind {
+                        crate::elements::ChartKind::Bar => "bar",
+                        crate::elements::ChartKind::Line => "line",
+                        crate::elements::ChartKind::Pie => "pie",
+                    };
+                    let title = title.as_deref().unwrap_or("Chart");
+                    self.add_paragraph(&format!(
+                        "[Chart {} — {} ({} series)]",
+                        kind,
+                        title,
+                        points.len()
+                    ))?;
+                }
+                Element::TableRow { cells, is_separator, .. } => {
+                    if !*is_separator {
+                        self.add_paragraph(&cells.join(" | "))?;
+                    }
+                }
+                Element::HorizontalRule => {
+                    self.add_paragraph("----------")?;
+                }
+                Element::PageBreak => {
+                    self.flush_page()?;
+                }
+                Element::EmptyLine
+                | Element::Columns { .. }
+                | Element::PageNumberMode { .. }
+                | Element::RunningHeaderMode { .. }
+                | Element::Toc
+                | Element::Bibliography
+                | Element::CitationDef { .. } => {
+                    // Layout directives / spacers: no textual body.
+                    if matches!(elem, Element::EmptyLine) {
+                        self.current_y -= (self.base_font_size + 4.0) * 0.5;
+                    }
                 }
             }
         }

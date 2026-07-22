@@ -1,13 +1,43 @@
-# PDF-CLI
+# pdfrs
 
-A Rust library and CLI tool for reading, writing, and manipulating PDF files. Converts to/from Markdown. Implemented entirely in Rust without external PDF libraries.
+A Rust library and CLI (`pdfcli`) for reading, writing, and manipulating PDF files. Converts to/from Markdown. Implemented entirely in Rust without external PDF libraries.
+
+**See what it can generate:** open the sample output → [**comprehensive.pdf**](comprehensive.pdf)  
+(Source Markdown: [`tests/fixtures/comprehensive_document.md`](tests/fixtures/comprehensive_document.md). Regenerate with `pdfcli generate-comprehensive`.)
+
+## Why pdfrs?
+
+Most PDF tools specialize in one lane: a typesetter (Typst/LaTeX), a converter that shells out to a renderer (Pandoc), a low-level object toolkit (lopdf), or a post-processor (qpdf/Ghostscript). **pdfrs** is a single, self-contained Rust stack that covers Markdown → PDF, PDF surgery, validation, and optional WASM — with no system PDF/LaTeX dependency to install.
+
+| Capability | **pdfrs** | Pandoc | Typst | WeasyPrint | lopdf / printpdf | qpdf / Ghostscript |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Pure Rust PDF engine (no system libs) | ✅ | ❌¹ | ✅ (own format) | ❌ (Python + Pango/Cairo) | ✅ | ❌ (C/C++) |
+| Markdown → PDF (built-in) | ✅ | ✅² | Partial (via packages) | ✅ (HTML/CSS path) | ❌ / limited | ❌ |
+| Library API *and* CLI in one crate | ✅ | CLI-first | CLI-first | Library-first | Library-first | CLI-first |
+| Compile to WASM for the browser | ✅ (`wasm`) | ❌ | Limited | ❌ | Rare | ❌ |
+| Merge / split / rotate / watermark | ✅ | ❌ | ❌ | ❌ | DIY | ✅ |
+| Linearize (Fast Web View) + incremental update | ✅ | ❌ | ❌ | ❌ | DIY | Partial³ |
+| Structural PDF validation API | ✅ | ❌ | ❌ | ❌ | DIY | Partial |
+| Unicode / CJK with embedded TTF | ✅ | ✅² | ✅ | ✅ | DIY | N/A |
+| Thesis helpers (TOC, Roman folios, citations) | ✅ | Via LaTeX | Via packages | DIY | ❌ | ❌ |
+| Markdown charts (` ```chart` `) + multi-column | ✅ | Via filters | Via packages | DIY | ❌ | ❌ |
+| Full typographic / TeX-quality math layout | Basic symbols | ✅ (LaTeX) | ✅ | Limited | ❌ | N/A |
+| Page rasterization / PDF viewer engine | Preview via pdf.js | N/A | N/A | N/A | ❌ | ✅ (GS) |
+
+¹ Pandoc typically needs a PDF engine (pdflatex, wkhtmltopdf, weasyprint, …).  
+² Quality depends on the chosen PDF engine and templates.  
+³ qpdf has linearization; Ghostscript is stronger at render/convert than structured incremental edits.
+
+**Choose pdfrs when you want** a dependency-light Rust binary or library that owns the PDF bytes end-to-end — generate from Markdown, tweak existing files, validate, ship the same core to CLI or WASM — without installing TeX or linking PDFium.
+
+**Choose something else when you need** publication-grade typography (Typst/LaTeX), CSS-faithful HTML print (WeasyPrint), or pixel-perfect page rendering (Ghostscript/PDFium).
 
 ## Features
 
 ### Library API
-- **In-memory PDF generation**: `generate_pdf_bytes()` — no filesystem needed
+- **In-memory PDF generation**: `generate_pdf_bytes()` / `generate_pdf_bytes_with_image_base()` — no filesystem needed
 - **PDF validation**: `validate_pdf()` / `validate_pdf_bytes()` — structural integrity checks
-- **Rich element model**: 17 `Element` variants for document modeling
+- **Rich element model**: 27 `Element` variants for document modeling
 - **Accessibility**: `StructureType` enum (35 types), `StructureElement` tree, `AccessibilityOptions`
 
 ### PDF Generation
@@ -48,12 +78,12 @@ A Rust library and CLI tool for reading, writing, and manipulating PDF files. Co
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/pdf-cli.git
-cd pdf-cli
+git clone https://github.com/yingkitw/pdfrs.git
+cd pdfrs
 cargo build --release
 ```
 
-The binary will be available at `target/release/pdf-cli`.
+The binary will be available at `target/release/pdfcli`.
 
 ## Usage
 
@@ -62,49 +92,49 @@ The binary will be available at `target/release/pdf-cli`.
 #### Create a Simple PDF
 
 ```bash
-pdf-cli create output.pdf "Hello, World!"
+pdfcli create output.pdf "Hello, World!"
 ```
 
 #### Create PDF with Custom Font and Size
 
 ```bash
-pdf-cli create output.pdf "Hello, World!" --font "Times-Roman" --font-size 14
+pdfcli create output.pdf "Hello, World!" --font "Times-Roman" --font-size 14
 ```
 
 #### Convert Markdown to PDF
 
 ```bash
-pdf-cli md-to-pdf input.md output.pdf
+pdfcli md-to-pdf input.md output.pdf
 ```
 
 #### Convert Markdown to PDF with Custom Styling
 
 ```bash
-pdf-cli md-to-pdf input.md output.pdf --font "Helvetica" --font-size 12
+pdfcli md-to-pdf input.md output.pdf --font "Helvetica" --font-size 12
 ```
 
 #### Extract Text from PDF
 
 ```bash
-pdf-cli extract input.pdf
+pdfcli extract input.pdf
 ```
 
 #### Convert PDF to Markdown
 
 ```bash
-pdf-cli pdf-to-md input.pdf output.md
+pdfcli pdf-to-md input.pdf output.md
 ```
 
 #### Add Image to PDF
 
 ```bash
-pdf-cli add-image document.pdf image.jpg --x 100 --y 100 --width 200 --height 200
+pdfcli add-image document.pdf image.jpg --x 100 --y 100 --width 200 --height 200
 ```
 
 #### Filter Image into a PDF
 
 ```bash
-pdf-cli filter-image photo.bmp -o filtered.pdf --filter grayscale --filter brightness:20
+pdfcli filter-image photo.bmp -o filtered.pdf --filter grayscale --filter brightness:20
 ```
 
 Supports BMP/PNG with filters: `grayscale`, `invert`, `sepia`, `brightness:N`, `contrast:F`.
@@ -112,27 +142,27 @@ Supports BMP/PNG with filters: `grayscale`, `invert`, `sepia`, `brightness:N`, `
 #### Draw Vector Graphics Demo
 
 ```bash
-pdf-cli draw-vector diagram.pdf
-pdf-cli draw-vector diagram.pdf --landscape
+pdfcli draw-vector diagram.pdf
+pdfcli draw-vector diagram.pdf --landscape
 ```
 
 #### Draw SVG Path
 
 ```bash
-pdf-cli draw-svg out.pdf --path "M72 72 L300 72 L186 220 Z" --fill
-pdf-cli draw-svg out.pdf --file icon.svg
+pdfcli draw-svg out.pdf --path "M72 72 L300 72 L186 220 Z" --fill
+pdfcli draw-svg out.pdf --file icon.svg
 ```
 
 #### Landscape PDF
 
 ```bash
-pdf-cli md-to-pdf input.md output.pdf --landscape
+pdfcli md-to-pdf input.md output.pdf --landscape
 ```
 
 #### RTL (Hebrew / Arabic)
 
 ```bash
-pdf-cli md-to-pdf hebrew.md output.pdf --rtl
+pdfcli md-to-pdf hebrew.md output.pdf --rtl
 ```
 
 RTL-dominant lines are also auto-detected and right-aligned even without `--rtl`.
@@ -140,14 +170,14 @@ RTL-dominant lines are also auto-detected and right-aligned even without `--rtl`
 #### Embed a U3D 3D model
 
 ```bash
-pdf-cli embed-3d model.pdf scene.u3d --label "Assembly" --activate-on-open
+pdfcli embed-3d model.pdf scene.u3d --label "Assembly" --activate-on-open
 ```
 
 #### Localized validation messages
 
 ```bash
-pdf-cli --lang es validate document.pdf
-pdf-cli --lang de validate document.pdf
+pdfcli --lang es validate document.pdf
+pdfcli --lang de validate document.pdf
 ```
 
 Supported: `en`, `es`, `de`, `fr`, `zh`, `he`, `ar` (or set `PDFRS_LANG`).
@@ -155,7 +185,7 @@ Supported: `en`, `es`, `de`, `fr`, `zh`, `he`, `ar` (or set `PDFRS_LANG`).
 #### Markdown plugins (callouts)
 
 ```bash
-pdf-cli md-to-pdf notes.md out.pdf --plugins callouts
+pdfcli md-to-pdf notes.md out.pdf --plugins callouts
 ```
 
 Supports fenced callouts: `:::note`, `:::warning`, `:::tip`, `:::danger`, `:::info`.
@@ -165,14 +195,15 @@ Headings automatically become PDF bookmarks (`/Outlines`).
 #### Generate comprehensive sample PDF
 
 ```bash
-pdf-cli generate-comprehensive
-pdf-cli generate-comprehensive -o web.pdf --linearize
+pdfcli generate-comprehensive
+pdfcli generate-comprehensive -o web.pdf --linearize
 cargo test --test comprehensive_pdf
 ```
 
 Produces a multi-page document covering headings/bookmarks, tables, code, math,
-callouts, quotes, footnotes, page breaks, and light RTL probes. Writes
-`comprehensive.pdf` by default (also refreshed when the test runs).
+callouts, quotes, footnotes, images, charts, multi-column layout, thesis TOC/citations,
+page breaks, and light RTL probes. Writes [**comprehensive.pdf**](comprehensive.pdf) by
+default (also refreshed when `cargo test --test comprehensive_pdf` runs).
 
 #### Capability showcase (validation fixture)
 
@@ -181,8 +212,8 @@ callouts, quotes, footnotes, page breaks, and light RTL probes. Writes
 cargo test --test capability_validation
 
 # Generate from the fixture:
-pdf-cli md-to-pdf tests/fixtures/capability_showcase.md out.pdf --plugins callouts --profile web
-pdf-cli incremental-update out.pdf -o out2.pdf --title "Updated" --author "Ada"
+pdfcli md-to-pdf tests/fixtures/capability_showcase.md out.pdf --plugins callouts --profile web
+pdfcli incremental-update out.pdf -o out2.pdf --title "Updated" --author "Ada"
 ```
 
 Artifacts are written under `tests/output/capability_*.pdf` when the test runs.
@@ -190,39 +221,39 @@ Artifacts are written under `tests/output/capability_*.pdf` when the test runs.
 #### Linearize (Fast Web View)
 
 ```bash
-pdf-cli linearize-pdf input.pdf -o web.pdf
-pdf-cli optimize-pdf input.pdf -o web.pdf --profile web   # also linearizes
+pdfcli linearize-pdf input.pdf -o web.pdf
+pdfcli optimize-pdf input.pdf -o web.pdf --profile web   # also linearizes
 ```
 
 #### Incremental update (append-only)
 
 ```bash
-pdf-cli incremental-update input.pdf -o updated.pdf --title "New Title" --author "Ada"
-pdf-cli incremental-update input.pdf -o noted.pdf --note "Please review"
+pdfcli incremental-update input.pdf -o updated.pdf --title "New Title" --author "Ada"
+pdfcli incremental-update input.pdf -o noted.pdf --note "Please review"
 ```
 
 #### Merge PDFs
 
 ```bash
-pdf-cli merge file1.pdf file2.pdf file3.pdf -o merged.pdf
+pdfcli merge file1.pdf file2.pdf file3.pdf -o merged.pdf
 ```
 
 #### Split PDF (extract pages 2-5)
 
 ```bash
-pdf-cli split input.pdf -o pages2to5.pdf --start 2 --end 5
+pdfcli split input.pdf -o pages2to5.pdf --start 2 --end 5
 ```
 
 #### Rotate PDF
 
 ```bash
-pdf-cli rotate input.pdf -o rotated.pdf --angle 90
+pdfcli rotate input.pdf -o rotated.pdf --angle 90
 ```
 
 #### Create PDF with Metadata
 
 ```bash
-pdf-cli md-to-pdf-meta input.md output.pdf --title "My Document" --author "Author Name" --subject "Topic"
+pdfcli md-to-pdf-meta input.md output.pdf --title "My Document" --author "Author Name" --subject "Topic"
 ```
 
 ### Supported Fonts
@@ -237,7 +268,7 @@ pdf-cli md-to-pdf-meta input.md output.pdf --title "My Document" --author "Autho
 ### Creating a Multi-page Document
 
 ```bash
-pdf-cli create long-document.pdf "$(cat document.txt)" --font-size 10
+pdfcli create long-document.pdf "$(cat document.txt)" --font-size 10
 ```
 
 ### Converting Complex Markdown
@@ -275,7 +306,7 @@ EOF
 
 # Convert to PDF
 
-pdf-cli md-to-pdf sample.md sample.pdf --font "Times-Roman" --font-size 12
+pdfcli md-to-pdf sample.md sample.pdf --font "Times-Roman" --font-size 12
 
 ```
 
@@ -316,29 +347,44 @@ The demo generates PDFs from Markdown via WASM and previews them on canvas. See 
 This tool is built with a modular architecture:
 
 - **PDF Parser** (`src/pdf.rs`): PDF parsing, text extraction, validation, xref/object stream parsing
-- **PDF Generator** (`src/pdf_generator.rs`): Creates PDFs with layout, color, alignment, accessibility
-- **Elements** (`src/elements.rs`): 17 structured element types and markdown parser
+- **PDF Generator** (`src/pdf_generator.rs`): Creates PDFs with layout, color, alignment, accessibility, syntect highlighting
+- **Elements** (`src/elements.rs`): 27 structured element types and markdown parser
 - **Markdown** (`src/markdown.rs`): Markdown-to-PDF pipeline with rich formatting
+- **Charts / thesis** (`src/chart.rs`, `src/thesis.rs`): Vector charts; TOC, folios, citations
 - **PDF Operations** (`src/pdf_ops.rs`): Merge, split, rotate, reorder, watermark, metadata, annotations
 - **Image Handler** (`src/image.rs`): JPEG/PNG/BMP embedding with dimension parsing
+- **Linearize / incremental** (`src/linearize.rs`, `src/incremental.rs`): Fast Web View; append-only updates
+- **Plugins** (`src/plugin.rs`): Parser/generator hooks (e.g. callouts)
 - **Compression** (`src/compression.rs`): PDF stream compression (deflate)
-- **Security** (`src/security.rs`): Password protection, permissions
+- **Security** (`src/security.rs`): Password protection, permissions (stub crypto gated)
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed module documentation.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec and backlog: [SPEC.md](SPEC.md), [TODO.md](TODO.md).
 
 ## Testing
 
-251 tests across 4 test suites:
-- **115 lib tests**: Unit tests for all modules
-- **112 bin tests**: CLI command tests
-- **13 integration tests**: End-to-end roundtrip, merge, split, rotate, watermark, reorder
-- **11 bench tests**: Property-based and benchmark tests
+~336 tests (`cargo test`), including:
+- **~240 lib tests**: Unit tests across modules
+- **Integration crates**: `tests/integration.rs`, `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test`
+- **~33 doctests**: Public API examples
 
-Round-trip validation tests verify that every element type survives: generate → validate → parse → verify.
+Round-trip validation tests verify that content survives: generate → validate → parse → verify.
 
 ```bash
 cargo test
 ```
+
+## Documentation
+
+Project docs live at the repository root:
+
+| File | Purpose |
+|------|---------|
+| [README.md](README.md) | Quick start, CLI usage, features |
+| [SPEC.md](SPEC.md) | Functional / non-functional requirements |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Modules, data flow, design decisions |
+| [TODO.md](TODO.md) | Backlog, audit follow-ups, brainstorming |
+
+Extra material (contributing, validation notes) is under [`docs/`](docs/).
 
 ## Limitations
 

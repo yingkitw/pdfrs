@@ -22,7 +22,7 @@
     "rust"
   ],
   "author": "Ying Kit WONG",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "scripts": {
     "build": "wasm-pack build .. --target web --out-dir wasm/pkg"
   }

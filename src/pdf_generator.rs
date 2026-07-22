@@ -692,6 +692,8 @@ struct ContentStreamBuilder {
     citations: CitationRegistry,
     /// Citation key → full reference text.
     citation_defs: HashMap<String, String>,
+    /// Image load/embed failures collected during layout (fail generation if non-empty).
+    image_errors: Vec<String>,
 }
 
 /// A PDF outline (bookmark) destination produced during layout.
@@ -750,6 +752,7 @@ impl ContentStreamBuilder {
             in_abstract: false,
             citations: CitationRegistry::new(),
             citation_defs: HashMap::new(),
+            image_errors: Vec::new(),
         };
         b.begin_page();
         b
@@ -1896,7 +1899,10 @@ impl ContentStreamBuilder {
         );
 
         let Ok(info) = loaded else {
-            self.emit_wrapped_text(&format!("[Image: {}] ({})", alt, path), self.base_font_size);
+            self.image_errors.push(format!(
+                "failed to load image '{}' ({})",
+                alt, resolved.display()
+            ));
             return;
         };
 
@@ -2519,21 +2525,22 @@ fn render_elements_to_builder(builder: &mut ContentStreamBuilder, elements: &[El
                                 format!("{} Tj\n", builder.encode_text_for_current_font(code_line)).as_bytes()
                             );
                         } else {
-                            let mut x_offset = builder.content_left();
+                            // Position once, then emit sequential Tj so extractors keep identifiers contiguous.
+                            builder.current.extend_from_slice(
+                                format!("1 0 0 1 {} {} Tm\n", builder.content_left(), builder.y).as_bytes()
+                            );
                             for token in &line_tokens {
                                 if token.text.is_empty() {
                                     continue;
                                 }
                                 builder.current.extend_from_slice(
-                                    format!("{} {} {} rg\n", token.color.r, token.color.g, token.color.b).as_bytes()
+                                    format!("{} {} {} rg\n", token.color.r, token.color.g, token.color.b)
+                                        .as_bytes(),
                                 );
                                 builder.current.extend_from_slice(
-                                    format!("1 0 0 1 {} {} Tm\n", x_offset, builder.y).as_bytes()
+                                    format!("{} Tj\n", builder.encode_text_for_current_font(&token.text))
+                                        .as_bytes(),
                                 );
-                                builder.current.extend_from_slice(
-                                    format!("{} Tj\n", builder.encode_text_for_current_font(&token.text)).as_bytes()
-                                );
-                                x_offset += builder.code_text_width(&token.text, code_size);
                             }
                         }
                         builder.y -= line_h;
@@ -2818,6 +2825,12 @@ pub(crate) fn generate_pdf_bytes_internal_with_base(
     );
     builder.citation_defs = citation_defs;
     render_elements_to_builder(&mut builder, &prepared, base_font_size);
+    if !builder.image_errors.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Image embedding failed:\n  - {}",
+            builder.image_errors.join("\n  - ")
+        ));
+    }
     let (page_streams, outlines, images) = builder.finish();
     let unicode_arg = match (&unicode_font_support, &used_chars) {
         (Some((bytes, encoder)), Some(chars)) => Some((bytes.as_slice(), encoder, chars)),
@@ -2832,7 +2845,7 @@ pub(crate) fn generate_pdf_bytes_internal_with_base(
         accessibility,
         &outlines,
         &images,
-    ))
+    )?)
 }
 
 /// Generate PDF bytes from elements (library API — no filesystem access needed)
@@ -2843,6 +2856,26 @@ pub fn generate_pdf_bytes(
     layout: PageLayout,
 ) -> Result<Vec<u8>> {
     generate_pdf_bytes_internal(elements, font, base_font_size, layout, None, false, None)
+}
+
+/// Same as [`generate_pdf_bytes`], resolving relative image paths against `image_base_dir`.
+pub fn generate_pdf_bytes_with_image_base(
+    elements: &[Element],
+    font: &str,
+    base_font_size: f32,
+    layout: PageLayout,
+    image_base_dir: impl Into<PathBuf>,
+) -> Result<Vec<u8>> {
+    generate_pdf_bytes_internal_with_base(
+        elements,
+        font,
+        base_font_size,
+        layout,
+        None,
+        false,
+        None,
+        Some(image_base_dir.into()),
+    )
 }
 
 /// Same as `generate_pdf_bytes` but with optional stream compression
@@ -2969,7 +3002,7 @@ pub fn render_page_range(
         None,
         &filtered,
         &images,
-    ))
+    )?)
 }
 
 /// Assemble final PDF bytes from per-page content streams
@@ -2982,7 +3015,7 @@ fn assemble_pdf_bytes(
     accessibility: Option<&AccessibilityOptions>,
     outlines: &[OutlineDest],
     images: &[(String, ImageInfo)],
-) -> Vec<u8> {
+) -> Result<Vec<u8>> {
     let mut generator = PdfGenerator::new().with_version(layout.version);
 
     let font_ids = add_shared_font_resources(&mut generator, unicode_font);
@@ -2991,11 +3024,18 @@ fn assemble_pdf_bytes(
     let mut xobject_resource = String::new();
     if !images.is_empty() {
         let mut parts = Vec::new();
+        let mut embed_errors = Vec::new();
         for (name, info) in images {
             match image::create_image_object(&mut generator, info.clone()) {
                 Ok(id) => parts.push(format!("/{} {} 0 R", name, id)),
-                Err(_) => continue,
+                Err(e) => embed_errors.push(format!("{}: {}", name, e)),
             }
+        }
+        if !embed_errors.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Failed to embed image XObject(s):\n  - {}",
+                embed_errors.join("\n  - ")
+            ));
         }
         if !parts.is_empty() {
             xobject_resource = format!("/XObject << {} >> ", parts.join(" "));
@@ -3113,7 +3153,7 @@ fn assemble_pdf_bytes(
     );
     generator.add_object(catalog_dict);
 
-    generator.generate()
+    Ok(generator.generate())
 }
 
 /// Build a flat `/Outlines` tree linking each heading to its page.

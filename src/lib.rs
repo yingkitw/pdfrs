@@ -42,12 +42,19 @@
 //! - [`elements`]: Markdown parsing and element representation
 //! - [`markdown`]: Markdown to PDF conversion utilities
 //! - [`image`]: Image loading, parsing, and PDF embedding
+//! - [`chart`]: Vector bar/line/pie charts from Markdown fences
+//! - [`thesis`]: Academic folios, TOC expansion, citations
+//! - [`comprehensive`]: Bundled multi-feature sample document
 //! - [`compression`]: Data compression utilities
 //! - [`security`]: PDF security, encryption, and permission management
 //! - [`builder`]: Fluent builder API for ergonomic PDF creation
 //! - [`streaming`]: Memory-efficient streaming PDF generation for large documents
 //! - [`parallel`]: High-performance parallel PDF operations using Rayon
 //! - [`optimization`]: PDF optimization profiles for different use cases (web, print, archive, ebook)
+//! - [`linearize`]: Fast Web View / linearized PDF
+//! - [`incremental`]: Append-only incremental PDF updates
+//! - [`vector`]: Vector/SVG path drawing
+//! - [`plugin`]: Parser/generator plugins (e.g. callouts)
 //!
 //! ## Examples
 //!

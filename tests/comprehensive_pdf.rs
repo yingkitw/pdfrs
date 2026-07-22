@@ -40,6 +40,21 @@ fn test_generate_comprehensive_pdf_document() {
         "expected diverse element kinds, got {}",
         kinds.len()
     );
+    use pdfrs::elements::{ChartKind, Element};
+    let has = |pred: fn(&Element) -> bool| elements.iter().any(pred);
+    assert!(
+        has(|e| matches!(e, Element::Columns { .. })),
+        "fixture missing Columns"
+    );
+    assert!(
+        has(|e| matches!(e, Element::Chart { kind: ChartKind::Bar | ChartKind::Line | ChartKind::Pie, .. })),
+        "fixture missing Chart"
+    );
+    assert!(
+        has(|e| matches!(e, Element::Image { .. })),
+        "fixture missing Image"
+    );
+    assert!(has(|e| matches!(e, Element::Toc)), "fixture missing Toc");
 
     let pdf = generate_bundled_comprehensive_pdf(&opts).unwrap();
     assert!(pdf.starts_with(b"%PDF"));
@@ -60,6 +75,7 @@ fn test_generate_comprehensive_pdf_document() {
     let raw = String::from_utf8_lossy(&pdf);
     assert!(raw.contains("/Outlines"), "missing bookmarks");
     assert!(raw.contains("/PageMode /UseOutlines"));
+    assert!(raw.contains("/XObject"), "expected embedded image XObject");
     assert!(
         raw.contains("Comprehensive Document")
             && raw.contains("Part II")

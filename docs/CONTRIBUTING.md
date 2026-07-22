@@ -1,6 +1,6 @@
-# Contributing to PDF-CLI
+# Contributing to pdfrs
 
-Thank you for your interest in contributing to PDF-CLI! This document provides guidelines for contributors.
+Thank you for your interest in contributing to **pdfrs**! This document provides guidelines for contributors.
 
 ## Code of Conduct
 
@@ -18,8 +18,8 @@ This project adheres to a code of conduct. By participating, you are expected to
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/yourusername/pdf-cli.git
-   cd pdf-cli
+   git clone https://github.com/yingkitw/pdfrs.git
+   cd pdfrs
    ```
 3. Create a new branch for your feature:
    ```bash
@@ -166,11 +166,14 @@ pub fn pdf_to_markdown(input_file: &str, output_file: &str) -> Result<()> {
 
 ### User Documentation
 
-Update relevant documentation files:
+Update relevant documentation files at the **project root**:
 
-- README.md for user-facing features
-- SPEC.md for technical specifications
-- ARCHITECTURE.md for architectural decisions
+- `README.md` for user-facing features
+- `SPEC.md` for technical specifications
+- `TODO.md` for backlog / roadmap
+- `ARCHITECTURE.md` for architectural decisions
+
+Supplementary docs live under `docs/`.
 
 ## Performance Considerations
 

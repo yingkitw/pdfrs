@@ -1,8 +1,8 @@
-# PDF-CLI Technical Specification
+# pdfrs Technical Specification
 
 ## Overview
 
-PDF-CLI is a command-line tool written in Rust that provides functionality for reading, writing, and converting PDF files to and from Markdown format. The implementation is designed to be self-contained, not relying on external PDF libraries, and implements core PDF specifications from scratch.
+**pdfrs** is a Rust library and CLI (`pdfcli`) for reading, writing, and converting PDF files to and from Markdown. The implementation is self-contained (no external PDF libraries) and implements core PDF specifications from scratch.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR4.5**: Image filters and effects — grayscale, invert, brightness, contrast, sepia on BMP/PNG; `filter-image` CLI
 - **FR4.6**: Vector graphics — lines, rectangles, ellipses, polygons, cubic Bézier paths via `VectorCanvas`; `draw-vector` CLI
 - **FR4.7**: SVG path import — parse SVG `d` attributes (`M/L/H/V/C/S/Q/T/Z`) into PDF paths; `draw-svg` CLI
-- **FR4.8**: Markdown image embedding — `![alt](path)` loads JPEG/PNG/BMP, scales to content width, and registers `/XObject` resources
+- **FR4.8**: Markdown image embedding — `![alt](path)` loads JPEG/PNG/BMP, scales to content width, and registers `/XObject` resources; missing/unloadable images fail generation
 - **FR4.9**: Markdown charts — fenced ` ```chart bar|line|pie` ` blocks render vector bar, line, and pie charts
 - **FR4.10**: Academic thesis layout — Roman/Arabic/hidden folios, running headers, in-document TOC, numbered figure/table captions, `[@cite]` citations + bibliography
 
@@ -65,13 +65,14 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 - **FR6.3**: Code block rendering with reduced font size (0.85x)
 - **FR6.4**: Horizontal rule rendering
 - **FR6.5**: Configurable page layout (portrait/landscape; optional RTL via `PageLayout::with_rtl` / `md-to-pdf --rtl`)
-- **FR6.12**: Localized validation/CLI messages (`i18n` module; `--lang` / `PDFRS_LANG`; en/es/de/fr/zh/he/ar) and locale number formatting
 - **FR6.6**: Structured element pipeline (Markdown → Elements → PDF)
 - **FR6.7**: Unicode-aware line wrapping and width estimation (ASCII/CJK/emoji-aware)
 - **FR6.8**: Unicode-safe text emission for non-ASCII text in line/code/math rendering (UTF-16BE for Base-14 path; glyph-ID CID encoding for embedded Type0/CIDFont path)
 - **FR6.9**: Embed Unicode-capable TrueType font as Type0/CIDFont (`FontFile2`) for cross-viewer glyph reliability
 - **FR6.10**: Allow unicode font override via `PDFRS_UNICODE_FONT_PATH`
 - **FR6.11**: Ensure math rendering paths (including italic math styling) use glyph-safe Unicode encoding when embedded Type0/CIDFont mode is active
+- **FR6.12**: Localized validation/CLI messages (`i18n` module; `--lang` / `PDFRS_LANG`; en/es/de/fr/zh/he/ar) and locale number formatting
+- **FR6.13**: Multi-column layout — `PageLayout::{columns,column_gap,with_columns}`, Markdown `<!-- columns:N -->`, CLI `--columns`; H1 stays full-width across columns
 
 #### FR7: PDF Manipulation
 
@@ -91,7 +92,7 @@ PDF-CLI is a command-line tool written in Rust that provides functionality for r
 
 - **FR9.1**: In-memory PDF generation via `generate_pdf_bytes()` (no filesystem needed)
 - **FR9.2**: PDF structural validation via `validate_pdf_bytes()` returning `PdfValidation`
-- **FR9.3**: Rich `Element` enum with 17 variants for document modeling
+- **FR9.3**: Rich `Element` enum with 27 variants for document modeling
 - **FR9.4**: Round-trip validation: generate → validate → parse → verify content
 - **FR9.5**: Cross-reference stream parsing for PDF 1.5+ (`parse_xref_stream`)
 - **FR9.6**: Object stream handling for compressed objects (`parse_object_stream`)
@@ -378,17 +379,18 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 - PDF manipulation (merge, split, rotate, reorder, watermark)
 - Security (password protection, permissions)
 - Library API (in-memory generation, validation)
-- 17 element types with round-trip validation
-- 251 tests (115 lib + 112 bin + 13 integration + 11 bench)
+- 27 element types with round-trip validation
+- ~336 tests (`cargo test`: ~240 lib + integration crates + ~33 doctests)
+- Charts, multi-column layout, thesis TOC/citations, linearized + incremental PDF
+- WebAssembly (`wasm` feature) + canvas viewer demo
 
 ### Remaining Features
 
-- Embedded/TrueType font support
+- Real PDF encryption (crypto currently gated to refuse fake protection)
 - Full tagged PDF output for accessibility
-- Vector graphics (SVG) support — PDF path primitives + SVG `d` path import implemented (`vector` module); full SVG document rendering (groups, transforms, text) still open
-- Digital signatures
-- WebAssembly compilation
-- Rustdoc API documentation with examples
+- Full SVG document rendering (groups, transforms, text) beyond path `d` import
+- Digital signature verification / richer signing UX
+- Expanded rustdoc API examples
 
 ### Advanced Features (Surpassing Ghostscript)
 

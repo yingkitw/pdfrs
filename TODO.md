@@ -1,6 +1,6 @@
-# PDF-CLI TODO List
+# pdfrs TODO List
 
-This document tracks the planned features, improvements, and tasks for the PDF-CLI project.
+This document tracks the planned features, improvements, and tasks for the **pdfrs** project.
 
 ## Priority Legend
 
@@ -36,7 +36,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [x] Escaped parentheses handling in PDF strings
 - [x] Integration tests for roundtrip validation (17 test cases)
 - [x] Complex PDF generation examples validated via round-trip:
-  - [x] `full_features.md` — all 17 element types (10KB, 6 pages)
+  - [x] `full_features.md` — broad element coverage (headings, lists, tables, code, images, …)
   - [x] `technical_report_complex.md` — dense tables, multi-language code, nested lists (23KB, 6+ pages)
   - [x] `api_reference_complex.md` — definitions, footnotes, code examples, feature matrix (28KB, 8+ pages)
   - [x] `math_and_formulas.md` — LaTeX math blocks/inline, code blocks, tables, formulas (27KB, 14 pages)
@@ -271,7 +271,7 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
   - [x] `generate_pdf_bytes()` — in-memory PDF generation without filesystem
   - [x] `validate_pdf()` / `validate_pdf_bytes()` — structural PDF validation
   - [x] `PdfValidation` result struct (errors, warnings, page_count, object_count)
-  - [x] Rich `Element` enum with 19 variants for document modeling (including MathBlock, MathInline)
+  - [x] Rich `Element` enum with 27 variants for document modeling (math, charts, columns, thesis)
   - [x] `PdfDocument::load_from_bytes()` — in-memory PDF parsing without filesystem
   - [x] `PdfDocument::to_bytes()` — round-trip serialization for PDF optimization
   - [x] Rust API documentation (rustdoc with examples) — module-level `//!` docs added to all public modules (`elements`, `pdf_generator`, `pdf_ops`, `pdf`, `image`, `compression`, `builder`, `streaming`, `parallel`, `wasm`); cross-referenced types and runnable examples in `lib.rs`
@@ -351,6 +351,16 @@ This document tracks the planned features, improvements, and tasks for the PDF-C
 - [ ] Machine learning for OCR integration
 - [x] Vector graphics (SVG) support — SVG path `d` parser (`M/L/H/V/C/S/Q/T/Z`) → `VectorCanvas`; `draw-svg` CLI (`--path` / `--file`)
 - [x] 3D PDF support investigation — U3D 3D annotations via `embed-3d` (FR17.5)
+
+### Audit follow-ups (2026-07-22)
+
+- [x] Gate stubbed security encrypt/decrypt (`src/security.rs`) — protected paths return `Err`
+- [x] Make `build_page_streams` return `Result` (in-memory generate + load; no silent empty Vec)
+- [x] Align `streaming` with main generator (text fallbacks; layout directives no-op)
+- [x] Propagate image embed / XObject failures instead of silent placeholder
+- [x] Sync Element count (27) + SPEC multi-column FR + fix AGENTS.md domain copy
+- [x] Tighten `comprehensive_pdf` asserts (Chart/Columns/Image/Toc); wire `syntect` highlighting
+- [ ] Split mega-files: `pdf_generator.rs`, `pdf_ops.rs`, `pdf.rs`, `main.rs` (incremental)
 
 ### Brainstorming (Competitive Intelligence — 2026-07)
 
@@ -464,4 +474,4 @@ Capabilities in peer projects worth prioritizing:
 
 ---
 
-This TODO list serves as a roadmap for the PDF-CLI project, guiding development priorities and ensuring a structured approach to feature implementation and quality improvement.
+This TODO list serves as a roadmap for the **pdfrs** project, guiding development priorities and ensuring a structured approach to feature implementation and quality improvement.

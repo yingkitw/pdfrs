@@ -249,87 +249,49 @@ impl PdfSecurity {
     }
 }
 
-/// Basic encryption/decryption functions
+/// Encryption helpers.
 ///
-/// Note: This is a simplified implementation. For production use, you would want
-/// to use a proper cryptographic library like RustCrypto or openssl.
+/// Real PDF Standard Security encryption is not implemented yet. When protection
+/// is enabled these methods return an error instead of silently writing plaintext
+/// or emitting fake `/Encrypt` dictionaries.
 impl PdfSecurity {
-    /// Encrypt data using the configured algorithm
+    /// Encrypt data using the configured algorithm.
     ///
-    /// Note: This is a stub implementation. For production, use a proper crypto library.
+    /// Unprotected documents pass data through unchanged. Protected documents
+    /// return an error — stream encryption is not implemented.
     pub fn encrypt_data(&self, data: &[u8], _key: &[u8]) -> Result<Vec<u8>> {
         if !self.is_protected() {
             return Ok(data.to_vec());
         }
-
-        // Stub: In production, this would use actual encryption
-        // For now, just return the data as-is (no encryption)
-        Ok(data.to_vec())
+        Err(anyhow!(
+            "PDF stream encryption is not implemented yet; refusing to pretend the content is protected"
+        ))
     }
 
-    /// Decrypt data using the configured algorithm
-    ///
-    /// Note: This is a stub implementation. For production, use a proper crypto library.
+    /// Decrypt data using the configured algorithm.
     pub fn decrypt_data(&self, data: &[u8], _key: &[u8]) -> Result<Vec<u8>> {
         if !self.is_protected() {
             return Ok(data.to_vec());
         }
-
-        // Stub: In production, this would use actual decryption
-        // For now, just return the data as-is (no encryption)
-        Ok(data.to_vec())
+        Err(anyhow!("PDF stream decryption is not implemented yet"))
     }
 
-    /// Generate an encryption key from passwords
-    ///
-    /// Note: This is a simplified implementation following PDF 1.7 spec algorithm 3.2
+    /// Generate an encryption key from passwords.
     pub fn generate_encryption_key(&self) -> Result<Vec<u8>> {
         if !self.is_protected() {
             return Ok(Vec::new());
         }
-
-        let key_len = self.encryption_algorithm.key_length();
-        // Stub: Generate a placeholder key
-        // In production, this would follow the PDF spec's key derivation algorithm
-        Ok(vec![0u8; key_len])
+        Err(anyhow!("PDF encryption key derivation is not implemented yet"))
     }
 
-    /// Create the encryption dictionary for the PDF trailer
-    pub fn create_encryption_dict(&self) -> String {
+    /// Create the encryption dictionary for the PDF trailer.
+    pub fn create_encryption_dict(&self) -> Result<String> {
         if !self.is_protected() {
-            return String::new();
+            return Ok(String::new());
         }
-
-        let key_length = self.encryption_algorithm.key_length() * 8;
-        let flags = self.permissions.to_pdf_flags();
-
-        format!(
-            "<< /Filter /Standard \
-               /V {} \
-               /R {} \
-               /Length {} \
-               /P {} \
-               /EncryptMetadata {} \
-               /O <OWNER_PASSWORD_PLACEHOLDER> \
-               /U <USER_PASSWORD_PLACEHOLDER> >>",
-            if self.encryption_algorithm == EncryptionAlgorithm::Aes256 {
-                "5"
-            } else if self.encryption_algorithm == EncryptionAlgorithm::Aes128 {
-                "4"
-            } else {
-                "2"
-            },
-            if self.encryption_algorithm == EncryptionAlgorithm::Aes256 {
-                "5"
-            } else if self.encryption_algorithm == EncryptionAlgorithm::Aes128 {
-                "4"
-            } else {
-                "3"
-            },
-            key_length,
-            flags,
-            if self.encrypt_metadata { "true" } else { "false" }
-        )
+        Err(anyhow!(
+            "PDF /Encrypt dictionary generation is not implemented yet; use an external tool for password protection"
+        ))
     }
 }
 
@@ -765,14 +727,15 @@ mod tests {
 
     #[test]
     fn test_create_encryption_dict() {
+        let unprotected = PdfSecurity::new();
+        assert_eq!(unprotected.create_encryption_dict().unwrap(), "");
+
         let security = PdfSecurity::new()
             .with_user_password("user".to_string())
             .with_owner_password("owner".to_string());
-
-        let dict = security.create_encryption_dict();
-        assert!(dict.contains("/Filter /Standard"));
-        assert!(dict.contains("/O <"));
-        assert!(dict.contains("/U <"));
+        assert!(security.create_encryption_dict().is_err());
+        assert!(security.encrypt_data(b"x", b"k").is_err());
+        assert!(security.generate_encryption_key().is_err());
     }
 
     #[test]

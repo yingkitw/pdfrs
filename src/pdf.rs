@@ -945,7 +945,9 @@ impl PdfDocument {
                 let content = String::from_utf8_lossy(&processed_data);
 
                 let mut tracker = TextPositionTracker::new();
-                let mut first_item_on_line = true;
+                // Only insert a word space when a positioning op occurred since the last
+                // text show. Sequential `Tj` (e.g. syntax-highlighted spans) must stay contiguous.
+                let mut space_before_next_text = false;
 
                 // Process content stream line by line to track positioning
                 for line in content.lines() {
@@ -954,67 +956,75 @@ impl PdfDocument {
                     // Check for Td/TD positioning BEFORE extracting text on this line
                     if let Some(caps) = td_re.captures(line)
                         && let Ok(y) = caps[2].parse::<f32>()
-                            && tracker.moved_to_new_line(y) && !text.ends_with('\n') {
-                                // Y changed significantly — likely a new line
-                                text.push('\n');
-                                first_item_on_line = true;
-                            }
+                    {
+                        if tracker.moved_to_new_line(y) && !text.ends_with('\n') {
+                            text.push('\n');
+                            space_before_next_text = false;
+                        } else {
+                            space_before_next_text = true;
+                        }
+                    }
 
                     // Check for Tm text matrix BEFORE extracting text on this line
                     if let Some(caps) = tm_re.captures(line)
                         && let Ok(y) = caps[2].parse::<f32>()
-                            && tracker.moved_to_new_line(y) && !text.ends_with('\n') {
-                                // Y changed significantly
-                                text.push('\n');
-                                first_item_on_line = true;
-                            }
+                    {
+                        if tracker.moved_to_new_line(y) && !text.ends_with('\n') {
+                            text.push('\n');
+                            space_before_next_text = false;
+                        } else if !text.is_empty() && !text.ends_with('\n') {
+                            // Same-line Tm reposition (e.g. next word) → word gap
+                            space_before_next_text = true;
+                        }
+                    }
 
                     // Extract (text) Tj
                     for caps in tj_re.captures_iter(line) {
                         let extracted = &caps[1];
                         let unescaped = unescape_pdf_string(extracted);
-                        if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                        if space_before_next_text && !text.ends_with(' ') && !text.ends_with('\n') {
                             text.push(' ');
                         }
                         text.push_str(&unescaped);
-                        first_item_on_line = false;
+                        space_before_next_text = false;
                     }
 
                     // Extract <hex> Tj
                     for caps in tj_hex_re.captures_iter(line) {
                         let hex_str = caps[1].replace(char::is_whitespace, "");
                         let decoded = decode_pdf_hex_string_with_map(&hex_str, Some(&tounicode));
-                        if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                        if space_before_next_text && !text.ends_with(' ') && !text.ends_with('\n') {
                             text.push(' ');
                         }
                         text.push_str(&decoded);
-                        first_item_on_line = false;
+                        space_before_next_text = false;
                     }
 
-                    // Extract [...] TJ arrays
+                    // Extract [...] TJ arrays — adjacent strings are contiguous (no auto spaces)
                     for caps in tj_array_re.captures_iter(line) {
                         let array_content = &caps[1];
-                        
-                        // Extract regular strings
+
                         for str_caps in tj_str_re.captures_iter(array_content) {
                             let extracted = &str_caps[1];
                             let unescaped = unescape_pdf_string(extracted);
-                            if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                            if space_before_next_text && !text.ends_with(' ') && !text.ends_with('\n')
+                            {
                                 text.push(' ');
                             }
                             text.push_str(&unescaped);
-                            first_item_on_line = false;
+                            space_before_next_text = false;
                         }
-                        
-                        // Extract hex strings
+
                         for hex_caps in tj_hex_str_re.captures_iter(array_content) {
                             let hex_str = hex_caps[1].replace(char::is_whitespace, "");
-                            let decoded = decode_pdf_hex_string_with_map(&hex_str, Some(&tounicode));
-                            if !first_item_on_line && !text.ends_with(' ') && !text.ends_with('\n') {
+                            let decoded =
+                                decode_pdf_hex_string_with_map(&hex_str, Some(&tounicode));
+                            if space_before_next_text && !text.ends_with(' ') && !text.ends_with('\n')
+                            {
                                 text.push(' ');
                             }
                             text.push_str(&decoded);
-                            first_item_on_line = false;
+                            space_before_next_text = false;
                         }
                     }
                 }
@@ -2500,7 +2510,10 @@ mod tests {
             crate::elements::Element::CodeBlock { language: "rust".into(), code: "fn main() {}".into() },
             crate::elements::Element::BlockQuote { text: "A quote".into(), depth: 1 },
             crate::elements::Element::Link { text: "Example".into(), url: "https://example.com".into() },
-            crate::elements::Element::Image { alt: "Logo".into(), path: "logo.png".into() },
+            crate::elements::Element::Image {
+                alt: "Logo".into(),
+                path: format!("{}/tests/fixtures/sample.png", env!("CARGO_MANIFEST_DIR")),
+            },
             crate::elements::Element::Footnote { label: "1".into(), text: "A footnote.".into() },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
@@ -2522,6 +2535,7 @@ mod tests {
         assert!(content.contains("Example"), "Link text not found in PDF");
         assert!(content.contains("example.com"), "Link URL not found in PDF");
         assert!(content.contains("Logo"), "Image alt not found in PDF");
+        assert!(content.contains("/XObject"), "embedded image XObject missing");
         assert!(content.contains("footnote"), "Footnote not found in PDF");
     }
 
@@ -2549,7 +2563,10 @@ mod tests {
             crate::elements::Element::DefinitionItem { term: "Rust".into(), definition: "A language".into() },
             crate::elements::Element::Footnote { label: "fn1".into(), text: "See reference".into() },
             crate::elements::Element::Link { text: "Google".into(), url: "https://google.com".into() },
-            crate::elements::Element::Image { alt: "Photo".into(), path: "photo.jpg".into() },
+            crate::elements::Element::Image {
+                alt: "Photo".into(),
+                path: format!("{}/tests/fixtures/sample.png", env!("CARGO_MANIFEST_DIR")),
+            },
             crate::elements::Element::StyledText { text: "Bold text".into(), bold: true, italic: false },
             crate::elements::Element::HorizontalRule,
             crate::elements::Element::PageBreak,
@@ -2571,11 +2588,28 @@ mod tests {
             "Done task", "Todo task", "print", "let", "x = 42",
             "Name", "Age", "Wise words", "Rust", "A language",
             "See reference", "Google", "google.com",
-            "Photo", "photo.jpg", "Bold text", "After page break",
+            "Photo", "Figure", "Bold text", "After page break",
         ];
         for s in &expected_strings {
             assert!(content.contains(s), "Expected '{}' in PDF content", s);
         }
+        assert!(content.contains("/XObject"), "embedded image XObject missing");
+    }
+
+    #[test]
+    fn test_missing_image_fails_generation() {
+        let elements = vec![crate::elements::Element::Image {
+            alt: "Gone".into(),
+            path: "/no/such/image.png".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let err = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout)
+            .expect_err("missing image must fail");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("Image embedding failed") || msg.contains("failed to load image"),
+            "unexpected error: {msg}"
+        );
     }
 
     #[test]

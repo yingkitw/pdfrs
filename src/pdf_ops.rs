@@ -308,7 +308,7 @@ pub fn create_pdf_elements_with_metadata(
     metadata: &PdfMetadata,
 ) -> Result<()> {
     let show_page_numbers = true;
-    let page_streams = build_page_streams(elements, base_font_size, show_page_numbers, layout);
+    let page_streams = build_page_streams(elements, base_font_size, show_page_numbers, layout)?;
 
     assemble_pdf_with_metadata(filename, &page_streams, font, &layout, metadata)?;
     Ok(())
@@ -377,44 +377,25 @@ fn decompress_if_needed(data: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Build page content streams from elements (reuses ContentStreamBuilder logic)
+/// Build page content streams from elements via in-memory generation (no /tmp).
 fn build_page_streams(
     elements: &[crate::elements::Element],
     base_font_size: f32,
     _show_page_numbers: bool,
-    _layout: crate::pdf_generator::PageLayout,
-) -> Vec<Vec<u8>> {
-    // Delegate to the existing public API by creating a temp file, then reading it back.
-    // This is not ideal but avoids duplicating ContentStreamBuilder.
-    // A better approach: refactor ContentStreamBuilder to be public. For now, use the
-    // element-to-PDF pipeline and re-extract streams.
-    //
-    // Actually, let's just call create_pdf_from_elements_with_layout to a temp file,
-    // then load it back and extract streams.
-    let tmp = format!(
-        "/tmp/pdf_cli_build_{}.pdf",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-    if crate::pdf_generator::create_pdf_from_elements_with_layout(
-        &tmp,
+    layout: crate::pdf_generator::PageLayout,
+) -> Result<Vec<Vec<u8>>> {
+    let bytes = crate::pdf_generator::generate_pdf_bytes(
         elements,
         "Helvetica",
         base_font_size,
-        _layout,
-    )
-    .is_ok()
-    {
-        if let Ok(doc) = crate::pdf::PdfDocument::load_from_file(&tmp) {
-            let streams = extract_page_streams(&doc);
-            let _ = fs::remove_file(&tmp);
-            return streams;
-        }
-        let _ = fs::remove_file(&tmp);
+        layout,
+    )?;
+    let doc = crate::pdf::PdfDocument::load_from_bytes(&bytes)?;
+    let streams = extract_page_streams(&doc);
+    if streams.is_empty() {
+        return Err(anyhow!("No page content streams produced from elements"));
     }
-    Vec::new()
+    Ok(streams)
 }
 
 /// Assemble a merged PDF from raw page content streams
@@ -1033,7 +1014,7 @@ pub fn create_pdf_with_all_annotations(
 ) -> Result<()> {
     let elements = crate::elements::parse_markdown(text);
     let layout = crate::pdf_generator::PageLayout::portrait();
-    let page_streams = build_page_streams(&elements, 12.0, true, layout);
+    let page_streams = build_page_streams(&elements, 12.0, true, layout)?;
     if page_streams.is_empty() {
         return Err(anyhow!("No page content generated"));
     }
@@ -1122,7 +1103,7 @@ pub fn create_pdf_with_annotations(
     let layout = crate::pdf_generator::PageLayout::portrait();
 
     // Build page content
-    let page_streams = build_page_streams(&elements, 12.0, true, layout);
+    let page_streams = build_page_streams(&elements, 12.0, true, layout)?;
     if page_streams.is_empty() {
         return Err(anyhow!("No page content generated"));
     }
@@ -1474,7 +1455,7 @@ pub fn create_pdf_with_form_fields(
 ) -> Result<()> {
     let elements = crate::elements::parse_markdown(text);
     let layout = crate::pdf_generator::PageLayout::portrait();
-    let page_streams = build_page_streams(&elements, 12.0, true, layout);
+    let page_streams = build_page_streams(&elements, 12.0, true, layout)?;
     if page_streams.is_empty() {
         return Err(anyhow!("No page content generated"));
     }
@@ -2255,72 +2236,20 @@ pub fn reorder_pages(input_file: &str, output_file: &str, page_order: &[usize]) 
 /// - The security settings are invalid
 /// - Writing the output file fails
 pub fn protect_pdf(input_file: &str, output_file: &str, security: &crate::security::PdfSecurity) -> Result<()> {
-    // Read the input PDF
-    let content = fs::read_to_string(input_file)?;
+    security.validate()?;
 
-    // Parse the PDF to find the trailer
-    let trailer_pos = content.rfind("trailer")
-        .ok_or_else(|| anyhow!("No trailer found in PDF"))?;
-
-    // Create the encryption dictionary
-    let encryption_dict = security.create_encryption_dict();
-
-    // If no security is needed, just copy the file
-    if !security.is_protected() {
-        fs::write(output_file, content)?;
-        return Ok(());
+    // Honest gate: do not write fake "protected" PDFs that remain plaintext.
+    if security.is_protected() {
+        // Fail early before touching files when encryption is requested.
+        let _ = security.create_encryption_dict()?;
+        return Err(anyhow!(
+            "Password protection is not implemented yet; refusing to write an unprotected PDF that claims encryption"
+        ));
     }
 
-    // Insert the encryption dictionary into the PDF
-    // We need to add it to the trailer and update the xref table
-    // For simplicity, we'll add it as a comment in the output
-    let mut protected_content = content.clone();
-
-    // Find the position to insert the encryption dictionary (before the trailer)
-    if let Some(trailer_start) = content[trailer_pos..].find("<<") {
-        let insert_pos = trailer_pos + trailer_start;
-
-        // Insert the encryption reference
-        let _encryption_entry = format!("\n/Encrypt {} 0 R\n  ", 1); // Reference to encryption object (we'd add it properly in a full implementation)
-
-        // In a full implementation, we would:
-        // 1. Create a new encryption object in the PDF
-        // 2. Update the xref table
-        // 3. Add the /Encrypt entry to the trailer
-        // 4. Encrypt all stream and string objects
-
-        // For this simplified implementation, we'll add a comment indicating protection
-        let protection_notice = format!(
-            "% PDF PROTECTED: Algorithm={}, Permissions={:08X}\n",
-            security.encryption_algorithm.name(),
-            security.permissions.to_pdf_flags()
-        );
-
-        protected_content.insert_str(0, &protection_notice);
-
-        // Add encryption dictionary reference to trailer (simplified)
-        let trailer_with_encrypt = content[insert_pos..].replacen(
-            "<<",
-            &format!("<<\n/Encrypt <<{}>>", encryption_dict),
-            1,
-        );
-
-        protected_content = format!(
-            "{}{}",
-            &protected_content[..insert_pos.min(protected_content.len())],
-            trailer_with_encrypt
-        );
-    }
-
-    // Write the protected PDF
-    fs::write(output_file, protected_content)?;
-
-    println!(
-        "[protect] Applied protection to {} (algorithm: {})",
-        output_file,
-        security.encryption_algorithm.name()
-    );
-
+    // No passwords configured — copy through unchanged.
+    let content = fs::read(input_file)?;
+    fs::write(output_file, content)?;
     Ok(())
 }
 
