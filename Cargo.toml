@@ -16,7 +16,6 @@ categories = [
     "parsing",
     "text-processing",
     "graphics",
-    "wasm",
 ]
 
 [lib]
