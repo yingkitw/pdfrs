@@ -15,7 +15,7 @@
 //!
 //! Image XObjects whose entire region is redacted are not currently removed;
 //! the black overlay still obscures them, but a forensic reader may still be
-//! able to extract the image bytes. Use [`crate::pdf_ops::sanitize_pdf_bytes`]
+//! able to extract the image bytes. Use `crate::pdf_ops::sanitize_pdf_bytes`
 //! for downstream scrub.
 //!
 //! ```rust,no_run

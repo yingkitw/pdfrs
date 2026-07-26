@@ -9,7 +9,7 @@ repository = "https://github.com/yingkitw/pdfrs"
 homepage = "https://github.com/yingkitw/pdfrs"
 readme = "README.md"
 license = "Apache-2.0"
-keywords = ["pdf", "markdown", "wasm", "cli", "unicode", "rasterize", "redact", "svg"]
+keywords = ["pdf", "markdown", "wasm", "cli", "unicode"]
 categories = [
     "command-line-utilities",
     "encoding",

@@ -2,7 +2,7 @@
 //!
 //! This module provides a lightweight HTML parser that converts common HTML
 //! documents into [`Element`] vectors, which are then rendered to PDF using
-//! the existing [`pdf_generator`] pipeline.
+//! the existing [`crate::pdf_generator`] pipeline.
 //!
 //! # Supported HTML elements
 //!

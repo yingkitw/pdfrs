@@ -55,7 +55,7 @@ pub enum TextSegment {
     Strikethrough(String),
     MathInline(String),
     Link { text: String, url: String },
-    /// Inline citation `[@key]` rendered as [n].
+    /// Inline citation `[@key]` rendered as \[n\].
     Citation { key: String },
 }
 
