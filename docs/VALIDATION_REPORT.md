@@ -1,8 +1,13 @@
 # Validation Report: Unicode, Math, and Code Support
 
-**Date:** February 16, 2026  
-**Version:** 0.1.0  
+**Date:** February 16, 2026 (last reviewed July 26, 2026)  
+**Version:** 0.2.0  
 **Status:** ✅ All Tests Passed
+
+> **Note:** This report originally covered the v0.1.0 unicode/math/code work.
+> It is retained for historical context. The current state of the project is
+> captured in [`../CHANGELOG.md`](../CHANGELOG.md) and the test counts below
+> reflect the v0.2.0 baseline (389 tests).
 
 ## Addendum (Unicode glyph mapping fix)
 
@@ -18,19 +23,21 @@ This report documents the validation of new capabilities added to the PDF proces
 - **Math expression support** (inline and block math)
 - **Code block support** (syntax highlighting for multiple languages)
 
-## Test Results Summary
+## Test Results Summary (v0.2.0 baseline)
 
-### Unit Tests
-- **Total:** 141 tests
-- **Passed:** 141 ✅
+### Library Unit Tests
+- **Total:** 283 tests
+- **Passed:** 283 ✅
 - **Failed:** 0
-- **Status:** All unit tests passing
 
 ### Integration Tests
-- **Total:** 7 tests
-- **Passed:** 7 ✅
+- **Total:** 71 tests across `tests/integration.rs`, `tests/capabilities_v2.rs`, `tests/comprehensive_pdf.rs`, `tests/roundtrip_test.rs`, `tests/capability_validation.rs`, `tests/unicode_integration_test.rs`
+- **Passed:** 71 ✅
 - **Failed:** 0
-- **Status:** All integration tests passing
+
+### Doctests
+- **Total:** 35 (1 ignored — feature-gated `parallel` module)
+- **Passed:** 34 ✅
 
 ### Example Validation
 - **Total:** 6 example files

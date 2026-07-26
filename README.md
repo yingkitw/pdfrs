@@ -21,11 +21,14 @@ Regenerate anytime with `pdfcli generate-comprehensive` or `cargo test --test co
 
 ### At a glance
 
-- **Markdown → PDF** and **PDF → Markdown** in one crate  
-- **PDF manipulation**: merge, split, rotate, reorder, watermark, metadata, annotations  
-- **Unicode / CJK** with embedded TrueType fonts; optional Base-14 compatibility mode  
-- **Charts** (` ```chart` `), **multi-column** layout, **thesis** TOC / Roman folios / citations  
-- **Library + CLI + WASM** from the same Rust core  
+- **Markdown → PDF** and **PDF → Markdown** (structured: headings, lists, code blocks)
+- **PDF manipulation**: merge, split, rotate, reorder, watermark, metadata, annotations
+- **Search** with per-hit bounding boxes; **true redaction** that rewrites content streams
+- **Rasterize** PDF → PNG (pure Rust, no external renderer)
+- **Full SVG documents** (`<g transform>`, shapes, `<text>`) → PDF
+- **Unicode / CJK** with embedded TrueType fonts; optional Base-14 compatibility mode
+- **Charts** (` ```chart` `), **multi-column** layout, **thesis** TOC / Roman folios / citations
+- **Library + CLI + WASM** from the same Rust core
 
 ## Why pdfrs?
 
@@ -44,7 +47,7 @@ Most PDF tools specialize in one lane: a typesetter (Typst/LaTeX), a converter t
 | Thesis helpers (TOC, Roman folios, citations) | ✅ | Via LaTeX | Via packages | DIY | ❌ | ❌ |
 | Markdown charts (` ```chart` `) + multi-column | ✅ | Via filters | Via packages | DIY | ❌ | ❌ |
 | Full typographic / TeX-quality math layout | Basic symbols | ✅ (LaTeX) | ✅ | Limited | ❌ | N/A |
-| Page rasterization / PDF viewer engine | Preview via pdf.js | N/A | N/A | N/A | ❌ | ✅ (GS) |
+| Page rasterization / PDF viewer engine | ✅ Schematic PNG (`rasterize-pdf`) | N/A | N/A | N/A | ❌ | ✅ (GS) |
 
 ¹ Pandoc typically needs a PDF engine (pdflatex, wkhtmltopdf, weasyprint, …).  
 ² Quality depends on the chosen PDF engine and templates.  
@@ -67,6 +70,7 @@ Most PDF tools specialize in one lane: a typesetter (Typst/LaTeX), a converter t
 - **From Markdown**: Rich formatting (headers, lists, task lists, blockquotes, tables, code blocks, definition lists, footnotes, images, links, page breaks)
 - **Math rendering**: Supports inline `$...$` and `$$...$$` blocks with LaTeX-like symbol conversion and glyph-safe Unicode symbol output (including italic math text)
 - **Unicode-aware wrapping**: Better line wrapping/width estimation for CJK and emoji-heavy content
+- **Full SVG documents**: `<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polygon>`, `<path>`, `<text>` with `fill`/`stroke`/`stroke-width` — `draw-svg-file` CLI
 - **Embedded Unicode font (default)**: Uses a Type0/CIDFont with embedded TrueType (`FontFile2`) and glyph-ID text encoding for correct cross-script rendering
 - **Unicode font path override**: Set `PDFRS_UNICODE_FONT_PATH=/path/to/font.ttf` to control which Unicode TTF is embedded
 - **Base-14 font compatibility mode (opt-in)**: Set `PDFRS_BASE14_NORMALIZE=1` to normalize non-ASCII glyphs for Helvetica/Courier-only PDFs (math/currency transliteration + `[U+XXXX]` fallback)
@@ -94,6 +98,9 @@ Most PDF tools specialize in one lane: a typesetter (Typst/LaTeX), a converter t
 - **Charts**: Markdown fenced `chart` blocks (bar / line / pie)
 - **Multi-column**: `<!-- columns:N -->` and `--columns`
 - **Thesis**: TOC, Roman/Arabic folios, running headers, citations/bibliography
+- **Search**: Full-text search with per-hit bounding boxes (`search-pdf`)
+- **Redact**: True content-stream redaction — rewrites streams to remove text (`redact-pdf`)
+- **Rasterize**: PDF → PNG without external renderers (`rasterize-pdf`)
 
 ## Install
 
@@ -128,13 +135,17 @@ Add the release binary to your `PATH`, or run it as `./target/release/pdfcli …
 | Do this | Command |
 |---|---|
 | Markdown → PDF | `pdfcli md-to-pdf in.md out.pdf` |
-| PDF → Markdown | `pdfcli pdf-to-md in.pdf out.md` |
+| PDF → Markdown (structured) | `pdfcli pdf-to-md in.pdf out.md` |
 | Extract text | `pdfcli extract in.pdf` |
 | Create from a string | `pdfcli create out.pdf "Hello"` |
 | Merge | `pdfcli merge a.pdf b.pdf -o out.pdf` |
 | Split pages 2–5 | `pdfcli split in.pdf -o out.pdf --start 2 --end 5` |
 | Rotate 90° | `pdfcli rotate in.pdf -o out.pdf --angle 90` |
 | Validate | `pdfcli validate in.pdf` |
+| Search with bbox | `pdfcli search-pdf in.pdf "needle" --json hits.json` |
+| Redact regions | `pdfcli redact-pdf in.pdf -o out.pdf --region 0,100,700,200,20` |
+| Rasterize to PNG | `pdfcli rasterize-pdf in.pdf -o page.png --dpi 96` |
+| Render SVG file | `pdfcli draw-svg-file drawing.svg -o drawing.pdf` |
 | Sample showcase | `pdfcli generate-comprehensive` |
 
 ### Useful flags (md-to-pdf)
@@ -150,6 +161,13 @@ pdfcli md-to-pdf-meta in.md out.pdf --title "Doc" --author "Ada"
 
 Fonts: `Helvetica`, `Times-Roman`, `Courier` (plus other Base-14 names). Non-ASCII/CJK embeds a Unicode TTF automatically.
 
+### PDF → Markdown
+- **Structured conversion**: reconstructs headings (font-size ratios), bullets,
+  numbered lists, fenced code blocks (Courier detection), and horizontal rules
+- **ToUnicode-aware**: decodes embedded CID fonts via the document's
+  ToUnicode CMap so glyph-ID hex strings come back as readable text
+- **CLI**: `pdfcli pdf-to-md input.pdf output.md`
+
 ### More commands
 
 ```bash
@@ -160,12 +178,17 @@ pdfcli linearize-pdf in.pdf -o web.pdf
 pdfcli incremental-update in.pdf -o out.pdf --title "Updated" --author "Ada"
 pdfcli add-image doc.pdf photo.jpg --x 100 --y 100 --width 200 --height 200
 pdfcli --lang es validate doc.pdf          # en es de fr zh he ar
+pdfcli rasterize-pdf doc.pdf -o page.png            # PDF → PNG (no pdf.js)
+pdfcli rasterize-pdf doc.pdf -o pages/              # all pages → pages/page-NNNN.png
+pdfcli search-pdf doc.pdf "needle" --case-insensitive --json hits.json
+pdfcli redact-pdf doc.pdf -o out.pdf --region 0,100,700,200,20
+pdfcli draw-svg-file drawing.svg -o drawing.pdf     # full SVG document
 pdfcli --help                              # full command list
 ```
 
 ## Library (Rust)
 
-Add to `Cargo.toml`: `pdfrs = "0.1"`
+Add to `Cargo.toml`: `pdfrs = "0.2"`
 
 ```rust
 use pdfrs::{elements, pdf, pdf_generator::{generate_pdf_bytes, PageLayout}};
@@ -180,6 +203,33 @@ fn main() -> anyhow::Result<()> {
 ```
 
 Relative images in Markdown: use `generate_pdf_bytes_with_image_base(...)` with the markdown file’s directory.
+
+### Search, redact, rasterize, SVG
+
+```rust
+use pdfrs::{raster, redact, search};
+
+// Search a PDF for every occurrence of `needle` with bbox per hit.
+let pdf = std::fs::read("doc.pdf")?;
+for hit in search::search_text(&pdf, "needle", true) {
+    println!("page {} {}: {}", hit.page, hit.bbox.width, hit.snippet);
+}
+
+// Redact a region (rewrites content streams; default is black-box overlay).
+let redacted = redact::redact_pdf_bytes(&pdf, &[redact::RedactionRegion {
+    page: 0, x: 100.0, y: 700.0, width: 200.0, height: 20.0,
+}])?;
+
+// Rasterize page 0 to a PNG (pure Rust, no Ghostscript).
+raster::rasterize_page(&pdf, 0, 96)?.write_png("page.png")?;
+
+// Full SVG document → PDF.
+let svg = std::fs::read_to_string("drawing.svg")?;
+let pdf_bytes = pdfrs::vector::svg_document_to_pdf_bytes(
+    &svg,
+    pdfrs::pdf_generator::PageLayout::portrait(),
+)?;
+```
 
 ## Browser (WASM)
 
@@ -199,7 +249,11 @@ This tool is built with a modular architecture:
 - **PDF Generator** (`src/pdf_generator.rs`): Creates PDFs with layout, color, alignment, accessibility, syntect highlighting
 - **Elements** (`src/elements.rs`): 27 structured element types and markdown parser
 - **Markdown** (`src/markdown.rs`): Markdown-to-PDF pipeline with rich formatting
+- **PDF → Markdown** (`src/pdf_to_md.rs`): Structured reconstruction (headings, lists, code blocks)
 - **Charts / thesis** (`src/chart.rs`, `src/thesis.rs`): Vector charts; TOC, folios, citations
+- **Search** (`src/search.rs`): Full-text search with bounding boxes; shared content-stream walker
+- **Redact** (`src/redact.rs`): True content-stream redaction (text removal + black overlay)
+- **Rasterizer** (`src/raster.rs`): Pure-Rust PDF → PNG with inline PNG encoder
 - **PDF Operations** (`src/pdf_ops.rs`): Merge, split, rotate, reorder, watermark, metadata, annotations
 - **Image Handler** (`src/image.rs`): JPEG/PNG/BMP embedding with dimension parsing
 - **Linearize / incremental** (`src/linearize.rs`, `src/incremental.rs`): Fast Web View; append-only updates
@@ -211,12 +265,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec a
 
 ## Testing
 
-~336 tests (`cargo test`), including:
-- **~240 lib tests**: Unit tests across modules
-- **Integration crates**: `tests/integration.rs`, `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test`
-- **~33 doctests**: Public API examples
+~395 tests (`cargo test`), including:
+- **289 lib tests**: Unit tests across all modules
+- **Integration crates**: `tests/integration.rs`, `capabilities_v2` (v0.2 features), `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test`
+- **~35 doctests**: Public API examples
 
-Round-trip validation tests verify that content survives: generate → validate → parse → verify.
+Round-trip validation tests verify that content survives: generate → validate → parse → verify. The `capabilities_v2` suite exercises rasterize → search → redact end-to-end plus full SVG rendering and structured PDF → Markdown.
 
 ```bash
 cargo test
@@ -229,6 +283,7 @@ Project docs live at the repository root:
 | File | Purpose |
 |------|---------|
 | [README.md](README.md) | Quick start, CLI usage, features |
+| [CHANGELOG.md](CHANGELOG.md) | Versioned release notes |
 | [SPEC.md](SPEC.md) | Functional / non-functional requirements |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Modules, data flow, design decisions |
 | [TODO.md](TODO.md) | Backlog, audit follow-ups, brainstorming |
@@ -237,6 +292,9 @@ Extra material (contributing, validation notes) is under [`docs/`](docs/).
 
 ## Limitations
 
+- **Rasterizer is schematic**: text glyphs render as gray rectangles sized to their advance width — useful for layout preview, not pixel-perfect typography. Use PDFium or Ghostscript for that.
+- **Redaction is text-granular**: when a `Tj` string's bbox intersects a redacted region, the whole string is masked. Image XObjects under a redacted region are obscured by the overlay but not removed from the file.
+- **PDF → Markdown** reconstruction is heuristic; very dense tables and multi-column layouts may not round-trip perfectly.
 - Text extraction works best with PDFs generated by this tool or simple Type 1 font PDFs
 - Font support is limited to standard Type 1 fonts (Helvetica, Times-Roman, Courier) unless a Unicode TTF is embedded
 - Chart fences cover bar / line / pie only (no stacked or multi-series charts yet)

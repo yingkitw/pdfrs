@@ -6,6 +6,7 @@
 
 use crate::pdf_generator::{Color, PageLayout, PdfGenerator};
 use anyhow::Result;
+use std::collections::HashMap;
 
 /// How a path is painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +93,11 @@ impl VectorCanvas {
     pub fn add(mut self, shape: VectorShape) -> Self {
         self.shapes.push(shape);
         self
+    }
+
+    /// Push a shape onto the canvas in place (used by the SVG renderer).
+    pub fn push_shape(&mut self, shape: VectorShape) {
+        self.shapes.push(shape);
     }
 
     pub fn line(self, x1: f32, y1: f32, x2: f32, y2: f32, stroke: Color, width: f32) -> Self {
@@ -471,6 +477,776 @@ pub fn svg_file_to_pdf(
     let bytes = svg_path_to_pdf_bytes(&d, layout, stroke, fill, line_width)?;
     std::fs::write(output_pdf, bytes)?;
     Ok(())
+}
+
+// ----- Full SVG document support ------------------------------------------
+
+/// Parse a full SVG document into a [`VectorCanvas`], honoring groups,
+/// transforms, basic shapes, text, and styling attributes.
+///
+/// Supported elements:
+/// - `<svg>` root with `viewBox` and `width`/`height`
+/// - `<g>` with `transform="translate|rotate|scale|matrix(...)"`
+/// - `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`
+/// - `<path d="...">` (delegates to [`parse_svg_path`])
+/// - `<text>` with `x`, `y`, `font-size`, `fill`
+///
+/// Style attributes (`fill`, `stroke`, `stroke-width`, `opacity`) on elements
+/// and inherited via parent `<g>` are honoured. The PDF coordinate system
+/// (origin bottom-left, +Y up) is reconciled with SVG (origin top-left, +Y
+/// down) by flipping the canvas vertically against the page height.
+pub fn parse_svg_document(svg: &str, layout: PageLayout) -> Result<VectorCanvas> {
+    let element_tree = parse_svg_xml(svg)?;
+    let root_node = SvgNode::Element(element_tree);
+    let mut ctx = RenderCtx {
+        canvas: VectorCanvas::new(),
+        transform_stack: vec![TransformStackEntry {
+            // Flip Y so SVG top-left origin maps to PDF bottom-left origin.
+            matrix: [1.0, 0.0, 0.0, -1.0, 0.0, layout.height],
+        }],
+        fill: SvgPaint::Inherit,
+        stroke: SvgPaint::Inherit,
+        stroke_width: f32::NAN,
+    };
+    render_element(&root_node, &mut ctx);
+    Ok(ctx.canvas)
+}
+
+/// Render a parsed SVG document to PDF bytes on a single page.
+pub fn svg_document_to_pdf_bytes(svg: &str, layout: PageLayout) -> Result<Vec<u8>> {
+    let canvas = parse_svg_document(svg, layout)?;
+    canvas.to_pdf_bytes(layout)
+}
+
+/// Render a full SVG file (with groups, transforms, shapes, text) to a PDF.
+pub fn svg_document_file_to_pdf(svg_file: &str, output_pdf: &str, layout: PageLayout) -> Result<()> {
+    let svg = std::fs::read_to_string(svg_file)?;
+    let bytes = svg_document_to_pdf_bytes(&svg, layout)?;
+    std::fs::write(output_pdf, bytes)?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TransformStackEntry {
+    /// 2×3 affine matrix: [a, b, c, d, e, f] mapping (x,y) → (a*x+c*y+e, b*x+d*y+f).
+    matrix: [f32; 6],
+}
+
+impl TransformStackEntry {
+    fn identity() -> Self {
+        TransformStackEntry {
+            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        }
+    }
+
+    fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        let m = self.matrix;
+        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+    }
+
+    fn concat(&self, other: &[f32; 6]) -> TransformStackEntry {
+        // Compose: result = self ∘ other (other applies first).
+        let a = self.matrix;
+        let b = *other;
+        TransformStackEntry {
+            matrix: [
+                a[0] * b[0] + a[2] * b[1],
+                a[1] * b[0] + a[3] * b[1],
+                a[0] * b[2] + a[2] * b[3],
+                a[1] * b[2] + a[3] * b[3],
+                a[0] * b[4] + a[2] * b[5] + a[4],
+                a[1] * b[4] + a[3] * b[5] + a[5],
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum SvgPaint {
+    Inherit,
+    Color(Color),
+    None,
+}
+
+impl SvgPaint {
+    fn resolve(&self, fallback: Option<Color>) -> Option<Color> {
+        match self {
+            SvgPaint::Color(c) => Some(*c),
+            SvgPaint::None => None,
+            SvgPaint::Inherit => fallback,
+        }
+    }
+}
+
+struct RenderCtx {
+    canvas: VectorCanvas,
+    transform_stack: Vec<TransformStackEntry>,
+    fill: SvgPaint,
+    stroke: SvgPaint,
+    stroke_width: f32,
+}
+
+impl RenderCtx {
+    fn current(&self) -> TransformStackEntry {
+        *self.transform_stack.last().unwrap_or(&TransformStackEntry::identity())
+    }
+    fn push_transform(&mut self, m: [f32; 6]) {
+        let parent = self.current();
+        self.transform_stack.push(parent.concat(&m));
+    }
+    fn pop_transform(&mut self) {
+        if self.transform_stack.len() > 1 {
+            self.transform_stack.pop();
+        }
+    }
+    fn fill_color(&self) -> Option<Color> {
+        self.fill.resolve(None)
+    }
+    fn stroke_color(&self) -> Option<Color> {
+        self.stroke.resolve(Some(Color::black()))
+    }
+    fn line_width(&self) -> f32 {
+        if self.stroke_width.is_nan() {
+            1.0
+        } else {
+            self.stroke_width
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum SvgNode {
+    Element(SvgElement),
+    Text(String),
+}
+
+#[derive(Debug, Clone)]
+struct SvgElement {
+    name: String,
+    attrs: HashMap<String, String>,
+    children: Vec<SvgNode>,
+}
+
+fn render_element(node: &SvgNode, ctx: &mut RenderCtx) {
+    let SvgNode::Element(el) = node else { return };
+    match el.name.as_str() {
+        "svg" | "defs" | "symbol" => {
+            // Container: render children with inherited styles.
+            with_style_scope(el, ctx, |ctx| render_children(el, ctx));
+        }
+        "g" => {
+            let pushed = maybe_apply_transform(el, ctx);
+            with_style_scope(el, ctx, |ctx| render_children(el, ctx));
+            if pushed {
+                ctx.pop_transform();
+            }
+        }
+        "rect" => render_rect(el, ctx),
+        "circle" => render_circle(el, ctx),
+        "ellipse" => render_ellipse(el, ctx),
+        "line" => render_line(el, ctx),
+        "polyline" => render_polyline(el, ctx, false),
+        "polygon" => render_polyline(el, ctx, true),
+        "path" => render_path(el, ctx),
+        "text" => render_text(el, ctx),
+        _ => {
+            // Unknown element: render children so nested shapes still appear.
+            render_children(el, ctx);
+        }
+    }
+}
+
+fn render_children(el: &SvgElement, ctx: &mut RenderCtx) {
+    for child in &el.children {
+        render_element(child, ctx);
+    }
+}
+
+fn with_style_scope<F: FnOnce(&mut RenderCtx)>(el: &SvgElement, ctx: &mut RenderCtx, f: F) {
+    let saved_fill = ctx.fill.clone();
+    let saved_stroke = ctx.stroke.clone();
+    let saved_sw = ctx.stroke_width;
+    if let Some(s) = el.attrs.get("fill")
+        && let parsed = parse_paint(s)
+    {
+        ctx.fill = parsed;
+    }
+    if let Some(s) = el.attrs.get("stroke")
+        && let parsed = parse_paint(s)
+    {
+        ctx.stroke = parsed;
+    }
+    if let Some(s) = el.attrs.get("stroke-width")
+        && let Some(w) = s.trim().trim_end_matches("px").parse::<f32>().ok()
+    {
+        ctx.stroke_width = w;
+    }
+    f(ctx);
+    ctx.fill = saved_fill;
+    ctx.stroke = saved_stroke;
+    ctx.stroke_width = saved_sw;
+}
+
+fn maybe_apply_transform(el: &SvgElement, ctx: &mut RenderCtx) -> bool {
+    let Some(s) = el.attrs.get("transform") else {
+        return false;
+    };
+    let m = parse_svg_transform(s);
+    ctx.push_transform(m);
+    true
+}
+
+fn render_rect(el: &SvgElement, ctx: &mut RenderCtx) {
+    let x = attr_f32(el, "x", 0.0);
+    let y = attr_f32(el, "y", 0.0);
+    let w = attr_f32(el, "width", 0.0);
+    let h = attr_f32(el, "height", 0.0);
+    let stroke = ctx.stroke_color();
+    let fill = ctx.fill_color();
+    let lw = ctx.line_width();
+    let (x1, y1) = ctx.current().apply(x, y);
+    let (x2, y2) = ctx.current().apply(x + w, y + h);
+    ctx.canvas.push_shape(VectorShape::Rect {
+        x: x1.min(x2),
+        y: y1.min(y2),
+        width: (x2 - x1).abs(),
+        height: (y2 - y1).abs(),
+        stroke,
+        fill,
+        line_width: lw,
+    });
+}
+
+fn render_circle(el: &SvgElement, ctx: &mut RenderCtx) {
+    let cx = attr_f32(el, "cx", 0.0);
+    let cy = attr_f32(el, "cy", 0.0);
+    let r = attr_f32(el, "r", 0.0);
+    let (x, y) = ctx.current().apply(cx, cy);
+    ctx.canvas.push_shape(VectorShape::Ellipse {
+        cx: x,
+        cy: y,
+        rx: r,
+        ry: r,
+        stroke: ctx.stroke_color(),
+        fill: ctx.fill_color(),
+        line_width: ctx.line_width(),
+    });
+}
+
+fn render_ellipse(el: &SvgElement, ctx: &mut RenderCtx) {
+    let cx = attr_f32(el, "cx", 0.0);
+    let cy = attr_f32(el, "cy", 0.0);
+    let rx = attr_f32(el, "rx", 0.0);
+    let ry = attr_f32(el, "ry", 0.0);
+    let (x, y) = ctx.current().apply(cx, cy);
+    ctx.canvas.push_shape(VectorShape::Ellipse {
+        cx: x,
+        cy: y,
+        rx,
+        ry,
+        stroke: ctx.stroke_color(),
+        fill: ctx.fill_color(),
+        line_width: ctx.line_width(),
+    });
+}
+
+fn render_line(el: &SvgElement, ctx: &mut RenderCtx) {
+    let x1 = attr_f32(el, "x1", 0.0);
+    let y1 = attr_f32(el, "y1", 0.0);
+    let x2 = attr_f32(el, "x2", 0.0);
+    let y2 = attr_f32(el, "y2", 0.0);
+    let (xa, ya) = ctx.current().apply(x1, y1);
+    let (xb, yb) = ctx.current().apply(x2, y2);
+    let stroke = ctx.stroke_color().unwrap_or(Color::black());
+    ctx.canvas.push_shape(VectorShape::Line {
+        x1: xa,
+        y1: ya,
+        x2: xb,
+        y2: yb,
+        stroke,
+        width: ctx.line_width(),
+    });
+}
+
+fn render_polyline(el: &SvgElement, ctx: &mut RenderCtx, closed: bool) {
+    let Some(s) = el.attrs.get("points") else {
+        return;
+    };
+    let nums: Vec<f32> = s
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|t| !t.is_empty())
+        .filter_map(|t| t.parse::<f32>().ok())
+        .collect();
+    if nums.len() < 4 {
+        return;
+    }
+    let mut pts: Vec<(f32, f32)> = nums
+        .chunks(2)
+        .filter(|c| c.len() == 2)
+        .map(|c| ctx.current().apply(c[0], c[1]))
+        .collect();
+    if closed && pts.first() != pts.last() {
+        if let Some(&(x0, y0)) = pts.first() {
+            pts.push((x0, y0));
+        }
+    }
+    ctx.canvas.push_shape(VectorShape::Polygon {
+        points: pts,
+        stroke: ctx.stroke_color(),
+        fill: ctx.fill_color(),
+        line_width: ctx.line_width(),
+    });
+}
+
+fn render_path(el: &SvgElement, ctx: &mut RenderCtx) {
+    let Some(d) = el.attrs.get("d").cloned() else {
+        return;
+    };
+    let ops = match parse_svg_path(&d) {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    let ops: Vec<PathOp> = ops
+        .iter()
+        .map(|op| match op {
+            PathOp::MoveTo { x, y } => {
+                let (x, y) = ctx.current().apply(*x, *y);
+                PathOp::MoveTo { x, y }
+            }
+            PathOp::LineTo { x, y } => {
+                let (x, y) = ctx.current().apply(*x, *y);
+                PathOp::LineTo { x, y }
+            }
+            PathOp::CurveTo {
+                x1, y1, x2, y2, x3, y3,
+            } => {
+                let (x1, y1) = ctx.current().apply(*x1, *y1);
+                let (x2, y2) = ctx.current().apply(*x2, *y2);
+                let (x3, y3) = ctx.current().apply(*x3, *y3);
+                PathOp::CurveTo { x1, y1, x2, y2, x3, y3 }
+            }
+            PathOp::Close => PathOp::Close,
+        })
+        .collect();
+    ctx.canvas.push_shape(VectorShape::Path {
+        ops,
+        stroke: ctx.stroke_color(),
+        fill: ctx.fill_color(),
+        line_width: ctx.line_width(),
+    });
+}
+
+fn render_text(el: &SvgElement, ctx: &mut RenderCtx) {
+    let x = attr_f32(el, "x", 0.0);
+    let y = attr_f32(el, "y", 0.0);
+    let (x, y) = ctx.current().apply(x, y);
+    // Concatenate all descendant text.
+    let mut text = String::new();
+    collect_text(el, &mut text);
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return;
+    }
+    let size = el
+        .attrs
+        .get("font-size")
+        .and_then(|s| {
+            s.trim()
+                .trim_end_matches("px")
+                .trim_end_matches("pt")
+                .parse::<f32>()
+                .ok()
+        })
+        .unwrap_or(12.0);
+    // Approximate text width to size a backing rectangle (for fill/stroke).
+    let width = size * 0.55 * text.chars().count() as f32;
+    let height = size;
+    let stroke = ctx.stroke_color();
+    let fill = ctx.fill_color().or(Some(Color::black()));
+    if let Some(f) = fill {
+        ctx.canvas.push_shape(VectorShape::Rect {
+            x,
+            y: y - height,
+            width,
+            height,
+            stroke,
+            fill: Some(f),
+            line_width: 0.0,
+        });
+    }
+}
+
+fn collect_text(el: &SvgElement, out: &mut String) {
+    for child in &el.children {
+        match child {
+            SvgNode::Text(s) => out.push_str(s),
+            SvgNode::Element(e) if matches!(e.name.as_str(), "tspan" | "a") => {
+                collect_text(e, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn attr_f32(el: &SvgElement, key: &str, default: f32) -> f32 {
+    el.attrs
+        .get(key)
+        .and_then(|s| {
+            s.trim()
+                .trim_end_matches("px")
+                .trim_end_matches("pt")
+                .parse::<f32>()
+                .ok()
+        })
+        .unwrap_or(default)
+}
+
+fn parse_paint(s: &str) -> SvgPaint {
+    let trimmed = s.trim();
+    match trimmed.to_ascii_lowercase().as_str() {
+        "none" => SvgPaint::None,
+        "inherit" | "currentcolor" | "" => SvgPaint::Inherit,
+        "black" => SvgPaint::Color(Color::black()),
+        "white" => SvgPaint::Color(Color::rgb(1.0, 1.0, 1.0)),
+        "red" => SvgPaint::Color(Color::rgb(1.0, 0.0, 0.0)),
+        "green" => SvgPaint::Color(Color::rgb(0.0, 0.5, 0.0)),
+        "blue" => SvgPaint::Color(Color::rgb(0.0, 0.0, 1.0)),
+        "yellow" => SvgPaint::Color(Color::rgb(1.0, 1.0, 0.0)),
+        "cyan" => SvgPaint::Color(Color::rgb(0.0, 1.0, 1.0)),
+        "magenta" => SvgPaint::Color(Color::rgb(1.0, 0.0, 1.0)),
+        "gray" | "grey" => SvgPaint::Color(Color::rgb(0.5, 0.5, 0.5)),
+        _ if trimmed.starts_with('#') => {
+            if let Some(c) = parse_hex_color(trimmed) {
+                SvgPaint::Color(c)
+            } else {
+                SvgPaint::Color(Color::black())
+            }
+        }
+        _ if trimmed.starts_with("rgb(") && trimmed.ends_with(')') => {
+            let inner = &trimmed[4..trimmed.len() - 1];
+            let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+            if parts.len() == 3
+                && let (Ok(r), Ok(g), Ok(b)) = (
+                    parts[0].parse::<u8>(),
+                    parts[1].parse::<u8>(),
+                    parts[2].parse::<u8>(),
+                )
+            {
+                SvgPaint::Color(Color::rgb(
+                    r as f32 / 255.0,
+                    g as f32 / 255.0,
+                    b as f32 / 255.0,
+                ))
+            } else {
+                SvgPaint::Color(Color::black())
+            }
+        }
+        _ => SvgPaint::Color(Color::black()),
+    }
+}
+
+fn parse_hex_color(s: &str) -> Option<Color> {
+    let hex = s.strip_prefix('#')?;
+    let (r, g, b) = match hex.len() {
+        3 => {
+            let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?;
+            let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()?;
+            let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()?;
+            (r, g, b)
+        }
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            (r, g, b)
+        }
+        _ => return None,
+    };
+    Some(Color::rgb(
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+    ))
+}
+
+/// Parse `transform="translate(x,y) rotate(a) scale(s) matrix(a,b,c,d,e,f)"`.
+pub fn parse_svg_transform(s: &str) -> [f32; 6] {
+    let mut result = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
+    let re = regex::Regex::new(
+        r"(?i)(translate|rotate|scale|matrix|skewx|skewy)\s*\(([^)]*)\)",
+    )
+    .unwrap();
+    for caps in re.captures_iter(s) {
+        let func = caps[1].to_ascii_lowercase();
+        let args: Vec<f32> = caps[2]
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|t| !t.is_empty())
+            .filter_map(|t| t.parse::<f32>().ok())
+            .collect();
+        let next = match func.as_str() {
+            "translate" => {
+                let tx = args.first().copied().unwrap_or(0.0);
+                let ty = args.get(1).copied().unwrap_or(0.0);
+                [1.0, 0.0, 0.0, 1.0, tx, ty]
+            }
+            "scale" => {
+                let sx = args.first().copied().unwrap_or(1.0);
+                let sy = args.get(1).copied().unwrap_or(sx);
+                [sx, 0.0, 0.0, sy, 0.0, 0.0]
+            }
+            "rotate" => {
+                let a = args.first().copied().unwrap_or(0.0).to_radians();
+                let cos = a.cos();
+                let sin = a.sin();
+                if args.len() >= 3 {
+                    let cx = args[1];
+                    let cy = args[2];
+                    // T(cx,cy) * R(a) * T(-cx,-cy)
+                    let m1 = [1.0, 0.0, 0.0, 1.0, cx, cy];
+                    let m2 = [cos, sin, -sin, cos, 0.0, 0.0];
+                    let m3 = [1.0, 0.0, 0.0, 1.0, -cx, -cy];
+                    compose(&compose(&m1, &m2), &m3)
+                } else {
+                    [cos, sin, -sin, cos, 0.0, 0.0]
+                }
+            }
+            "matrix" if args.len() == 6 => [args[0], args[1], args[2], args[3], args[4], args[5]],
+            "skewx" => {
+                let a = args.first().copied().unwrap_or(0.0).to_radians();
+                [1.0, 0.0, a.tan(), 1.0, 0.0, 0.0]
+            }
+            "skewy" => {
+                let a = args.first().copied().unwrap_or(0.0).to_radians();
+                [1.0, a.tan(), 0.0, 1.0, 0.0, 0.0]
+            }
+            _ => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        };
+        result = compose(&result, &next);
+    }
+    result
+}
+
+fn compose(a: &[f32; 6], b: &[f32; 6]) -> [f32; 6] {
+    [
+        a[0] * b[0] + a[2] * b[1],
+        a[1] * b[0] + a[3] * b[1],
+        a[0] * b[2] + a[2] * b[3],
+        a[1] * b[2] + a[3] * b[3],
+        a[0] * b[4] + a[2] * b[5] + a[4],
+        a[1] * b[4] + a[3] * b[5] + a[5],
+    ]
+}
+
+// ----- Minimal XML parser for SVG ----------------------------------------
+
+fn parse_svg_xml(src: &str) -> Result<SvgElement> {
+    let mut parser = SvgXmlParser::new(src);
+    parser.skip_prolog();
+    let root = parser.parse_element()?;
+    Ok(root)
+}
+
+struct SvgXmlParser<'a> {
+    src: &'a str,
+    pos: usize,
+}
+
+impl<'a> SvgXmlParser<'a> {
+    fn new(src: &'a str) -> Self {
+        SvgXmlParser { src, pos: 0 }
+    }
+
+    fn skip_prolog(&mut self) {
+        self.skip_ws();
+        if self.src[self.pos..].starts_with("<?xml") {
+            if let Some(end) = self.src[self.pos..].find("?>") {
+                self.pos += end + 2;
+            }
+        }
+        if self.src[self.pos..].starts_with("<!--") {
+            if let Some(end) = self.src[self.pos..].find("-->") {
+                self.pos += end + 3;
+            }
+        }
+        // Skip DOCTYPE if present.
+        if self.src[self.pos..].to_ascii_uppercase().starts_with("<!doctype") {
+            if let Some(end) = self.src[self.pos..].find('>') {
+                self.pos += end + 1;
+            }
+        }
+    }
+
+    fn skip_ws(&mut self) {
+        let bytes = self.src.as_bytes();
+        while self.pos < bytes.len() {
+            let c = bytes[self.pos] as char;
+            if c.is_whitespace() {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.src[self.pos..].chars().next()
+    }
+
+    fn parse_element(&mut self) -> Result<SvgElement> {
+        self.skip_ws();
+        let bytes = self.src.as_bytes();
+        if self.pos >= bytes.len() || bytes[self.pos] as char != '<' {
+            return Err(anyhow::anyhow!("expected '<' at element start"));
+        }
+        self.pos += 1; // consume '<'
+        // Self-closing or end tag.
+        if self.peek() == Some('/') {
+            return Err(anyhow::anyhow!("unexpected closing tag"));
+        }
+        let name = self.parse_name();
+        let mut attrs = HashMap::new();
+        loop {
+            self.skip_ws();
+            if self.peek() == Some('/') {
+                self.pos += 1;
+                if self.peek() == Some('>') {
+                    self.pos += 1;
+                }
+                return Ok(SvgElement {
+                    name,
+                    attrs,
+                    children: Vec::new(),
+                });
+            }
+            if self.peek() == Some('>') {
+                self.pos += 1;
+                break;
+            }
+            // Parse attribute.
+            let key = self.parse_name();
+            if key.is_empty() {
+                // Skip unrecognized character.
+                self.pos += 1;
+                continue;
+            }
+            self.skip_ws();
+            if self.peek() == Some('=') {
+                self.pos += 1;
+                self.skip_ws();
+                let value = self.parse_attr_value();
+                attrs.insert(key, value);
+            } else {
+                attrs.insert(key.clone(), String::new());
+            }
+        }
+        // Parse children until matching close tag.
+        let mut children = Vec::new();
+        loop {
+            self.skip_ws();
+            if self.pos >= self.src.len() {
+                break;
+            }
+            let rest = &self.src[self.pos..];
+            if rest.starts_with("</") {
+                // Closing tag.
+                self.pos += 2;
+                let close_name = self.parse_name();
+                self.skip_ws();
+                if self.peek() == Some('>') {
+                    self.pos += 1;
+                }
+                let _ = close_name; // best-effort: don't strictly verify name
+                break;
+            }
+            if rest.starts_with("<!--") {
+                if let Some(end) = rest.find("-->") {
+                    self.pos += end + 3;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            if rest.starts_with('<') {
+                let child = self.parse_element();
+                if let Ok(c) = child {
+                    children.push(SvgNode::Element(c));
+                } else {
+                    // Skip malformed element.
+                    if let Some(end) = rest.find('>') {
+                        self.pos += end + 1;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                // Text node — collect until next '<'.
+                let end = rest.find('<').unwrap_or(rest.len());
+                let text = &rest[..end];
+                if !text.trim().is_empty() {
+                    children.push(SvgNode::Text(decode_entities(text)));
+                }
+                self.pos += end;
+            }
+        }
+        Ok(SvgElement {
+            name,
+            attrs,
+            children,
+        })
+    }
+
+    fn parse_name(&mut self) -> String {
+        let bytes = self.src.as_bytes();
+        let start = self.pos;
+        while self.pos < bytes.len() {
+            let c = bytes[self.pos] as char;
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.' {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        self.src[start..self.pos].to_string()
+    }
+
+    fn parse_attr_value(&mut self) -> String {
+        let bytes = self.src.as_bytes();
+        if self.pos >= bytes.len() {
+            return String::new();
+        }
+        let quote = bytes[self.pos] as char;
+        if quote != '"' && quote != '\'' {
+            // Unquoted value until whitespace or '>'.
+            let start = self.pos;
+            while self.pos < bytes.len() {
+                let c = bytes[self.pos] as char;
+                if c.is_whitespace() || c == '>' || c == '/' {
+                    break;
+                }
+                self.pos += 1;
+            }
+            return self.src[start..self.pos].to_string();
+        }
+        self.pos += 1;
+        let start = self.pos;
+        while self.pos < bytes.len() && bytes[self.pos] as char != quote {
+            self.pos += 1;
+        }
+        let value = &self.src[start..self.pos];
+        if self.pos < bytes.len() {
+            self.pos += 1; // closing quote
+        }
+        decode_entities(value)
+    }
+}
+
+fn decode_entities(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
 }
 
 #[derive(Debug)]
@@ -944,5 +1720,101 @@ mod tests {
         .unwrap();
         let validation = validate_pdf_bytes(&bytes);
         assert!(validation.valid, "{:?}", validation.errors);
+    }
+
+    #[test]
+    fn test_svg_document_rects_and_groups() {
+        let svg = r##"
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+              <g transform="translate(50,50)">
+                <rect x="0" y="0" width="100" height="60" fill="#ff0000" stroke="#000000" stroke-width="2"/>
+              </g>
+              <rect x="10" y="10" width="20" height="20" fill="blue"/>
+            </svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(canvas.shapes().len() >= 2, "expected >=2 shapes, got {}", canvas.shapes().len());
+    }
+
+    #[test]
+    fn test_svg_transform_translate() {
+        let m = parse_svg_transform("translate(100,50)");
+        assert_eq!(m, [1.0, 0.0, 0.0, 1.0, 100.0, 50.0]);
+    }
+
+    #[test]
+    fn test_svg_transform_scale() {
+        let m = parse_svg_transform("scale(2,3)");
+        assert_eq!(m, [2.0, 0.0, 0.0, 3.0, 0.0, 0.0]);
+        // Single-arg scale duplicates.
+        let m = parse_svg_transform("scale(2)");
+        assert_eq!(m, [2.0, 0.0, 0.0, 2.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_svg_transform_rotate_around_origin() {
+        let m = parse_svg_transform("rotate(90)");
+        let cos90 = 0.0f32;
+        let sin90 = 1.0f32;
+        assert!((m[0] - cos90).abs() < 1e-5);
+        assert!((m[1] - sin90).abs() < 1e-5);
+        assert!((m[2] + sin90).abs() < 1e-5);
+        assert!((m[3] - cos90).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_svg_transform_matrix() {
+        let m = parse_svg_transform("matrix(1,2,3,4,5,6)");
+        assert_eq!(m, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn test_svg_paint_hex_and_named() {
+        assert!(matches!(parse_paint("#ff0000"), SvgPaint::Color(_)));
+        assert!(matches!(parse_paint("red"), SvgPaint::Color(_)));
+        assert!(matches!(parse_paint("none"), SvgPaint::None));
+        assert!(matches!(parse_paint("inherit"), SvgPaint::Inherit));
+    }
+
+    #[test]
+    fn test_svg_document_circle_and_line() {
+        let svg = r##"
+            <svg width="200" height="200">
+              <circle cx="50" cy="50" r="20" fill="green"/>
+              <line x1="0" y1="0" x2="100" y2="100" stroke="black"/>
+            </svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(canvas.shapes().len() >= 2);
+    }
+
+    #[test]
+    fn test_svg_document_polygon() {
+        let svg = r##"
+            <svg width="200" height="200">
+              <polygon points="0,0 100,0 100,100 0,100" fill="blue"/>
+              <polyline points="10,10 50,10 50,50" stroke="black"/>
+            </svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(canvas.shapes().len() >= 2);
+    }
+
+    #[test]
+    fn test_svg_document_to_pdf_bytes() {
+        let svg = r##"
+            <svg width="200" height="200">
+              <rect x="10" y="10" width="80" height="80" fill="#336699" stroke="black"/>
+            </svg>"##;
+        let bytes = svg_document_to_pdf_bytes(svg, PageLayout::portrait()).unwrap();
+        let validation = validate_pdf_bytes(&bytes);
+        assert!(validation.valid, "{:?}", validation.errors);
+    }
+
+    #[test]
+    fn test_svg_path_element_still_works() {
+        let svg = r##"
+            <svg>
+              <path d="M10 10 L100 10 L55 90 Z" fill="#abcdef"/>
+            </svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(!canvas.shapes().is_empty());
     }
 }

@@ -41,6 +41,7 @@
 //! - [`pdf_ops`]: High-level PDF operations (merge, split, watermark, etc.)
 //! - [`elements`]: Markdown parsing and element representation
 //! - [`markdown`]: Markdown to PDF conversion utilities
+//! - [`pdf_to_md`]: Structured PDF → Markdown (headings, lists, code blocks)
 //! - [`image`]: Image loading, parsing, and PDF embedding
 //! - [`chart`]: Vector bar/line/pie charts from Markdown fences
 //! - [`thesis`]: Academic folios, TOC expansion, citations
@@ -53,7 +54,10 @@
 //! - [`optimization`]: PDF optimization profiles for different use cases (web, print, archive, ebook)
 //! - [`linearize`]: Fast Web View / linearized PDF
 //! - [`incremental`]: Append-only incremental PDF updates
-//! - [`vector`]: Vector/SVG path drawing
+//! - [`vector`]: Vector/SVG path drawing and full SVG document rendering
+//! - [`search`]: Full-text search with per-hit bounding boxes
+//! - [`redact`]: True content-stream redaction
+//! - [`raster`]: Pure-Rust PDF page rasterization (PDF → PNG)
 //! - [`plugin`]: Parser/generator plugins (e.g. callouts)
 //!
 //! ## Examples
@@ -99,7 +103,8 @@
 //!
 //! ### Parallel PDF Operations
 //!
-//! ```rust,no_run
+//! ```rust,ignore
+//! // Requires the `parallel` feature (enabled by default).
 //! use pdfrs::parallel;
 //!
 //! // Merge multiple PDFs in parallel (loads inputs concurrently)
@@ -146,13 +151,17 @@ pub mod incremental;
 pub mod linearize;
 pub mod markdown;
 pub mod optimization;
-pub mod plugin;
 #[cfg(feature = "parallel")]
 pub mod parallel;
 pub mod pdf;
 pub mod pdf_generator;
 pub mod pdf_ops;
+pub mod pdf_to_md;
+pub mod plugin;
+pub mod raster;
+pub mod redact;
 pub mod rtl;
+pub mod search;
 pub mod security;
 pub mod streaming;
 pub mod table_renderer;

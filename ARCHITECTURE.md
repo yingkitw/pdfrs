@@ -80,6 +80,7 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 - Lazy loading of objects for memory efficiency
 - Simple object model for maintainability
 - Stream-based processing for large files
+- PDF 1.5+ support via `parse_xref_stream` (cross-reference streams) and `parse_object_stream` (`/Type /ObjStm` compressed objects)
 
 ### 3. PDF Generator (`src/pdf_generator.rs`)
 
@@ -220,19 +221,20 @@ Roman/Arabic/hidden folios, running headers, TOC expansion, citation registry / 
 
 Bundled multi-feature document used by `generate-comprehensive` and `tests/comprehensive_pdf.rs`.
 
-### 10. PDF Operations (`src/pdf_ops.rs`)
+### 10. PDF Operations (`src/pdf_ops/`)
 
-**Purpose**: High-level PDF manipulation operations
+**Purpose**: High-level PDF manipulation operations, split into domain submodules.
 
-**Key Functions**:
+**Module Structure**:
 
-- `merge_pdfs()`: Combine multiple PDFs into one
-- `split_pdf()`: Extract page range into a new PDF
-- `rotate_pdf()`: Apply rotation (0/90/180/270°) to all pages
-- `create_pdf_with_metadata()`: Generate PDF with Info dictionary (title, author, etc.)
-- `create_pdf_with_annotations()`: Generate PDF with text and link annotations
-- `create_pdf_with_3d_annotation()` / `_bytes`: Embed U3D as a `/Subtype /3D` annotation
-- `create_pdf_with_images()`: Place multiple JPEG images on a single page
+- `mod.rs`: Core operations — `merge_pdfs`, `split_pdf`, `rotate_pdf`, `reorder_pages`, `watermark_pdf`, `overlay_image_on_pdf`, `create_pdf_with_images`, `extract_images_from_pdf`; shared helpers (`extract_page_streams`, `build_page_streams`, `escape_pdf_meta`, `extract_pdf_dict_value`)
+- `metadata.rs`: `PdfMetadata` struct, `create_pdf_with_metadata`, `extract_metadata_from_pdf`, `merge_metadata`, `assemble_pdf_with_metadata`
+- `annotations.rs`: `TextAnnotation`, `LinkAnnotation`, `HighlightAnnotation`, `ThreeDAnnotation`, `create_pdf_with_annotations`, `create_pdf_with_3d_annotation`
+- `forms.rs`: `FormField`, `FormFieldType`, `DetectedFormField`, `create_pdf_with_form_fields`, `detect_form_fields`, `fill_form_fields`
+- `security.rs`: `protect_pdf`, `sign_pdf`, `verify_pdf_signature`, `SignatureInfo`, `extract_certificates_from_pdf`
+- `tables.rs`: `extract_tables_from_pdf` (heuristic CSV extraction from content streams)
+- `structure.rs`: `detect_document_structure`, `DocumentStructure`, `DetectedHeading`, `DetectedSection`
+- `portfolio.rs`: `create_portfolio_pdf` (PDF Collection with embedded files)
 
 **Key Types**:
 
@@ -241,8 +243,10 @@ Bundled multi-feature document used by `generate-comprehensive` and `tests/compr
 - `LinkAnnotation`: Clickable URI region on a page
 - `HighlightAnnotation`: Colored highlight rectangle with QuadPoints
 - `ThreeDAnnotation`: U3D 3D annotation rectangle + activation (`/3DA`)
-- `Color`: RGB color struct for text rendering
-- `TextAlign`: Left/Center alignment enum
+- `FormField` / `FormFieldType`: Interactive AcroForm fields
+- `SignatureInfo`: Detected digital signature metadata
+- `DocumentStructure`: Headings, sections, and body font size detected from PDF
+- `WatermarkType` / `WatermarkPosition`: Watermark styling and placement
 
 ### 11. Internationalization (`src/i18n.rs`)
 
@@ -293,19 +297,74 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 
 - `src/streaming.rs` — memory-efficient streaming generation
 - `src/optimization.rs` — web/print/archive/ebook profiles
-- `src/vector.rs` — paths / SVG `d` import
+- `src/vector.rs` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`)
 - `src/security.rs` — permissions; protected encrypt/decrypt returns `Err` until real crypto lands
 
-### 16. PDF Validation (`src/pdf.rs` — validation functions)
+### 15b. Rasterization (`src/raster.rs`)
 
-**Purpose**: Validate PDF structural integrity
+**Purpose**: Pure-Rust PDF page rasterization (PDF → PNG) with no external renderer dependency.
+
+**Key Functions**:
+
+- `rasterize_page(pdf_bytes, page_index, dpi) -> RasterPage`
+- `rasterize_all(pdf_bytes, dpi) -> Vec<RasterPage>`
+- `RasterPage::to_png() -> Vec<u8>` (inline PNG encoder: signature + IHDR + zlib IDAT via `flate2` + IEND, built-in CRC-32)
+
+**Scope**: renders the operators emitted by `pdfrs` plus the common content-stream subset from other producers (`q`/`Q`, `cm`, color ops, path construction, path painting, `BT`/`ET`, `Tf`, text-positioning ops, `Tj`/`TJ`). Text is rendered as **gray glyph-block rectangles** sized to advance widths (schematic rasterizer — not pixel-perfect typography).
+
+### 15c. Search (`src/search.rs`)
+
+**Purpose**: Full-text search with per-hit bounding boxes. Also the **shared content-stream helpers hub** used by `raster`, `redact`, and `pdf_to_md`.
+
+**Key Functions / Types**:
+
+- `search_text(pdf_bytes, query, case_insensitive) -> Vec<SearchHit>`
+- `SearchHit { page, text, snippet, bbox: Rect }`
+- `Rect { x, y, width, height }` with `intersects` / `contains` helpers
+- `pub(crate)` helpers: `collect_pages_from_doc` (raw-buffer-aware page walker), `collect_font_metrics`, `tokenize`, `extract_string`, `extract_tj_array`, `extract_font_name`, `decompress_stream`, `as_ref_id`, `parse_kids_string`, `raw_kids_for_object`
+
+**Design note**: the bundled `parse_dict_entries` in `pdf.rs` is whitespace-token-only and truncates `/Kids [a b c]` to `[a`; `collect_pages_from_doc` accepts an optional raw-bytes slice and falls back to `raw_kids_for_object` to recover the full array.
+
+### 15d. Redaction (`src/redact.rs`)
+
+**Purpose**: True content-stream redaction — rewrites streams to mask text instead of relying on opaque overlays.
+
+**Key Functions / Types**:
+
+- `redact_pdf_bytes(pdf_bytes, &[RedactionRegion]) -> Vec<u8>`
+- `redact_pdf_bytes_with_style(pdf_bytes, regions, RedactionStyle::Strip | BlackBox)`
+- `RedactionRegion { page, x, y, width, height }`
+
+**Behaviour**: walks each page's content stream, computes the bounding box of each `Tj`/`TJ`, and replaces intersecting text with whitespace-equivalent masks. `BlackBox` style additionally appends a solid-black filled rectangle over each region. Stream compression is preserved (FlateDecode streams are recompressed after rewriting).
+
+### 15e. PDF → Markdown (`src/pdf_to_md.rs`)
+
+**Purpose**: Structured PDF → Markdown reconstruction (replaces the plain-text dump produced by `pdf::extract_text`).
+
+**Key Functions**:
+
+- `pdf_to_markdown_bytes(pdf_bytes) -> String`
+- `pdf_to_markdown_file(input_pdf, output_md)`
+
+**Heuristics**: body font size detected by character-count-weighted mode; heading levels 1-5 inferred from `line.max_font_size / body_size` ratios; bullets, numbered lists, code blocks (Courier detection), and horizontal rules reconstructed; ToUnicode-aware decoding of CID-font glyph-ID hex strings; spaces inserted between adjacent Tj spans on the same line using a 0.4-em-per-char width estimate.
+
+### 16. PDF Validation (`src/pdf/validation.rs`)
+
+**Purpose**: Validate PDF structural integrity and compliance
+
+Submodule of the `pdf` module. Public items are re-exported at `crate::pdf::`,
+so callers continue to use `crate::pdf::validate_pdf_bytes` etc.
 
 **Key Functions**:
 
 - `validate_pdf()`: Validate a PDF file on disk
 - `validate_pdf_bytes()`: Validate PDF bytes in memory (no filesystem needed)
-- `parse_xref_stream()`: Parse PDF 1.5+ cross-reference streams
-- `parse_object_stream()`: Parse compressed object streams (/Type /ObjStm)
+
+**Compliance Checks**:
+
+- `validate_pdf_a_bytes()` / `validate_pdf_a3_bytes()`: PDF/A-1b and PDF/A-3b
+- `validate_pdf_ua_bytes()`: PDF/UA-1 accessibility
+- `check_screen_reader_compliance_bytes()`: PDF/UA + text-extraction audit
 
 **Key Types**:
 
@@ -440,6 +499,7 @@ tests/
 ├── comprehensive_pdf.rs
 ├── roundtrip_test.rs
 ├── capability_validation.rs
+├── capabilities_v2.rs             # v0.2 features: rasterize/search/redact/SVG/PDF→MD
 ├── unicode_integration_test.rs
 └── fixtures/          # markdown, sample.png, certs
 benches/

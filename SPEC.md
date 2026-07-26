@@ -115,6 +115,59 @@
 - **FR11.3**: H1 headings centered, code blocks in gray, links in blue
 - **FR11.4**: Watermarks with diagonal text, configurable opacity/size
 
+#### FR20: Native Page Rasterization (PDF → PNG)
+
+- **FR20.1**: Pure-Rust page rasterizer with no external PDF/font dependencies — `src/raster.rs`, `raster::rasterize_page`, `raster::rasterize_all`
+- **FR20.2**: Inline PNG encoder (signature, IHDR, zlib-compressed IDAT via `flate2`, IEND) with built-in CRC-32
+- **FR20.3**: Renders PDF content-stream operators emitted by `pdfrs` plus common operators from other producers: `q`/`Q`, `cm`, `w`, `rg`/`RG`/`g`/`G`/`k`/`K`, `m`/`l`/`c`/`h`/`re`, `S`/`s`/`f`/`F`/`B`/`b`/`n`, `BT`/`ET`, `Tf`, `Tm`/`Td`/`TD`/`T*`, `Tj`/`TJ`/`'`/`"`
+- **FR20.4**: Base-14 PDF font width tables (Helvetica, Times-Roman, Courier) and `/W` array handling for CIDFont
+- **FR20.5**: Page size honoured via the page's `/MediaBox`; DPI parameter scales pixel dimensions
+- **FR20.6**: CLI command `rasterize-pdf` (single page → PNG file or all pages → directory)
+- **FR20.7**: Text is rendered as gray glyph-block rectangles sized to advance widths (schematic rasterizer — not pixel-perfect typography)
+
+#### FR21: Full-Text Search with Bounding Boxes
+
+- **FR21.1**: `search::search_text(pdf_bytes, query, case_insensitive) -> Vec<SearchHit>` returning page, matched text, snippet, and bounding rectangle per hit
+- **FR21.2**: Bounding box computed from font-size × advance width per character
+- **FR21.3**: Case-insensitive matching folds both needle and haystack to lowercase
+- **FR21.4**: Snippet generation includes ~24 characters of context on each side with ellipses when truncated
+- **FR21.5**: `Rect::intersects` and `Rect::contains` helpers for downstream consumers (redaction, viewer integration)
+- **FR21.6**: CLI command `search-pdf` with optional `--json` output for programmatic consumption
+
+#### FR22: True Content-Stream Redaction
+
+- **FR22.1**: `redact::redact_pdf_bytes(pdf_bytes, &[RedactionRegion])` returns redacted PDF bytes with content streams rewritten
+- **FR22.2**: `RedactionStyle::BlackBox` (default) replaces intersecting text with whitespace-equivalent mask AND appends a solid-black filled rectangle over each region
+- **FR22.3**: `RedactionStyle::Strip` replaces intersecting text without the black overlay
+- **FR22.4**: Stream compression is preserved (FlateDecode-compressed streams are recompressed after rewriting)
+- **FR22.5**: Redaction operates at Tj granularity — when a Tj's bounding box intersects a region, the entire string is masked (partial-string redaction is not supported)
+- **FR22.6**: CLI command `redact-pdf` accepts repeatable `--region page,x,y,w,h` arguments
+
+#### FR23: Full SVG Document Rendering
+
+- **FR23.1**: `vector::parse_svg_document(svg, layout) -> VectorCanvas` parses a full SVG document with an inline minimal XML parser
+- **FR23.2**: Supported elements: `<svg>`, `<g>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path d="...">`, `<text>`, `<defs>`, `<symbol>`, `<tspan>`
+- **FR23.3**: Transform composition via `parse_svg_transform` supporting `translate`, `scale`, `rotate` (with optional centre), `matrix`, `skewX`, `skewY`
+- **FR23.4**: Style attributes (`fill`, `stroke`, `stroke-width`, `opacity`) inherited through parent `<g>` via `with_style_scope`
+- **FR23.5**: Paint parsing supports named colours, `#rgb` / `#rrggbb` hex, and `rgb(r,g,b)` syntax
+- **FR23.6**: Y-axis flipped (`[1, 0, 0, -1, 0, layout.height]`) so SVG top-left origin maps to PDF bottom-left
+- **FR23.7**: `vector::svg_document_to_pdf_bytes` and `svg_document_file_to_pdf` library APIs
+- **FR23.8**: CLI command `draw-svg-file` renders a full SVG file to a one-page PDF
+- **FR23.9**: Backwards compatible with existing `extract_svg_path_d` / `svg_path_to_pdf_bytes` single-path APIs
+
+#### FR24: Structured PDF → Markdown Conversion
+
+- **FR24.1**: `pdf_to_md::pdf_to_markdown_bytes` walks content streams, groups text spans into lines by Y proximity, emits Markdown
+- **FR24.2**: Body font-size detected by character-count-weighted mode (so a one-word heading doesn't outvote paragraphs)
+- **FR24.3**: Heading levels 1-5 inferred from `line.max_font_size / body_size` ratios (≥2.4→H1, ≥1.9→H2, ≥1.5→H3, ≥1.25→H4, else H5)
+- **FR24.4**: Bullet lists detected from leading `•`, `- `, `* ` prefixes; numbered lists from `\d+[.)] ` prefixes
+- **FR24.5**: Code blocks detected when consecutive lines use a monospace font (Courier family); wrapped in ` ``` ` fences
+- **FR24.6**: Horizontal rules detected from runs of `-`, `_`, or `─` characters
+- **FR24.7**: Spaces inserted between adjacent Tj spans on the same line using 0.4-em-per-char width estimate
+- **FR24.8**: ToUnicode-aware decoding of CID-font glyph-ID hex strings via `pdf::collect_tounicode_gid_map` + `decode_pdf_hex_string_with_map`
+- **FR24.9**: UTF-16BE BOM strings (`FE FF …`) decoded natively
+- **FR24.10**: CLI command `pdf-to-md` upgraded to use the structured converter; falls back to plain `extract_text` on conversion errors
+
 ### Non-Functional Requirements
 
 #### NFR1: Performance
@@ -380,15 +433,22 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 - Security (password protection, permissions)
 - Library API (in-memory generation, validation)
 - 27 element types with round-trip validation
-- ~336 tests (`cargo test`: ~240 lib + integration crates + ~33 doctests)
+- ~395 tests (`cargo test`: 289 lib + integration crates + ~35 doctests)
 - Charts, multi-column layout, thesis TOC/citations, linearized + incremental PDF
 - WebAssembly (`wasm` feature) + canvas viewer demo
+- Native PDF → PNG rasterizer (no external renderer dependency)
+- Full-text search with per-hit bounding boxes
+- True content-stream redaction (text removal, not overlay)
+- Full SVG document rendering (`<g transform>`, shapes, text)
+- Structured PDF → Markdown conversion (headings, lists, code blocks)
 
 ### Remaining Features
 
 - Real PDF encryption (crypto currently gated to refuse fake protection)
 - Full tagged PDF output for accessibility
-- Full SVG document rendering (groups, transforms, text) beyond path `d` import
+- Pixel-perfect font-outline rasterization (current rasterizer is schematic — gray glyph blocks)
+- Partial-string redaction (current implementation masks whole `Tj` spans)
+- Image XObject removal during redaction (currently obscured by overlay only)
 - Digital signature verification / richer signing UX
 - Expanded rustdoc API examples
 

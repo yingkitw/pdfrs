@@ -492,3 +492,32 @@ fixture.
 [@lee2021]: Lee, A. (2021). Unicode Font Embedding for Academic PDFs. Typesetting Letters, 8(1), 1–10.
 
 <!-- running-header:off -->
+
+<!-- pagebreak -->
+
+# Appendix K — v0.2 Capabilities
+
+The following capabilities were added in the 0.2.0 release and are exercised
+end-to-end by `tests/capabilities_v2.rs`.
+
+## K.1 Search, Redact, Rasterize
+
+- `search-pdf` returns one `SearchHit` per match with page, snippet, and a
+  PDF user-space `Rect` bounding box
+- `redact-pdf` rewrites content streams so the redacted text is unrecoverable
+  (default `BlackBox` style also paints a solid overlay)
+- `rasterize-pdf` produces a PNG preview in pure Rust — no Ghostscript or
+  PDFium linked
+
+## K.2 Full SVG Documents
+
+The `draw-svg-file` command renders `<g transform="...">`, basic shapes
+(`<rect>`, `<circle>`, `<line>`, `<polygon>`), and `<text>` to a one-page
+PDF. The Y axis is flipped so SVG's top-left origin maps to PDF's
+bottom-left origin.
+
+## K.3 Structured PDF → Markdown
+
+`pdf-to-md` now reconstructs Markdown structure (headings, bullets, numbered
+lists, code blocks) from font-size and positioning heuristics, with
+ToUnicode-aware decoding of CID-font glyph IDs.

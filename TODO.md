@@ -361,26 +361,38 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 - [x] Sync Element count (27) + SPEC multi-column FR + fix AGENTS.md domain copy
 - [x] Tighten `comprehensive_pdf` asserts (Chart/Columns/Image/Toc); wire `syntect` highlighting
 - [x] Split mega-files (incremental): accessibility → `pdf_generator/accessibility.rs`; REPL → `cli_repl.rs`; remove dead `generate_with_info`; dedupe `escape_pdf_string`; drop scratch examples
-- [ ] Further splits: `ContentStreamBuilder`, `pdf_ops` domain clusters, `pdf` validation module
+- [x] Further splits: `ContentStreamBuilder`, `pdf_ops` domain clusters — `pdf_ops` split into `metadata.rs`, `annotations.rs`, `forms.rs`, `security.rs`, `tables.rs`, `structure.rs`, `portfolio.rs` submodules
 
 ### Brainstorming (Competitive Intelligence — 2026-07)
 
 Capabilities in peer projects worth prioritizing:
 
-- **Native page rasterization** (Gigapdf, PDFium/PDFNova) — render PDF pages to PNG/canvas without pdf.js dependency
-- **Full-text search with highlight boxes** (Gigapdf, PDF Oxide) — search within PDF and return bounding boxes
+- ~~**Native page rasterization**~~ — shipped: `src/raster.rs` + `rasterize-pdf` CLI (pure Rust PNG output, schematic glyph blocks, base-14 font widths)
+- ~~**Full-text search with highlight boxes**~~ — shipped: `src/search.rs` + `search-pdf` CLI (per-hit `Rect` bboxes, case-insensitive, JSON output)
 - **Office/HTML round-trip conversion** (Gigapdf) — DOCX/ODT/HTML ↔ PDF beyond Markdown
-- **True redaction** (Gigapdf) — remove content from streams, not just opaque overlays
+- ~~**True redaction**~~ — shipped: `src/redact.rs` + `redact-pdf` CLI (content-stream rewrite; `BlackBox` and `Strip` styles)
 - **OCR for scanned PDFs** (Gigapdf) — built-in recognizer without Tesseract
-- ~~**Vector path / SVG drawing**~~ — shipped: `vector` + SVG path `d` import (`draw-svg`); still open: full SVG docs (groups/transforms/text)
+- ~~**Vector path / SVG drawing**~~ — shipped: `vector` + SVG path `d` import (`draw-svg`); full SVG docs (groups/transforms/text) shipped via `parse_svg_document` + `draw-svg-file` CLI
 - ~~**Document outlines / bookmarks**~~ — shipped: `/Outlines` from headings + `/PageMode /UseOutlines`
 - ~~**Linearized (web-optimized) PDF**~~ — shipped: `linearize` module + `linearize-pdf` CLI; Web/Ebook optimize profiles apply `/Linearized`
 - ~~**Incremental PDF saves**~~ — shipped: `incremental` module (`incremental_set_info`, `incremental_add_text_annotation`, `/Prev` trailer); `incremental-update` CLI
+- ~~**Structured PDF → Markdown**~~ — shipped: `src/pdf_to_md.rs` (headings, lists, code blocks, ToUnicode-aware); `pdf-to-md` CLI upgraded
 - **PRC 3D / rich media** (Acrobat) — beyond U3D: PRC streams, `/RichMedia` annotations
 - **Web Worker offloading** (MantisPDF) — keep UI responsive during large WASM operations
 - **IndexedDB WASM module caching** (PDFNova) — instant reload of WASM binary in browser
 - **Multi-language bindings** (PDF Oxide) — Python/JS/Go/C# from same Rust core
 - ~~**Plugin hooks for Element → PDF**~~ — shipped: `ParserPlugin` / `GeneratorPlugin` + `CalloutPlugin`
+
+### Capability Drop (2026-07-26) — v0.2 features
+
+- [x] **Native PDF → PNG rasterization** — `src/raster.rs` (~1700 LOC); pure-Rust PNG encoder with CRC-32; base-14 font width tables; cubic Bézier flattening; `rasterize_page` / `rasterize_all` APIs; `rasterize-pdf` CLI; 8 unit tests
+- [x] **Full-text search with bounding boxes** — `src/search.rs` (~1240 LOC); shared content-stream walker (re-used by raster/redact/pdf_to_md); `SearchHit { page, text, snippet, bbox }`; case-insensitive matching; `search-pdf` CLI with `--json` output; 7 unit tests
+- [x] **True content-stream redaction** — `src/redact.rs` (~480 LOC); rewrites content streams to mask intersecting text; `BlackBox` and `Strip` styles; `redact-pdf` CLI with repeatable `--region page,x,y,w,h`; 5 unit tests
+- [x] **Full SVG document rendering** — extended `src/vector.rs` (~900 LOC added); `<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`; minimal XML parser; `parse_svg_transform` (translate/scale/rotate/matrix/skew); `draw-svg-file` CLI; 12 new unit tests
+- [x] **Structured PDF → Markdown** — `src/pdf_to_md.rs` (~520 LOC); headings (font-size ratios), bullets, numbered lists, code blocks (Courier detection), horizontal rules; ToUnicode-aware CID font decoding; `pdf-to-md` CLI upgraded with plain-text fallback; 10 unit tests
+- [x] **Integration tests** — `tests/capabilities_v2.rs` (7 end-to-end tests: rasterize→search→redact round trip, SVG document, PDF→MD structure, multi-page rasterize, etc.)
+- [x] **Shared parsing helpers** — `search::collect_pages_from_doc` (with raw-bytes fallback for truncated `/Kids` arrays), `raw_kids_for_object`, made `collect_tounicode_gid_map` / `decode_pdf_hex_string_with_map` `pub(crate)`
+- **Test count**: 283 lib + 7 + 5 + 3 + 24 + 22 + 10 + 36 = **390 passing tests**; `cargo build --no-default-features --features wasm` succeeds
 
 ---
 

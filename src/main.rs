@@ -495,10 +495,55 @@ enum Commands {
         #[arg(long, help = "Activate 3D view when the page opens")]
         activate_on_open: bool,
     },
+    #[command(about = "Rasterize PDF pages to PNG (pure Rust, no external deps)")]
+    RasterizePdf {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output PNG file (single page) or directory (all pages)")]
+        output: String,
+        #[arg(long, help = "Page index (0-based); omit to rasterize every page")]
+        page: Option<usize>,
+        #[arg(long, help = "Resolution in DPI", default_value = "96")]
+        dpi: u32,
+    },
+    #[command(about = "Search text inside a PDF and report page + bounding box per hit")]
+    SearchPdf {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(help = "Search query")]
+        query: String,
+        #[arg(long, help = "Case-insensitive matching")]
+        case_insensitive: bool,
+        #[arg(long, help = "Output JSON file with hits (optional)")]
+        json: Option<String>,
+    },
+    #[command(about = "Redact rectangular regions of a PDF (rewrites content streams)")]
+    RedactPdf {
+        #[arg(help = "Input PDF file")]
+        input: String,
+        #[arg(short, long, help = "Output redacted PDF file")]
+        output: String,
+        #[arg(
+            long,
+            help = "Redaction region: page,x,y,w,h (repeat for multiple regions)"
+        )]
+        region: Vec<String>,
+        #[arg(long, help = "Strip text only (no black box overlay)")]
+        strip: bool,
+    },
+    #[command(about = "Render a full SVG document (groups, transforms, shapes, text) to PDF")]
+    DrawSvgFile {
+        #[arg(help = "Input SVG file")]
+        input: String,
+        #[arg(short, long, help = "Output PDF file")]
+        output: String,
+        #[arg(long, help = "Use landscape orientation")]
+        landscape: bool,
+    },
 }
 
 // Use the library instead of declaring modules
-use pdfrs::{comprehensive, elements, i18n, image, incremental, linearize, markdown, optimization, parallel, pdf, pdf_generator, pdf_ops, plugin, security, vector};
+use pdfrs::{comprehensive, elements, i18n, image, incremental, linearize, markdown, optimization, parallel, pdf, pdf_generator, pdf_ops, pdf_to_md, plugin, raster, redact, search, security, vector};
 
 fn resolve_locale(cli_lang: &Option<String>) -> i18n::Locale {
     cli_lang
@@ -559,18 +604,37 @@ fn main() {
                 Err(e) => eprintln!("Error generating comprehensive PDF: {}", e),
             }
         }
-        Commands::PdfToMd { input, output } => match pdf::extract_text(&input) {
-            Ok(text) => {
-                if let Err(e) = std::fs::write(&output, text) {
-                    eprintln!("Error writing Markdown file: {}", e);
-                } else {
-                    println!(
-                        "Successfully converted PDF {} to Markdown {}",
-                        input, output
-                    );
+        Commands::PdfToMd { input, output } => match std::fs::read(&input) {
+            Ok(pdf_bytes) => match pdf_to_md::pdf_to_markdown_bytes(&pdf_bytes) {
+                Ok(md) => {
+                    if let Err(e) = std::fs::write(&output, md) {
+                        eprintln!("Error writing Markdown file: {}", e);
+                    } else {
+                        println!(
+                            "Successfully converted PDF {} to Markdown {}",
+                            input, output
+                        );
+                    }
                 }
-            }
-            Err(e) => eprintln!("Error extracting text from PDF: {}", e),
+                Err(e) => {
+                    // Fall back to the legacy plain-text extractor.
+                    eprintln!("Structured conversion failed ({}); falling back to plain text", e);
+                    match pdf::extract_text(&input) {
+                        Ok(text) => {
+                            if let Err(e) = std::fs::write(&output, text) {
+                                eprintln!("Error writing Markdown file: {}", e);
+                            } else {
+                                println!(
+                                    "Successfully converted PDF {} to Markdown {} (plain text fallback)",
+                                    input, output
+                                );
+                            }
+                        }
+                        Err(e) => eprintln!("Error extracting text from PDF: {}", e),
+                    }
+                }
+            },
+            Err(e) => eprintln!("Error reading PDF: {}", e),
         },
         Commands::MdToPdf {
             input,
@@ -1641,6 +1705,165 @@ fn main() {
         }
         Commands::Repl => {
             cli_repl::run_repl();
+        }
+        Commands::RasterizePdf { input, output, page, dpi } => {
+            let bytes = match std::fs::read(&input) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("Error reading PDF: {}", e);
+                    return;
+                }
+            };
+            if let Some(idx) = page {
+                match raster::rasterize_page(&bytes, idx, dpi) {
+                    Ok(page_image) => match page_image.write_png(&output) {
+                        Ok(_) => println!(
+                            "Wrote {} (page {}, {}×{} px)",
+                            output, idx, page_image.width, page_image.height
+                        ),
+                        Err(e) => eprintln!("Error writing PNG: {}", e),
+                    },
+                    Err(e) => eprintln!("Error rasterizing page: {}", e),
+                }
+            } else {
+                match raster::rasterize_all(&bytes, dpi) {
+                    Ok(pages) => {
+                        let out_path = std::path::Path::new(&output);
+                        if pages.len() == 1 {
+                            match pages[0].write_png(&output) {
+                                Ok(_) => println!(
+                                    "Wrote {} ({}×{} px)",
+                                    output, pages[0].width, pages[0].height
+                                ),
+                                Err(e) => eprintln!("Error writing PNG: {}", e),
+                            }
+                        } else {
+                            std::fs::create_dir_all(out_path).ok();
+                            for (i, p) in pages.iter().enumerate() {
+                                let file = out_path.join(format!("page-{:04}.png", i + 1));
+                                match p.write_png(file.to_str().unwrap_or_default()) {
+                                    Ok(_) => {}
+                                    Err(e) => eprintln!("Error writing page {}: {}", i + 1, e),
+                                }
+                            }
+                            println!("Wrote {} page(s) to {}", pages.len(), output);
+                        }
+                    }
+                    Err(e) => eprintln!("Error rasterizing PDF: {}", e),
+                }
+            }
+        }
+        Commands::SearchPdf { input, query, case_insensitive, json } => {
+            let bytes = match std::fs::read(&input) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("Error reading PDF: {}", e);
+                    return;
+                }
+            };
+            let hits = search::search_text(&bytes, &query, case_insensitive);
+            if let Some(path) = json {
+                let json_value = serde_json::json!({
+                    "query": query,
+                    "case_insensitive": case_insensitive,
+                    "total": hits.len(),
+                    "hits": hits.iter().map(|h| serde_json::json!({
+                        "page": h.page,
+                        "text": h.text,
+                        "snippet": h.snippet,
+                        "bbox": {
+                            "x": h.bbox.x,
+                            "y": h.bbox.y,
+                            "width": h.bbox.width,
+                            "height": h.bbox.height,
+                        },
+                    })).collect::<Vec<_>>(),
+                });
+                let pretty = serde_json::to_string_pretty(&json_value).unwrap_or_default();
+                if let Err(e) = std::fs::write(&path, pretty) {
+                    eprintln!("Error writing JSON: {}", e);
+                }
+            }
+            if hits.is_empty() {
+                println!("No matches for {:?}", query);
+            } else {
+                println!("Found {} match(es) for {:?}:", hits.len(), query);
+                for h in &hits {
+                    println!(
+                        "  page {} [{:.1},{:.1} {:.1}×{:.1}]: {}",
+                        h.page + 1,
+                        h.bbox.x,
+                        h.bbox.y,
+                        h.bbox.width,
+                        h.bbox.height,
+                        h.snippet
+                    );
+                }
+            }
+        }
+        Commands::RedactPdf { input, output, region, strip } => {
+            if region.is_empty() {
+                eprintln!("Error: provide at least one --region page,x,y,w,h");
+                return;
+            }
+            let mut regions = Vec::new();
+            for spec in &region {
+                let parts: Vec<&str> = spec.split(',').collect();
+                if parts.len() != 5 {
+                    eprintln!("Error parsing region '{}': expected page,x,y,w,h", spec);
+                    return;
+                }
+                let parsed: Result<Vec<f32>, _> = parts.iter().map(|s| s.trim().parse::<f32>()).collect();
+                let nums = match parsed {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("Error parsing region numbers '{}': {}", spec, e);
+                        return;
+                    }
+                };
+                regions.push(redact::RedactionRegion {
+                    page: nums[0] as usize,
+                    x: nums[1],
+                    y: nums[2],
+                    width: nums[3],
+                    height: nums[4],
+                });
+            }
+            let bytes = match std::fs::read(&input) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("Error reading PDF: {}", e);
+                    return;
+                }
+            };
+            let style = if strip {
+                redact::RedactionStyle::Strip
+            } else {
+                redact::RedactionStyle::BlackBox
+            };
+            match redact::redact_pdf_bytes_with_style(&bytes, &regions, style) {
+                Ok(out) => match std::fs::write(&output, out) {
+                    Ok(_) => println!(
+                        "Wrote redacted PDF {} ({} region(s), style={:?})",
+                        output,
+                        regions.len(),
+                        style
+                    ),
+                    Err(e) => eprintln!("Error writing PDF: {}", e),
+                },
+                Err(e) => eprintln!("Error redacting PDF: {}", e),
+            }
+        }
+        Commands::DrawSvgFile { input, output, landscape } => {
+            let layout = if landscape {
+                pdf_generator::PageLayout::landscape()
+            } else {
+                pdf_generator::PageLayout::portrait()
+            };
+            match vector::svg_document_file_to_pdf(&input, &output, layout) {
+                Ok(_) => println!("Wrote SVG document PDF: {}", output),
+                Err(e) => eprintln!("Error rendering SVG document: {}", e),
+            }
         }
     }
 }

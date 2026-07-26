@@ -34,6 +34,7 @@ Research similar open-source PDF toolkits and Markdown→PDF pipelines (typst, p
 Keep all project docs aligned with the current implementation. Root docs (required):
 
 - **`README.md`**: Quick start, CLI options (`pdfcli` binary), feature list, architecture summary
+- **`CHANGELOG.md`**: Versioned release notes (Keep a Changelog format)
 - **`TODO.md`**: Mark completed items, move them to Done, keep brainstorming current
 - **`SPEC.md`**: Functional requirements, Element model, CLI semantics, error handling
 - **`ARCHITECTURE.md`**: Module relationships, data flow, deployment topology

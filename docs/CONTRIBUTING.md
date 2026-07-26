@@ -110,13 +110,23 @@ feat: add PDF encryption support
 
 ## Architecture
 
-The project is organized into several modules:
+The project is organized into several modules (see [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the full map):
 
-- `pdf/`: PDF parsing and text extraction
-- `pdf_generator/`: PDF creation from scratch
-- `markdown/`: Markdown parsing and conversion
-- `image/`: Image handling for PDFs
-- `compression/`: Stream compression utilities
+- `pdf/`: PDF parsing, text extraction, structural validation, ToUnicode maps
+- `pdf_generator/`: PDF creation from scratch (with accessibility + syntect highlighting submodules)
+- `pdf_to_md/`: Structured PDF → Markdown reconstruction
+- `markdown/`: Markdown parsing and conversion pipeline
+- `elements/`: 27 structured `Element` variants produced by the Markdown parser
+- `search/`: Full-text search with per-hit bounding boxes; shared content-stream helpers hub
+- `redact/`: True content-stream redaction (`BlackBox` and `Strip` styles)
+- `raster/`: Pure-Rust PDF → PNG rasterizer with inline PNG encoder
+- `vector/`: Vector graphics + full SVG document rendering
+- `image/`: JPEG/PNG/BMP image embedding
+- `compression/`: Stream compression utilities (deflate)
+- `optimization/`: Web/print/archive/ebook profiles
+- `linearize/`, `incremental/`: Fast Web View + append-only updates
+- `security/`: Permissions; encryption is gated to refuse fake protection
+- `plugin/`: Parser/generator hooks (e.g. `CalloutPlugin`)
 
 When adding features, consider which module they belong to or if a new module is needed.
 
@@ -137,10 +147,12 @@ cargo test -- --nocapture
 
 ### Adding Tests
 
-1. Add unit tests to `src/lib.rs`
-2. Test both success and failure cases
-3. Use descriptive test names
-4. Keep tests focused and isolated
+1. Add unit tests inside each module under `#[cfg(test)] mod tests { ... }`
+2. Add end-to-end tests under `tests/` (one file per capability area, e.g. `tests/capabilities_v2.rs`)
+3. Test both success and failure cases
+4. Use descriptive test names
+5. Keep tests focused and isolated
+6. Run `cargo test` (full suite) and `cargo test --doc` (doctests) before submitting
 
 ## Documentation
 
@@ -169,7 +181,8 @@ pub fn pdf_to_markdown(input_file: &str, output_file: &str) -> Result<()> {
 Update relevant documentation files at the **project root**:
 
 - `README.md` for user-facing features
-- `SPEC.md` for technical specifications
+- `CHANGELOG.md` for versioned release notes (Keep a Changelog format)
+- `SPEC.md` for technical specifications (FR/NFR numbering)
 - `TODO.md` for backlog / roadmap
 - `ARCHITECTURE.md` for architectural decisions
 

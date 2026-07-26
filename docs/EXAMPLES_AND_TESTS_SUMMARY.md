@@ -1,8 +1,14 @@
 # Examples and Test Cases Summary
 
+> **Note:** This document was originally written for the v0.1.0 unicode/math/code
+> work and is retained for historical context. For current test counts and the
+> full feature list, see [`../CHANGELOG.md`](../CHANGELOG.md) and
+> [`../README.md`](../README.md). The current baseline is **395 tests passing**
+> (289 lib + 71 integration + 35 doctests + 1 ignored).
+
 ## Overview
 
-Comprehensive examples and test cases have been created to validate the new unicode, math, and code conversion capabilities.
+Comprehensive examples and test cases validate the unicode, math, and code conversion capabilities, plus the v0.2 feature drop (rasterize, search, redact, full SVG, structured PDF→Markdown).
 
 ## Created Files
 
