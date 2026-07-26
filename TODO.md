@@ -361,7 +361,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 - [x] Sync Element count (27) + SPEC multi-column FR + fix AGENTS.md domain copy
 - [x] Tighten `comprehensive_pdf` asserts (Chart/Columns/Image/Toc); wire `syntect` highlighting
 - [x] Split mega-files (incremental): accessibility → `pdf_generator/accessibility.rs`; REPL → `cli_repl.rs`; remove dead `generate_with_info`; dedupe `escape_pdf_string`; drop scratch examples
-- [x] Further splits: `ContentStreamBuilder`, `pdf_ops` domain clusters — `pdf_ops` split into `metadata.rs`, `annotations.rs`, `forms.rs`, `security.rs`, `tables.rs`, `structure.rs`, `portfolio.rs` submodules
+- [x] Further splits: `ContentStreamBuilder`, `pdf_ops` domain clusters — `pdf_ops` split into `metadata.rs`, `annotations.rs`, `forms.rs`, `security.rs`, `tables.rs`, `structure.rs`, `portfolio.rs` submodules; `pdf_generator` split into `content_stream.rs` (`ContentStreamBuilder` + element rendering) and `layout.rs` (`PageLayout`, `Color`, `TextAlign`, font helpers) submodules
 
 ### Brainstorming (Competitive Intelligence — 2026-07)
 

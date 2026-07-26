@@ -22,6 +22,14 @@ pub struct TableStyle {
     pub border_color: (f32, f32, f32),
     /// Inner grid line color (RGB 0-1)
     pub grid_color: (f32, f32, f32),
+    /// Header row background color (RGB 0-1). Drawn as a filled rectangle behind the first row.
+    pub header_bg_color: Option<(f32, f32, f32)>,
+    /// Whether to render the header row text in bold.
+    pub header_text_bold: bool,
+    /// Enable zebra striping (alternating row background fills).
+    pub zebra_striping: bool,
+    /// Alternating row background color (RGB 0-1). Used when `zebra_striping` is true.
+    pub alt_row_bg_color: (f32, f32, f32),
 }
 
 impl Default for TableStyle {
@@ -34,6 +42,10 @@ impl Default for TableStyle {
             grid_line_width: 0.75,
             border_color: (0.0, 0.0, 0.0),
             grid_color: (0.75, 0.75, 0.75),
+            header_bg_color: Some((0.9, 0.9, 0.95)),
+            header_text_bold: true,
+            zebra_striping: true,
+            alt_row_bg_color: (0.96, 0.96, 0.98),
         }
     }
 }
@@ -412,5 +424,38 @@ mod tests {
         assert_eq!(style.cell_padding, 8.0);
         assert_eq!(style.margin_top, 16.0);
         assert_eq!(style.border_width, 1.5);
+    }
+
+    #[test]
+    fn test_table_style_header_defaults() {
+        let style = TableStyle::default();
+        assert!(style.header_bg_color.is_some());
+        assert_eq!(style.header_bg_color.unwrap(), (0.9, 0.9, 0.95));
+        assert!(style.header_text_bold);
+    }
+
+    #[test]
+    fn test_table_style_zebra_defaults() {
+        let style = TableStyle::default();
+        assert!(style.zebra_striping);
+        assert_eq!(style.alt_row_bg_color, (0.96, 0.96, 0.98));
+    }
+
+    #[test]
+    fn test_table_style_disable_zebra() {
+        let style = TableStyle {
+            zebra_striping: false,
+            ..TableStyle::default()
+        };
+        assert!(!style.zebra_striping);
+    }
+
+    #[test]
+    fn test_table_style_no_header_bg() {
+        let style = TableStyle {
+            header_bg_color: None,
+            ..TableStyle::default()
+        };
+        assert!(style.header_bg_color.is_none());
     }
 }

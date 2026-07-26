@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
-pub(super) struct UnicodeFontEncoder {
+pub(crate) struct UnicodeFontEncoder {
     font_bytes: Vec<u8>,
     fallback_gid: u16,
     glyph_cache: RefCell<HashMap<char, u16>>,

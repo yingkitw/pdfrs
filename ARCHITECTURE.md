@@ -82,7 +82,7 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 - Stream-based processing for large files
 - PDF 1.5+ support via `parse_xref_stream` (cross-reference streams) and `parse_object_stream` (`/Type /ObjStm` compressed objects)
 
-### 3. PDF Generator (`src/pdf_generator.rs`)
+### 3. PDF Generator (`src/pdf_generator/`)
 
 **Purpose**: Create PDF files from scratch
 
@@ -90,6 +90,9 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 
 **Internal Submodules**:
 
+- `src/pdf_generator/mod.rs` — `PdfGenerator` object model, PDF assembly, font resources, outline tree, tagged PDF, public API entry points
+- `src/pdf_generator/content_stream.rs` — `ContentStreamBuilder` (cursor, page breaks, font switches), element-to-stream rendering, `prepare_elements_for_render`, `render_elements_to_builder`
+- `src/pdf_generator/layout.rs` — `PageLayout`, `PageOrientation`, `PdfVersion`, `Color`, `TextAlign`, font-size / text-width helpers
 - `src/pdf_generator/code_highlight.rs` — syntect-based syntax highlighting for code blocks
 - `src/pdf_generator/math_layout.rs` — math layout helpers
 - `src/pdf_generator/text_support.rs` — math-to-text conversion and PDF text encoding helpers
