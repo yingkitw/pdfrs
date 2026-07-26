@@ -39,7 +39,7 @@
 - Coordinate between modules
 - Handle application-level error reporting (optionally localized via `i18n`)
 
-**Key commands** (non-exhaustive): `create`, `md-to-pdf`, `pdf-to-md`, `extract`, `merge`, `split`, `rotate`, `add-image`, `filter-image`, `draw-vector`, `draw-svg`, `embed-3d`, `generate-comprehensive`, `linearize-pdf`, `incremental-update`, `optimize-pdf`, `validate`, …
+**Key commands** (non-exhaustive): `create`, `md-to-pdf`, `html-to-pdf`, `pdf-to-md`, `extract`, `merge`, `split`, `rotate`, `add-image`, `filter-image`, `draw-vector`, `draw-svg`, `embed-3d`, `generate-comprehensive`, `linearize-pdf`, `incremental-update`, `optimize-pdf`, `validate`, …
 ### 2. PDF Core Engine (`src/pdf.rs`)
 
 **Purpose**: PDF parsing and text extraction
@@ -199,6 +199,22 @@ Markdown Text → elements::parse_markdown() → Vec<Element> → pdf_generator:
 - `markdown_to_text()`: Convert Markdown to plain text (legacy, uses elements internally)
 - `markdown_to_pdf_with_options()`: Convert with styling via structured elements
 - `elements_to_text()`: Render elements back to plain text
+
+### 5b. HTML Converter (`src/html.rs`)
+
+**Purpose**: Parse HTML documents and convert to PDF via the existing Element pipeline
+
+**Architecture**: Lightweight HTML tokenizer → simplified DOM tree (`Node`) → `Element` vector → existing `pdf_generator` renderer
+
+**Supported HTML elements**: `<h1>`–`<h6>`, `<p>`, `<strong>`/`<b>`, `<em>`/`<i>`, `<code>`, `<pre><code>`, `<ul>`/`<ol>`/`<li>`, `<table>`/`<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>`, `<blockquote>`, `<img>`, `<a>`, `<hr>`, `<br>`, `<s>`/`<del>`, `<div>`/`<section>`/`<article>`, `<span>`, HTML entities
+
+**Key Functions**:
+
+- `parse_html()`: Parse HTML string into `Vec<Element>`
+- `html_to_pdf()`: Convert HTML to PDF file
+- `html_to_pdf_bytes()`: Convert HTML to PDF bytes in memory
+
+**CLI**: `html-to-pdf` command with `--font`, `--font-size`, `--landscape`, `--rtl`, `--columns`, `--profile` options
 
 ### 6. Image Processing (`src/image.rs`)
 

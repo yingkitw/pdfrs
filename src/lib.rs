@@ -40,6 +40,7 @@
 //! - [`pdf_generator`]: PDF generation from elements and content streams
 //! - [`pdf_ops`]: High-level PDF operations (merge, split, watermark, etc.)
 //! - [`elements`]: Markdown parsing and element representation
+//! - [`html`]: HTML-to-PDF conversion (lightweight parser → Element pipeline)
 //! - [`markdown`]: Markdown to PDF conversion utilities
 //! - [`pdf_to_md`]: Structured PDF → Markdown (headings, lists, code blocks)
 //! - [`image`]: Image loading, parsing, and PDF embedding
@@ -145,6 +146,7 @@ pub mod chart;
 pub mod comprehensive;
 pub mod compression;
 pub mod elements;
+pub mod html;
 pub mod i18n;
 pub mod image;
 pub mod incremental;

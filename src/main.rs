@@ -57,6 +57,25 @@ enum Commands {
         #[arg(long, help = "Optimization profile (web, print, archive, ebook)", default_value = "archive")]
         profile: String,
     },
+    #[command(about = "Convert HTML to PDF")]
+    HtmlToPdf {
+        #[arg(help = "Input HTML file")]
+        input: String,
+        #[arg(help = "Output PDF file")]
+        output: String,
+        #[arg(long, help = "Font family", default_value = "Helvetica")]
+        font: String,
+        #[arg(long, help = "Font size", default_value = "12")]
+        font_size: f32,
+        #[arg(long, help = "Use landscape orientation")]
+        landscape: bool,
+        #[arg(long, help = "Right-to-left layout (Hebrew/Arabic)")]
+        rtl: bool,
+        #[arg(long, help = "Number of text columns (1-4)", default_value = "1")]
+        columns: u8,
+        #[arg(long, help = "Optimization profile (web, print, archive, ebook)", default_value = "archive")]
+        profile: String,
+    },
     #[command(about = "Extract text from PDF")]
     Extract {
         #[arg(help = "Input PDF file")]
@@ -543,7 +562,7 @@ enum Commands {
 }
 
 // Use the library instead of declaring modules
-use pdfrs::{comprehensive, elements, i18n, image, incremental, linearize, markdown, optimization, parallel, pdf, pdf_generator, pdf_ops, pdf_to_md, plugin, raster, redact, search, security, vector};
+use pdfrs::{comprehensive, elements, html, i18n, image, incremental, linearize, markdown, optimization, parallel, pdf, pdf_generator, pdf_ops, pdf_to_md, plugin, raster, redact, search, security, vector};
 
 fn resolve_locale(cli_lang: &Option<String>) -> i18n::Locale {
     cli_lang
@@ -679,6 +698,47 @@ fn main() {
                 ),
                 Err(e) => {
                     eprintln!("Error converting Markdown to PDF: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        },
+        Commands::HtmlToPdf {
+            input,
+            output,
+            font,
+            font_size,
+            landscape,
+            rtl,
+            columns,
+            profile,
+        } => {
+            let profile = parse_optimization_profile(&profile);
+            let layout = if landscape {
+                pdf_generator::PageLayout::landscape()
+            } else {
+                pdf_generator::PageLayout::portrait()
+            }
+            .with_rtl(rtl)
+            .with_columns(columns);
+            let result = (|| -> anyhow::Result<()> {
+                let content = std::fs::read_to_string(&input)?;
+                let elements = html::parse_html(&content);
+                let mut generator = optimization::OptimizedPdfGenerator::new(profile)
+                    .with_font(&font)
+                    .with_font_size(font_size)
+                    .with_layout(layout);
+                if let Some(parent) = std::path::Path::new(&input).parent() {
+                    generator = generator.with_image_base_dir(parent);
+                }
+                generator.generate(&elements, &output)
+            })();
+            match result {
+                Ok(_) => println!(
+                    "Successfully converted HTML {} to PDF {}",
+                    input, output
+                ),
+                Err(e) => {
+                    eprintln!("Error converting HTML to PDF: {}", e);
                     std::process::exit(1);
                 }
             }

@@ -369,7 +369,7 @@ Capabilities in peer projects worth prioritizing:
 
 - ~~**Native page rasterization**~~ — shipped: `src/raster.rs` + `rasterize-pdf` CLI (pure Rust PNG output, schematic glyph blocks, base-14 font widths)
 - ~~**Full-text search with highlight boxes**~~ — shipped: `src/search.rs` + `search-pdf` CLI (per-hit `Rect` bboxes, case-insensitive, JSON output)
-- **Office/HTML round-trip conversion** (Gigapdf) — DOCX/ODT/HTML ↔ PDF beyond Markdown
+- ~~**Office/HTML round-trip conversion**~~ — shipped: `src/html.rs` (~1,050 LOC); lightweight HTML parser → `Element` pipeline; `html-to-pdf` CLI; `parse_html()`, `html_to_pdf()`, `html_to_pdf_bytes()` API; 25 unit tests
 - ~~**True redaction**~~ — shipped: `src/redact.rs` + `redact-pdf` CLI (content-stream rewrite; `BlackBox` and `Strip` styles)
 - **OCR for scanned PDFs** (Gigapdf) — built-in recognizer without Tesseract
 - ~~**Vector path / SVG drawing**~~ — shipped: `vector` + SVG path `d` import (`draw-svg`); full SVG docs (groups/transforms/text) shipped via `parse_svg_document` + `draw-svg-file` CLI
