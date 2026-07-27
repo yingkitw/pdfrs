@@ -224,7 +224,10 @@ fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
     Ok(out)
 }
 
-pub(crate) fn object_dict<'a>(doc: &'a PdfDocument, id: u32) -> Option<&'a HashMap<String, PdfValue>> {
+pub(crate) fn object_dict<'a>(
+    doc: &'a PdfDocument,
+    id: u32,
+) -> Option<&'a HashMap<String, PdfValue>> {
     doc.objects.get(&id).and_then(|o| match o {
         PdfObject::Dictionary(d) => Some(d),
         PdfObject::Stream { dictionary, .. } => Some(dictionary),
@@ -292,8 +295,7 @@ pub(crate) fn decompress_stream(data: &[u8]) -> Vec<u8> {
 
 /// Best-effort detection of zlib/FlateDecode-compressed stream bytes.
 pub(crate) fn is_deflate_stream(data: &[u8]) -> bool {
-    data.len() > 2 && data[0] == 0x78
-        && crate::compression::decompress_deflate(data).is_ok()
+    data.len() > 2 && data[0] == 0x78 && crate::compression::decompress_deflate(data).is_ok()
 }
 
 // ----- Font metrics -------------------------------------------------------
@@ -343,7 +345,9 @@ fn walk_resources(doc: &PdfDocument, val: &PdfValue, out: &mut HashMap<String, F
         };
         if let Some(font_dict) = font_dict {
             for (name, font_ref) in font_dict {
-                let Some(font_id) = as_ref_id(font_ref) else { continue };
+                let Some(font_id) = as_ref_id(font_ref) else {
+                    continue;
+                };
                 let Some(font_obj) = object_dict(doc, font_id) else {
                     continue;
                 };
@@ -364,15 +368,16 @@ fn font_metrics_for(doc: &PdfDocument, font: &HashMap<String, PdfValue>) -> Font
         None => None,
     };
     let is_base14 = base_font.as_deref().map(is_base14_font).unwrap_or(false);
-    if is_base14
-        && let Some(name) = base_font
-    {
+    if is_base14 && let Some(name) = base_font {
         return base14_font_metrics(&name);
     }
     // Widths[] for simple Type1 fonts
     if let (Some(fc), Some(lc), Some(widths)) = (
-        font.get("FirstChar").and_then(|v| as_number(doc, v)).map(|n| n as u32),
-        font.get("LastChar").and_then(|v| as_number(doc, v).map(|n| n as u32)),
+        font.get("FirstChar")
+            .and_then(|v| as_number(doc, v))
+            .map(|n| n as u32),
+        font.get("LastChar")
+            .and_then(|v| as_number(doc, v).map(|n| n as u32)),
         font.get("Widths").and_then(|v| as_array(doc, v)),
     ) {
         let mut map = HashMap::new();
@@ -475,9 +480,7 @@ fn base14_font_metrics(name: &str) -> FontMetrics {
             helvetica_widths()
         }
         "Times-Roman" | "Times-Bold" | "Times-Italic" | "Times-BoldItalic" => times_widths(),
-        "Courier" | "Courier-Bold" | "Courier-Oblique" | "Courier-BoldOblique" => {
-            courier_widths()
-        }
+        "Courier" | "Courier-Bold" | "Courier-Oblique" | "Courier-BoldOblique" => courier_widths(),
         _ => HashMap::new(),
     };
     FontMetrics {
@@ -488,18 +491,90 @@ fn base14_font_metrics(name: &str) -> FontMetrics {
 
 fn helvetica_widths() -> HashMap<u32, u16> {
     let raw: &[(u32, u16)] = &[
-        (32, 278), (33, 278), (34, 355), (35, 556), (36, 556), (37, 889), (38, 667),
-        (39, 191), (40, 333), (41, 333), (42, 389), (43, 584), (44, 278), (45, 333),
-        (46, 278), (47, 278), (48, 556), (49, 556), (50, 556), (51, 556), (52, 556),
-        (53, 556), (54, 556), (55, 556), (56, 556), (57, 556), (58, 278), (59, 278),
-        (60, 584), (61, 584), (62, 584), (63, 556), (64, 1015), (65, 667), (66, 667),
-        (67, 722), (68, 722), (69, 667), (70, 611), (71, 778), (72, 722), (73, 278),
-        (74, 500), (75, 667), (76, 556), (77, 833), (78, 722), (79, 778), (80, 667),
-        (81, 778), (82, 722), (83, 667), (84, 611), (85, 722), (86, 667), (87, 944),
-        (88, 667), (89, 667), (90, 611), (97, 556), (98, 556), (99, 500), (100, 556),
-        (101, 556), (102, 278), (103, 556), (104, 556), (105, 222), (106, 222), (107, 500),
-        (108, 222), (109, 833), (110, 556), (111, 556), (112, 556), (113, 556), (114, 333),
-        (115, 500), (116, 278), (117, 556), (118, 500), (119, 722), (120, 500), (121, 500),
+        (32, 278),
+        (33, 278),
+        (34, 355),
+        (35, 556),
+        (36, 556),
+        (37, 889),
+        (38, 667),
+        (39, 191),
+        (40, 333),
+        (41, 333),
+        (42, 389),
+        (43, 584),
+        (44, 278),
+        (45, 333),
+        (46, 278),
+        (47, 278),
+        (48, 556),
+        (49, 556),
+        (50, 556),
+        (51, 556),
+        (52, 556),
+        (53, 556),
+        (54, 556),
+        (55, 556),
+        (56, 556),
+        (57, 556),
+        (58, 278),
+        (59, 278),
+        (60, 584),
+        (61, 584),
+        (62, 584),
+        (63, 556),
+        (64, 1015),
+        (65, 667),
+        (66, 667),
+        (67, 722),
+        (68, 722),
+        (69, 667),
+        (70, 611),
+        (71, 778),
+        (72, 722),
+        (73, 278),
+        (74, 500),
+        (75, 667),
+        (76, 556),
+        (77, 833),
+        (78, 722),
+        (79, 778),
+        (80, 667),
+        (81, 778),
+        (82, 722),
+        (83, 667),
+        (84, 611),
+        (85, 722),
+        (86, 667),
+        (87, 944),
+        (88, 667),
+        (89, 667),
+        (90, 611),
+        (97, 556),
+        (98, 556),
+        (99, 500),
+        (100, 556),
+        (101, 556),
+        (102, 278),
+        (103, 556),
+        (104, 556),
+        (105, 222),
+        (106, 222),
+        (107, 500),
+        (108, 222),
+        (109, 833),
+        (110, 556),
+        (111, 556),
+        (112, 556),
+        (113, 556),
+        (114, 333),
+        (115, 500),
+        (116, 278),
+        (117, 556),
+        (118, 500),
+        (119, 722),
+        (120, 500),
+        (121, 500),
         (122, 500),
     ];
     raw.iter().copied().collect()
@@ -507,18 +582,90 @@ fn helvetica_widths() -> HashMap<u32, u16> {
 
 fn times_widths() -> HashMap<u32, u16> {
     let raw: &[(u32, u16)] = &[
-        (32, 250), (33, 333), (34, 408), (35, 500), (36, 500), (37, 833), (38, 778),
-        (39, 180), (40, 333), (41, 333), (42, 500), (43, 564), (44, 250), (45, 333),
-        (46, 250), (47, 278), (48, 500), (49, 500), (50, 500), (51, 500), (52, 500),
-        (53, 500), (54, 500), (55, 500), (56, 500), (57, 500), (58, 278), (59, 278),
-        (60, 564), (61, 564), (62, 564), (63, 444), (64, 921), (65, 722), (66, 667),
-        (67, 667), (68, 722), (69, 611), (70, 556), (71, 722), (72, 722), (73, 333),
-        (74, 389), (75, 722), (76, 611), (77, 889), (78, 722), (79, 722), (80, 556),
-        (81, 722), (82, 667), (83, 556), (84, 611), (85, 722), (86, 722), (87, 944),
-        (88, 722), (89, 722), (90, 611), (97, 444), (98, 500), (99, 444), (100, 500),
-        (101, 444), (102, 333), (103, 500), (104, 500), (105, 278), (106, 278), (107, 500),
-        (108, 278), (109, 778), (110, 500), (111, 500), (112, 500), (113, 500), (114, 333),
-        (115, 389), (116, 278), (117, 500), (118, 500), (119, 722), (120, 500), (121, 500),
+        (32, 250),
+        (33, 333),
+        (34, 408),
+        (35, 500),
+        (36, 500),
+        (37, 833),
+        (38, 778),
+        (39, 180),
+        (40, 333),
+        (41, 333),
+        (42, 500),
+        (43, 564),
+        (44, 250),
+        (45, 333),
+        (46, 250),
+        (47, 278),
+        (48, 500),
+        (49, 500),
+        (50, 500),
+        (51, 500),
+        (52, 500),
+        (53, 500),
+        (54, 500),
+        (55, 500),
+        (56, 500),
+        (57, 500),
+        (58, 278),
+        (59, 278),
+        (60, 564),
+        (61, 564),
+        (62, 564),
+        (63, 444),
+        (64, 921),
+        (65, 722),
+        (66, 667),
+        (67, 667),
+        (68, 722),
+        (69, 611),
+        (70, 556),
+        (71, 722),
+        (72, 722),
+        (73, 333),
+        (74, 389),
+        (75, 722),
+        (76, 611),
+        (77, 889),
+        (78, 722),
+        (79, 722),
+        (80, 556),
+        (81, 722),
+        (82, 667),
+        (83, 556),
+        (84, 611),
+        (85, 722),
+        (86, 722),
+        (87, 944),
+        (88, 722),
+        (89, 722),
+        (90, 611),
+        (97, 444),
+        (98, 500),
+        (99, 444),
+        (100, 500),
+        (101, 444),
+        (102, 333),
+        (103, 500),
+        (104, 500),
+        (105, 278),
+        (106, 278),
+        (107, 500),
+        (108, 278),
+        (109, 778),
+        (110, 500),
+        (111, 500),
+        (112, 500),
+        (113, 500),
+        (114, 333),
+        (115, 389),
+        (116, 278),
+        (117, 500),
+        (118, 500),
+        (119, 722),
+        (120, 500),
+        (121, 500),
         (122, 444),
     ];
     raw.iter().copied().collect()
@@ -625,10 +772,7 @@ impl<'a> HitCollector<'a> {
             let abs_end = abs_start + self.needle.chars().count();
             // Compute bbox covering the matched chars.
             let start = self.boxes.get(abs_start).copied();
-            let end = self
-                .boxes
-                .get(abs_end.saturating_sub(1))
-                .copied();
+            let end = self.boxes.get(abs_end.saturating_sub(1)).copied();
             if let (Some((sx, by, _)), Some((ex, _, eadv))) = (start, end) {
                 let bbox = Rect {
                     x: sx,
@@ -636,7 +780,12 @@ impl<'a> HitCollector<'a> {
                     width: (ex + eadv) - sx,
                     height: self.span_font_size,
                 };
-                let matched: String = self.buffer.chars().skip(abs_start).take(abs_end - abs_start).collect();
+                let matched: String = self
+                    .buffer
+                    .chars()
+                    .skip(abs_start)
+                    .take(abs_end - abs_start)
+                    .collect();
                 let snippet = make_snippet(&self.buffer, abs_start, abs_end, 24);
                 self.hits.push(SearchHit {
                     page: self.page,
@@ -719,7 +868,14 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
             }
             "Tm" => {
                 if operands.len() == 6 {
-                    let n = [operands[0], operands[1], operands[2], operands[3], operands[4], operands[5]];
+                    let n = [
+                        operands[0],
+                        operands[1],
+                        operands[2],
+                        operands[3],
+                        operands[4],
+                        operands[5],
+                    ];
                     text_matrix = n;
                     text_line_matrix = n;
                     collector.flush_buffer();
@@ -730,7 +886,10 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = text_line_matrix;
                     text_line_matrix = [
-                        m[0], m[1], m[2], m[3],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[3],
                         m[0] * tx + m[2] * ty + m[4],
                         m[1] * tx + m[3] * ty + m[5],
                     ];
@@ -743,7 +902,10 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = text_line_matrix;
                     text_line_matrix = [
-                        m[0], m[1], m[2], m[3],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[3],
                         m[0] * tx + m[2] * ty + m[4],
                         m[1] * tx + m[3] * ty + m[5],
                     ];
@@ -763,11 +925,7 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
                     let x = text_matrix[4];
                     let y = text_matrix[5];
                     collector.push_text(&text, x, y, font_size);
-                    let advance = collector
-                        .boxes
-                        .last()
-                        .map(|b| b.2)
-                        .unwrap_or(0.0);
+                    let advance = collector.boxes.last().map(|b| b.2).unwrap_or(0.0);
                     text_matrix[4] = x + advance;
                 }
             }
@@ -779,11 +937,7 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
                         match item {
                             TjItem::Text(t) => {
                                 collector.push_text(&t, x, y, font_size);
-                                x = collector
-                                    .boxes
-                                    .last()
-                                    .map(|b| b.0 + b.2)
-                                    .unwrap_or(x);
+                                x = collector.boxes.last().map(|b| b.0 + b.2).unwrap_or(x);
                             }
                             TjItem::Kern(amount) => {
                                 // Negative numbers advance left; positives gap.
@@ -921,9 +1075,7 @@ pub(crate) fn extract_string(tokens: &[String], i: usize) -> Option<String> {
     } else if prev.starts_with('<') {
         // Hex string — decode bytes then handle UTF-16BE BOM or glyph IDs.
         let trimmed = prev.trim();
-        let inner = trimmed
-            .trim_start_matches('<')
-            .trim_end_matches('>');
+        let inner = trimmed.trim_start_matches('<').trim_end_matches('>');
         Some(decode_hex_string(inner))
     } else {
         None
@@ -1168,7 +1320,7 @@ pub(crate) fn tokenize(src: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::elements;
-    use crate::pdf_generator::{generate_pdf_bytes, PageLayout};
+    use crate::pdf_generator::{PageLayout, generate_pdf_bytes};
 
     fn make_pdf(markdown: &str) -> Vec<u8> {
         generate_pdf_bytes(
@@ -1230,10 +1382,25 @@ mod tests {
 
     #[test]
     fn rect_intersection() {
-        let a = Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 };
-        let b = Rect { x: 5.0, y: 5.0, width: 10.0, height: 10.0 };
+        let a = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+        };
+        let b = Rect {
+            x: 5.0,
+            y: 5.0,
+            width: 10.0,
+            height: 10.0,
+        };
         assert!(a.intersects(&b));
-        let c = Rect { x: 100.0, y: 100.0, width: 5.0, height: 5.0 };
+        let c = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 5.0,
+            height: 5.0,
+        };
         assert!(!a.intersects(&c));
     }
 }

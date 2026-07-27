@@ -4,12 +4,12 @@
 //! artifacts under `tests/output/`, and refreshes project-root `comprehensive.pdf`.
 
 use pdfrs::comprehensive::{
-    generate_bundled_comprehensive_pdf, write_bundled_comprehensive_pdf, ComprehensiveOptions,
+    ComprehensiveOptions, generate_bundled_comprehensive_pdf, write_bundled_comprehensive_pdf,
 };
 use pdfrs::incremental::{incremental_set_info, is_incremental_pdf};
 use pdfrs::linearize::is_linearized;
 use pdfrs::pdf::validate_pdf_bytes;
-use pdfrs::plugin::{parse_markdown_with_plugins, PluginRegistry};
+use pdfrs::plugin::{PluginRegistry, parse_markdown_with_plugins};
 use std::path::Path;
 
 fn out_dir() -> String {
@@ -47,7 +47,13 @@ fn test_generate_comprehensive_pdf_document() {
         "fixture missing Columns"
     );
     assert!(
-        has(|e| matches!(e, Element::Chart { kind: ChartKind::Bar | ChartKind::Line | ChartKind::Pie, .. })),
+        has(|e| matches!(
+            e,
+            Element::Chart {
+                kind: ChartKind::Bar | ChartKind::Line | ChartKind::Pie,
+                ..
+            }
+        )),
         "fixture missing Chart"
     );
     assert!(
@@ -87,7 +93,13 @@ fn test_generate_comprehensive_pdf_document() {
     let tmp = format!("{}/comprehensive_cjk_check.pdf", out_dir());
     std::fs::write(&tmp, &pdf).unwrap();
     let extracted = pdfrs::pdf::extract_text(&tmp).unwrap();
-    for needle in ["你好世界", "こんにちは", "안녕하세요", "中文注释", "한국어 주석"] {
+    for needle in [
+        "你好世界",
+        "こんにちは",
+        "안녕하세요",
+        "中文注释",
+        "한국어 주석",
+    ] {
         assert!(
             extracted.contains(needle),
             "missing CJK {:?} in extract:\n{}",
@@ -98,7 +110,8 @@ fn test_generate_comprehensive_pdf_document() {
     std::fs::remove_file(&tmp).ok();
 
     // Optional linearize path still validates structurally
-    let linearized = generate_bundled_comprehensive_pdf(&opts.clone().with_linearize(true)).unwrap();
+    let linearized =
+        generate_bundled_comprehensive_pdf(&opts.clone().with_linearize(true)).unwrap();
     assert!(is_linearized(&linearized));
     assert!(validate_pdf_bytes(&linearized).valid);
 

@@ -82,11 +82,9 @@ fn test_builder_api_with_layout() {
 
 #[test]
 fn test_optimized_pdf_generator_compression() {
-    let elements = vec![
-        pdfrs::elements::Element::Paragraph {
-            text: "This is a test document for compression. ".repeat(50),
-        },
-    ];
+    let elements = vec![pdfrs::elements::Element::Paragraph {
+        text: "This is a test document for compression. ".repeat(50),
+    }];
 
     // Web profile (high compression + linearize)
     let web_gen = pdfrs::optimization::OptimizedPdfGenerator::new(
@@ -212,7 +210,10 @@ fn test_digital_signature_sign_and_verify() {
 
     let sig_info = &signatures[0];
     assert_eq!(sig_info.signer_name, "Test Signer");
-    assert_eq!(sig_info.reason.as_deref(), Some("Testing digital signatures"));
+    assert_eq!(
+        sig_info.reason.as_deref(),
+        Some("Testing digital signatures")
+    );
     assert_eq!(sig_info.location.as_deref(), Some("Test Location"));
 
     std::fs::remove_file(&signed_pdf).ok();
@@ -238,7 +239,11 @@ fn test_extract_tables_from_pdf() {
             ],
         },
         pdfrs::elements::Element::TableRow {
-            cells: vec!["Alice".to_string(), "30".to_string(), "New York".to_string()],
+            cells: vec![
+                "Alice".to_string(),
+                "30".to_string(),
+                "New York".to_string(),
+            ],
             is_separator: false,
             alignments: vec![],
         },
@@ -263,7 +268,10 @@ fn test_extract_tables_from_pdf() {
     assert!(!tables.is_empty(), "Should find at least one table");
 
     let csv = &tables[0];
-    assert!(csv.contains("Name") || csv.contains("Alice"), "CSV should contain table data");
+    assert!(
+        csv.contains("Name") || csv.contains("Alice"),
+        "CSV should contain table data"
+    );
 
     std::fs::remove_file(&table_pdf).ok();
 }
@@ -278,9 +286,9 @@ fn test_form_field_detect_and_fill() {
     let filled_pdf = format!("{}/form_filled_test.pdf", out_dir);
 
     // Create a PDF with form fields
-    let elements = vec![
-        pdfrs::elements::Element::Paragraph { text: "Please fill out the form.".to_string() },
-    ];
+    let elements = vec![pdfrs::elements::Element::Paragraph {
+        text: "Please fill out the form.".to_string(),
+    }];
 
     let form_fields = vec![
         pdfrs::pdf_ops::FormField {
@@ -397,11 +405,20 @@ Result paragraph two.
     let structure = pdfrs::pdf_ops::detect_document_structure(&struct_pdf).unwrap();
 
     // Should detect at least some headings (H1 and H2 sizes differ from body)
-    assert!(!structure.headings.is_empty(), "Should detect headings in structured PDF");
+    assert!(
+        !structure.headings.is_empty(),
+        "Should detect headings in structured PDF"
+    );
 
     // Check that "Introduction" or "Results" is found as a heading
-    let has_intro = structure.headings.iter().any(|h| h.text.contains("Introduction"));
-    let has_results = structure.headings.iter().any(|h| h.text.contains("Results"));
+    let has_intro = structure
+        .headings
+        .iter()
+        .any(|h| h.text.contains("Introduction"));
+    let has_results = structure
+        .headings
+        .iter()
+        .any(|h| h.text.contains("Results"));
     assert!(
         has_intro || has_results,
         "Should detect 'Introduction' or 'Results' heading, got: {:?}",
@@ -409,10 +426,7 @@ Result paragraph two.
     );
 
     // Sections should exist matching headings
-    assert!(
-        !structure.sections.is_empty(),
-        "Should have sections"
-    );
+    assert!(!structure.sections.is_empty(), "Should have sections");
 
     std::fs::remove_file(&struct_pdf).ok();
 }
@@ -488,23 +502,23 @@ fn test_extract_images_from_pdf() {
     let bmp_path = format!("{}/test_image.bmp", out_dir);
     let mut bmp_data = Vec::new();
     // BMP file header (14 bytes)
-    bmp_data.extend_from_slice(b"BM");              // signature
+    bmp_data.extend_from_slice(b"BM"); // signature
     bmp_data.extend_from_slice(&70_u32.to_le_bytes()); // file size
-    bmp_data.extend_from_slice(&[0, 0]);              // reserved
-    bmp_data.extend_from_slice(&[0, 0]);              // reserved
+    bmp_data.extend_from_slice(&[0, 0]); // reserved
+    bmp_data.extend_from_slice(&[0, 0]); // reserved
     bmp_data.extend_from_slice(&54_u32.to_le_bytes()); // offset to pixel data
     // DIB header (BITMAPINFOHEADER, 40 bytes)
     bmp_data.extend_from_slice(&40_u32.to_le_bytes()); // header size
-    bmp_data.extend_from_slice(&1_u32.to_le_bytes());  // width
-    bmp_data.extend_from_slice(&1_u32.to_le_bytes());  // height
-    bmp_data.extend_from_slice(&1_u16.to_le_bytes());  // planes
+    bmp_data.extend_from_slice(&1_u32.to_le_bytes()); // width
+    bmp_data.extend_from_slice(&1_u32.to_le_bytes()); // height
+    bmp_data.extend_from_slice(&1_u16.to_le_bytes()); // planes
     bmp_data.extend_from_slice(&24_u16.to_le_bytes()); // bits per pixel
-    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // compression (none)
-    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // image size
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes()); // compression (none)
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes()); // image size
     bmp_data.extend_from_slice(&2835_u32.to_le_bytes()); // X pixels per meter
     bmp_data.extend_from_slice(&2835_u32.to_le_bytes()); // Y pixels per meter
-    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // colors used
-    bmp_data.extend_from_slice(&0_u32.to_le_bytes());  // important colors
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes()); // colors used
+    bmp_data.extend_from_slice(&0_u32.to_le_bytes()); // important colors
     // Pixel data: 1 pixel (3 bytes) + 1 byte padding to 4-byte boundary
     bmp_data.extend_from_slice(&[0xFF, 0x00, 0x00, 0x00]);
     std::fs::write(&bmp_path, &bmp_data).unwrap();
@@ -517,7 +531,10 @@ fn test_extract_images_from_pdf() {
     let extract_dir = format!("{}/extracted_test_images", out_dir);
     let extracted = pdfrs::pdf_ops::extract_images_from_pdf(&image_pdf, &extract_dir).unwrap();
 
-    assert!(!extracted.is_empty(), "Should extract at least one image from the PDF");
+    assert!(
+        !extracted.is_empty(),
+        "Should extract at least one image from the PDF"
+    );
 
     // Cleanup
     std::fs::remove_file(&bmp_path).ok();
@@ -562,7 +579,9 @@ Math symbols: ∫ ∑ ∏ √
         pdfrs::optimization::OptimizationProfile::Custom(settings_nosubset),
     )
     .with_layout(pdfrs::pdf_generator::PageLayout::portrait());
-    generator_nosubset.generate(&elements, &nosubset_pdf).unwrap();
+    generator_nosubset
+        .generate(&elements, &nosubset_pdf)
+        .unwrap();
 
     // Both should be valid PDFs
     let doc_subset = pdfrs::pdf::PdfDocument::load_from_file(&subset_pdf).unwrap();
@@ -571,10 +590,19 @@ Math symbols: ∫ ∑ ∏ √
     assert!(!doc_nosubset.objects.is_empty());
 
     // Both should contain an embedded font (FontFile2)
-    let subset_has_font = doc_subset.to_bytes().windows(10).any(|w| w == b"/FontFile2");
-    let nosubset_has_font = doc_nosubset.to_bytes().windows(10).any(|w| w == b"/FontFile2");
+    let subset_has_font = doc_subset
+        .to_bytes()
+        .windows(10)
+        .any(|w| w == b"/FontFile2");
+    let nosubset_has_font = doc_nosubset
+        .to_bytes()
+        .windows(10)
+        .any(|w| w == b"/FontFile2");
     assert!(subset_has_font, "Subset PDF should contain embedded font");
-    assert!(nosubset_has_font, "No-subset PDF should contain embedded font");
+    assert!(
+        nosubset_has_font,
+        "No-subset PDF should contain embedded font"
+    );
 
     // The subsetted PDF should be smaller or equal in size
     let size_subset = std::fs::metadata(&subset_pdf).unwrap().len();
@@ -604,22 +632,26 @@ fn test_pdf_2_0_version_header() {
 
     // Generate PDF 1.4 (default)
     let layout_v14 = pdfrs::pdf_generator::PageLayout::portrait();
-    let bytes_v14 = pdfrs::pdf_generator::generate_pdf_bytes(
-        &elements, "Helvetica", 12.0, layout_v14,
-    ).unwrap();
+    let bytes_v14 =
+        pdfrs::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout_v14).unwrap();
     std::fs::write(&pdf_v14_path, &bytes_v14).unwrap();
 
     // Generate PDF 2.0
     let layout_v20 = pdfrs::pdf_generator::PageLayout::portrait()
         .with_version(pdfrs::pdf_generator::PdfVersion::V2_0);
-    let bytes_v20 = pdfrs::pdf_generator::generate_pdf_bytes(
-        &elements, "Helvetica", 12.0, layout_v20,
-    ).unwrap();
+    let bytes_v20 =
+        pdfrs::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout_v20).unwrap();
     std::fs::write(&pdf_v20_path, &bytes_v20).unwrap();
 
     // Verify headers
-    assert!(bytes_v14.starts_with(b"%PDF-1.4"), "Default PDF should be 1.4");
-    assert!(bytes_v20.starts_with(b"%PDF-2.0"), "Explicit version should be 2.0");
+    assert!(
+        bytes_v14.starts_with(b"%PDF-1.4"),
+        "Default PDF should be 1.4"
+    );
+    assert!(
+        bytes_v20.starts_with(b"%PDF-2.0"),
+        "Explicit version should be 2.0"
+    );
 
     // Both should be valid, loadable PDFs
     let doc_v14 = pdfrs::pdf::PdfDocument::load_from_bytes(&bytes_v14).unwrap();
@@ -646,7 +678,10 @@ fn test_javascript_sandbox_pdf_bytes() {
     let bytes = std::fs::read(path).unwrap();
     let (sandboxed, report) = pdfrs::pdf::sandbox_pdf_bytes(&bytes).unwrap();
 
-    assert!(report.clean, "Generated PDF should remain clean after sandbox pass");
+    assert!(
+        report.clean,
+        "Generated PDF should remain clean after sandbox pass"
+    );
     assert!(pdfrs::pdf::validate_pdf_bytes(&sandboxed).valid);
 
     std::fs::remove_file(path).ok();
@@ -670,14 +705,9 @@ fn test_screen_reader_compliance_tagged_pdf() {
         .with_language("en-US".to_string())
         .with_title("Screen Reader Compliance Test".to_string());
 
-    let bytes = pdfrs::pdf_generator::generate_tagged_pdf_bytes(
-        &elements,
-        "Helvetica",
-        12.0,
-        layout,
-        opts,
-    )
-    .unwrap();
+    let bytes =
+        pdfrs::pdf_generator::generate_tagged_pdf_bytes(&elements, "Helvetica", 12.0, layout, opts)
+            .unwrap();
 
     let report = pdfrs::pdf::check_screen_reader_compliance_bytes(&bytes);
     assert!(
@@ -721,10 +751,7 @@ fn test_certificate_sign_and_extract() {
 
     let extracted = pdfrs::pdf_ops::extract_certificates_from_pdf(&signed_pdf).unwrap();
     assert_eq!(extracted.len(), 1);
-    assert_eq!(
-        extracted[0].fingerprint_sha256,
-        cert.fingerprint_sha256
-    );
+    assert_eq!(extracted[0].fingerprint_sha256, cert.fingerprint_sha256);
 
     std::fs::remove_file(&signed_pdf).ok();
 }
@@ -833,8 +860,8 @@ fn test_rtl_hebrew_pdf() {
         },
     ];
     let layout = pdfrs::pdf_generator::PageLayout::portrait().with_rtl(true);
-    let bytes = pdfrs::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout)
-        .unwrap();
+    let bytes =
+        pdfrs::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
     let validation = pdfrs::pdf::validate_pdf_bytes(&bytes);
     assert!(validation.valid, "{:?}", validation.errors);
 
@@ -854,7 +881,9 @@ fn test_i18n_localize_validation_spanish() {
     assert_eq!(es.errors.len(), result.errors.len());
     // At least the missing-header message should be translated
     assert!(
-        es.errors.iter().any(|e| e.contains("cabecera") || e.contains("Falta")),
+        es.errors
+            .iter()
+            .any(|e| e.contains("cabecera") || e.contains("Falta")),
         "expected Spanish error, got {:?}",
         es.errors
     );

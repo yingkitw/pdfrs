@@ -174,10 +174,7 @@ impl CalloutPlugin {
     fn parse_kind(trimmed: &str) -> Option<&str> {
         let rest = trimmed.strip_prefix(":::")?;
         let kind = rest.trim().to_ascii_lowercase();
-        CALLOUT_KINDS
-            .iter()
-            .copied()
-            .find(|k| *k == kind.as_str())
+        CALLOUT_KINDS.iter().copied().find(|k| *k == kind.as_str())
     }
 
     fn label_for(kind: &str) -> &'static str {
@@ -219,10 +216,7 @@ impl ParserPlugin for CalloutPlugin {
             format!("[{}] {}", label, body)
         };
         Some((
-            vec![Element::BlockQuote {
-                text,
-                depth: 1,
-            }],
+            vec![Element::BlockQuote { text, depth: 1 }],
             consumed.max(1),
         ))
     }

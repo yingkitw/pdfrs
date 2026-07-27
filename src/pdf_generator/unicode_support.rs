@@ -80,11 +80,7 @@ impl UnicodeFontEncoder {
 
     /// Map unsupported characters to `'?'` so missing glyphs don't hijack ToUnicode.
     fn display_char(&self, ch: char) -> char {
-        if self.has_glyph(ch) {
-            ch
-        } else {
-            '?'
-        }
+        if self.has_glyph(ch) { ch } else { '?' }
     }
 
     /// Horizontal advance in PDF font units (1/1000 em).
@@ -131,7 +127,9 @@ impl UnicodeFontEncoder {
         // Ensure common page chrome / punctuation is covered even if not in the set.
         for ch in " Page0123456789.-_/?".chars() {
             let gid = self.glyph_id_for_char(ch);
-            widths.entry(gid).or_insert_with(|| self.advance_for_gid(gid));
+            widths
+                .entry(gid)
+                .or_insert_with(|| self.advance_for_gid(gid));
         }
 
         let mut parts = Vec::new();
@@ -211,7 +209,8 @@ impl UnicodeFontEncoder {
 
 fn resolve_unicode_ttf_path() -> Option<String> {
     if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH")
-        && !path.trim().is_empty() && Path::new(&path).exists()
+        && !path.trim().is_empty()
+        && Path::new(&path).exists()
     {
         return Some(path);
     }

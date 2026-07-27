@@ -1,6 +1,6 @@
 //! PDF security: password protection, digital signatures, and certificate extraction.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::fs;
 
 use sha2::{Digest, Sha256};
@@ -41,7 +41,11 @@ use sha2::{Digest, Sha256};
 /// - The input file cannot be read
 /// - The security settings are invalid
 /// - Writing the output file fails
-pub fn protect_pdf(input_file: &str, output_file: &str, security: &crate::security::PdfSecurity) -> Result<()> {
+pub fn protect_pdf(
+    input_file: &str,
+    output_file: &str,
+    security: &crate::security::PdfSecurity,
+) -> Result<()> {
     security.validate()?;
 
     // Honest gate: do not write fake "protected" PDFs that remain plaintext.
@@ -79,7 +83,11 @@ pub fn protect_pdf(input_file: &str, output_file: &str, security: &crate::securi
 ///     .with_location("New York");
 /// sign_pdf("input.pdf", "signed.pdf", &sig).unwrap();
 /// ```
-pub fn sign_pdf(input_file: &str, output_file: &str, signature: &crate::security::DigitalSignature) -> Result<()> {
+pub fn sign_pdf(
+    input_file: &str,
+    output_file: &str,
+    signature: &crate::security::DigitalSignature,
+) -> Result<()> {
     sign_pdf_with_certificate(input_file, output_file, signature, None)
 }
 
@@ -110,15 +118,24 @@ pub fn sign_pdf_with_certificate(
     if let Some(ref date) = sig.date {
         sig_dict.push_str(&format!(" /M (D:{})\n", super::escape_pdf_meta(date)));
     }
-    sig_dict.push_str(&format!(" /Name ({})\n", super::escape_pdf_meta(&sig.signer_name)));
+    sig_dict.push_str(&format!(
+        " /Name ({})\n",
+        super::escape_pdf_meta(&sig.signer_name)
+    ));
     if let Some(ref reason) = sig.reason {
         sig_dict.push_str(&format!(" /Reason ({})\n", super::escape_pdf_meta(reason)));
     }
     if let Some(ref location) = sig.location {
-        sig_dict.push_str(&format!(" /Location ({})\n", super::escape_pdf_meta(location)));
+        sig_dict.push_str(&format!(
+            " /Location ({})\n",
+            super::escape_pdf_meta(location)
+        ));
     }
     if let Some(ref contact) = sig.contact_info {
-        sig_dict.push_str(&format!(" /ContactInfo ({})\n", super::escape_pdf_meta(contact)));
+        sig_dict.push_str(&format!(
+            " /ContactInfo ({})\n",
+            super::escape_pdf_meta(contact)
+        ));
     }
     if let Some(cert) = certificate {
         let der_hex = crate::security::certificate_pem_to_der_hex(&cert.pem)?;
@@ -132,14 +149,20 @@ pub fn sign_pdf_with_certificate(
 
     // Find the last %%EOF
     let last_eof = output.windows(5).rposition(|w| w == b"%%EOF").unwrap_or(0);
-    let startxref_pos = output[..last_eof].windows(9).rposition(|w| w == b"startxref").unwrap_or(0);
+    let startxref_pos = output[..last_eof]
+        .windows(9)
+        .rposition(|w| w == b"startxref")
+        .unwrap_or(0);
     let xref_offset: usize = String::from_utf8_lossy(&output[startxref_pos + 9..last_eof])
         .trim()
         .parse()
         .unwrap_or(0);
 
     // Find catalog reference in trailer
-    let trailer_end = output[startxref_pos..].iter().position(|&b| b == b'>').unwrap_or(0);
+    let trailer_end = output[startxref_pos..]
+        .iter()
+        .position(|&b| b == b'>')
+        .unwrap_or(0);
     let trailer_text = String::from_utf8_lossy(&output[startxref_pos..startxref_pos + trailer_end]);
     let catalog_ref = trailer_text
         .lines()
@@ -186,7 +209,11 @@ pub fn sign_pdf_with_certificate(
          /AcroForm << /Fields [{} 0 R] /SigFlags 3 >>\n\
          >>\nendobj\n",
         new_catalog_num,
-        if catalog_ref.is_empty() { "1 0 R".to_string() } else { catalog_ref.to_string() },
+        if catalog_ref.is_empty() {
+            "1 0 R".to_string()
+        } else {
+            catalog_ref.to_string()
+        },
         field_obj_num
     );
     update.extend_from_slice(new_catalog.as_bytes());
@@ -232,17 +259,22 @@ pub fn sign_pdf_with_certificate(
     let value_start = contents_start + 1; // Point to '<' in "Contents <"
     let value_end = contents_start + contents_marker.len() + 1; // After '>'
 
-    let byte_range = [0u32,
+    let byte_range = [
+        0u32,
         value_start as u32,
         value_end as u32,
-        (full_output.len() - value_end) as u32];
+        (full_output.len() - value_end) as u32,
+    ];
 
     // Compute SHA-256 over the byte ranges
     let mut hasher = Sha256::new();
     hasher.update(&full_output[0..value_start]);
     hasher.update(&full_output[value_end..]);
     let hash = hasher.finalize();
-    let hash_hex = hash.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let hash_hex = hash
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
 
     // Replace placeholder with hash (pad with zeros to maintain length)
     let padded_hash = format!("{:0<width$}", hash_hex, width = contents_placeholder.len());
@@ -264,7 +296,10 @@ pub fn sign_pdf_with_certificate(
 
     println!(
         "[sign] Signed {} -> {} (signer: {}, hash: {})",
-        input_file, output_file, sig.signer_name, &hash_hex[..16]
+        input_file,
+        output_file,
+        sig.signer_name,
+        &hash_hex[..16]
     );
 
     Ok(())
@@ -338,7 +373,9 @@ pub fn verify_pdf_signature(input_file: &str) -> Result<Vec<SignatureInfo>> {
 }
 
 /// Extract embedded X.509 certificates from PDF signature dictionaries.
-pub fn extract_certificates_from_pdf_bytes(data: &[u8]) -> Result<Vec<crate::security::SigningCertificate>> {
+pub fn extract_certificates_from_pdf_bytes(
+    data: &[u8],
+) -> Result<Vec<crate::security::SigningCertificate>> {
     let text = String::from_utf8_lossy(data);
     let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj\s+<<(.+?)>>\s+endobj").unwrap();
     let mut certs = Vec::new();
@@ -360,7 +397,9 @@ pub fn extract_certificates_from_pdf_bytes(data: &[u8]) -> Result<Vec<crate::sec
 }
 
 /// Extract embedded certificates from a PDF file.
-pub fn extract_certificates_from_pdf(input_file: &str) -> Result<Vec<crate::security::SigningCertificate>> {
+pub fn extract_certificates_from_pdf(
+    input_file: &str,
+) -> Result<Vec<crate::security::SigningCertificate>> {
     let data = fs::read(input_file)?;
     extract_certificates_from_pdf_bytes(&data)
 }

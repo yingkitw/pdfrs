@@ -9,7 +9,7 @@ use crate::optimization::{
     CompressionLevel, OptimizationProfile, OptimizationSettings, OptimizedPdfGenerator,
 };
 use crate::pdf_generator::PageLayout;
-use crate::plugin::{parse_markdown_with_plugins, PluginRegistry};
+use crate::plugin::{PluginRegistry, parse_markdown_with_plugins};
 use anyhow::Result;
 
 /// Options for [`generate_comprehensive_pdf`].
@@ -112,7 +112,10 @@ pub fn generate_bundled_comprehensive_pdf(opts: &ComprehensiveOptions) -> Result
 }
 
 /// Write the bundled comprehensive document to `output_path`.
-pub fn write_bundled_comprehensive_pdf(output_path: &str, opts: &ComprehensiveOptions) -> Result<()> {
+pub fn write_bundled_comprehensive_pdf(
+    output_path: &str,
+    opts: &ComprehensiveOptions,
+) -> Result<()> {
     let bytes = generate_bundled_comprehensive_pdf(opts)?;
     std::fs::write(output_path, bytes)?;
     Ok(())
@@ -130,7 +133,11 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF"));
         let v = validate_pdf_bytes(&bytes);
         assert!(v.valid, "{:?}", v.errors);
-        assert!(v.page_count >= 3, "expected multi-page, got {}", v.page_count);
+        assert!(
+            v.page_count >= 3,
+            "expected multi-page, got {}",
+            v.page_count
+        );
         let text = String::from_utf8_lossy(&bytes);
         assert!(text.contains("/Outlines"));
         assert!(text.contains("Comprehensive Document") || text.contains("Part II"));

@@ -31,7 +31,7 @@
 use crate::compression::{compress_deflate, decompress_deflate};
 use crate::pdf::{PdfDocument, PdfObject};
 use crate::search::Rect;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
 /// A rectangle on a page in PDF user-space points to redact.
@@ -69,10 +69,7 @@ pub enum RedactionStyle {
 ///
 /// Returns new PDF bytes with the content streams rewritten. The redaction is
 /// applied to every region whose page is present in the document.
-pub fn redact_pdf_bytes(
-    pdf_bytes: &[u8],
-    regions: &[RedactionRegion],
-) -> Result<Vec<u8>> {
+pub fn redact_pdf_bytes(pdf_bytes: &[u8], regions: &[RedactionRegion]) -> Result<Vec<u8>> {
     redact_pdf_bytes_with_style(pdf_bytes, regions, RedactionStyle::BlackBox)
 }
 
@@ -131,12 +128,18 @@ pub fn redact_pdf_bytes_with_style(
             if let Some(PdfObject::Stream { dictionary, data }) = doc.objects.get_mut(&cid) {
                 dictionary.remove("Filter");
                 if let Some(f) = filter {
-                    dictionary.insert("Filter".to_string(),
-                        crate::pdf::PdfValue::Object(crate::pdf::PdfObject::Name(f.to_string())));
+                    dictionary.insert(
+                        "Filter".to_string(),
+                        crate::pdf::PdfValue::Object(crate::pdf::PdfObject::Name(f.to_string())),
+                    );
                 }
                 // Update /Length
-                dictionary.insert("Length".to_string(),
-                    crate::pdf::PdfValue::Object(crate::pdf::PdfObject::Number(new_data.len() as f64)));
+                dictionary.insert(
+                    "Length".to_string(),
+                    crate::pdf::PdfValue::Object(crate::pdf::PdfObject::Number(
+                        new_data.len() as f64
+                    )),
+                );
                 *data = new_data;
             }
         }
@@ -204,7 +207,14 @@ fn rewrite_stream(
             }
             "Tm" => {
                 if operands.len() == 6 {
-                    let n = [operands[0], operands[1], operands[2], operands[3], operands[4], operands[5]];
+                    let n = [
+                        operands[0],
+                        operands[1],
+                        operands[2],
+                        operands[3],
+                        operands[4],
+                        operands[5],
+                    ];
                     text_matrix = n;
                     text_line_matrix = n;
                 }
@@ -215,7 +225,10 @@ fn rewrite_stream(
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = text_line_matrix;
                     text_line_matrix = [
-                        m[0], m[1], m[2], m[3],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[3],
                         m[0] * tx + m[2] * ty + m[4],
                         m[1] * tx + m[3] * ty + m[5],
                     ];
@@ -228,7 +241,10 @@ fn rewrite_stream(
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = text_line_matrix;
                     text_line_matrix = [
-                        m[0], m[1], m[2], m[3],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[3],
                         m[0] * tx + m[2] * ty + m[4],
                         m[1] * tx + m[3] * ty + m[5],
                     ];
@@ -382,16 +398,10 @@ fn mask_string(text: &str) -> String {
     " ".repeat(text.chars().count())
 }
 
-fn text_width(
-    text: &str,
-    font_size: f32,
-    metrics: Option<&crate::search::FontMetrics>,
-) -> f32 {
+fn text_width(text: &str, font_size: f32, metrics: Option<&crate::search::FontMetrics>) -> f32 {
     let mut units = 0u32;
     for ch in text.chars() {
-        let advance = metrics
-            .map(|m| m.advance(ch as u32))
-            .unwrap_or(500);
+        let advance = metrics.map(|m| m.advance(ch as u32)).unwrap_or(500);
         units += advance as u32;
     }
     units as f32 * font_size / 1000.0
@@ -401,9 +411,9 @@ fn text_width(
 
 // Re-use small subset of search.rs helpers.
 use crate::search::{
-    collect_font_metrics as collect_font_metrics_search,
-    decompress_stream, extract_font_name as search_extract_font_name,
-    extract_string as search_extract_string, extract_tj_array, is_deflate_stream, TjItem,
+    TjItem, collect_font_metrics as collect_font_metrics_search, decompress_stream,
+    extract_font_name as search_extract_font_name, extract_string as search_extract_string,
+    extract_tj_array, is_deflate_stream,
 };
 
 fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
@@ -462,7 +472,7 @@ mod tests {
     use super::*;
     use crate::elements;
     use crate::pdf::PdfDocument;
-    use crate::pdf_generator::{generate_pdf_bytes, PageLayout};
+    use crate::pdf_generator::{PageLayout, generate_pdf_bytes};
 
     fn make_pdf(markdown: &str) -> Vec<u8> {
         generate_pdf_bytes(
@@ -490,9 +500,18 @@ mod tests {
         )
         .unwrap();
         // Original text should still be extractable; "pdfrs" should be gone.
-        let original_text = PdfDocument::load_from_bytes(&pdf).unwrap().get_text().unwrap();
-        let redacted_text = PdfDocument::load_from_bytes(&redacted).unwrap().get_text().unwrap();
-        assert!(original_text.contains("pdfrs"), "original should have pdfrs");
+        let original_text = PdfDocument::load_from_bytes(&pdf)
+            .unwrap()
+            .get_text()
+            .unwrap();
+        let redacted_text = PdfDocument::load_from_bytes(&redacted)
+            .unwrap()
+            .get_text()
+            .unwrap();
+        assert!(
+            original_text.contains("pdfrs"),
+            "original should have pdfrs"
+        );
         assert!(!redacted_text.contains("pdfrs"), "redacted should not");
     }
 
@@ -535,7 +554,10 @@ mod tests {
             }],
         )
         .unwrap();
-        let redacted_text = PdfDocument::load_from_bytes(&redacted).unwrap().get_text().unwrap();
+        let redacted_text = PdfDocument::load_from_bytes(&redacted)
+            .unwrap()
+            .get_text()
+            .unwrap();
         assert!(redacted_text.contains("Hello"), "should still have Hello");
     }
 

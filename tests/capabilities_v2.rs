@@ -2,9 +2,7 @@
 //! rasterization, search, redaction, full SVG rendering, and structured
 //! PDF → Markdown. These complement the unit tests in each module.
 
-use pdfrs::{
-    elements, pdf_generator, pdf_to_md, raster, redact, search, vector,
-};
+use pdfrs::{elements, pdf_generator, pdf_to_md, raster, redact, search, vector};
 
 fn make_text_pdf(markdown: &str) -> Vec<u8> {
     pdf_generator::generate_pdf_bytes(
@@ -78,7 +76,12 @@ fn pdf_to_markdown_preserves_structure() {
     );
     let md = pdf_to_md::pdf_to_markdown_bytes(&pdf).expect("pdf_to_markdown");
     // Headings, bullets, and numbered lists should be reconstructed.
-    assert!(md.lines().any(|l| l.starts_with('#') && l.contains("Title")), "md: {}", md);
+    assert!(
+        md.lines()
+            .any(|l| l.starts_with('#') && l.contains("Title")),
+        "md: {}",
+        md
+    );
     let bullets = md.matches("- ").count();
     assert!(bullets >= 2, "md: {}", md);
     assert!(md.contains("1. "), "md: {}", md);
@@ -153,7 +156,10 @@ fn redact_strip_style_removes_text_without_overlay() {
     // The black-box overlay should NOT appear in strip mode.
     let raw = std::str::from_utf8(stripped.as_slice()).unwrap_or("");
     let stripped_text = raw.to_string();
-    assert!(!stripped_text.contains("0 0 0 rg"), "strip mode should not add black fill");
+    assert!(
+        !stripped_text.contains("0 0 0 rg"),
+        "strip mode should not add black fill"
+    );
 }
 
 #[test]

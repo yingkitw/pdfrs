@@ -6,6 +6,25 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): automated testing
+  pipeline with rustfmt check, clippy (advisory), multi-OS test matrix
+  (ubuntu/macos/windows), WASM build verification, minimal-feature build +
+  test, and criterion benchmark compile check.
+- **Security audit workflow** (`.github/workflows/audit.yml`): `cargo-audit`
+  on every push/PR plus weekly schedule for dependency vulnerability scanning.
+- **Release workflow** (`.github/workflows/release.yml`): tag-triggered
+  `cargo publish` to crates.io + GitHub Release with auto-generated notes.
+- `rust-toolchain.toml` pins stable Rust with rustfmt + clippy components.
+
+### Fixed
+
+- **WASM build**: `main.rs` unconditionally imported `parallel` module
+  (feature-gated behind `parallel`). Split into conditional import with
+  sequential `pdf_ops::merge_pdfs` fallback when `parallel` feature is off.
+- **Formatting**: `cargo fmt` applied to fix `cargo fmt --check` failures.
+
 ### Changed
 
 - **Module split**: extracted the PDF validation cluster (structural, PDF/A-1b,

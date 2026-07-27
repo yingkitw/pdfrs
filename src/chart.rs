@@ -112,7 +112,11 @@ fn parse_chart_body(kind: ChartKind, code: &str) -> ChartSpec {
             });
         }
     }
-    ChartSpec { kind, title, points }
+    ChartSpec {
+        kind,
+        title,
+        points,
+    }
 }
 
 #[cfg(test)]

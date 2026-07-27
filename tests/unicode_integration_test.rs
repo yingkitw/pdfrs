@@ -17,10 +17,10 @@ fn assert_contains_any(haystack: &str, candidates: &[&str], label: &str) {
 fn test_unicode_pdf_generation() {
     let test_md = "tests/fixtures/unicode_test.md";
     let test_pdf = "tests/output/unicode_test.pdf";
-    
+
     fs::create_dir_all("tests/fixtures").ok();
     fs::create_dir_all("tests/output").ok();
-    
+
     let content = r#"# Unicode Test
 
 ## Chinese
@@ -41,17 +41,17 @@ fn test_unicode_pdf_generation() {
 ## Currency
 $ € £ ¥ ₹
 "#;
-    
+
     fs::write(test_md, content).expect("Failed to write test markdown");
-    
+
     let result = markdown::markdown_to_pdf(test_md, test_pdf);
     assert!(result.is_ok(), "Failed to generate PDF: {:?}", result.err());
-    
+
     assert!(Path::new(test_pdf).exists(), "PDF file was not created");
-    
+
     let metadata = fs::metadata(test_pdf).expect("Failed to read PDF metadata");
     assert!(metadata.len() > 0, "PDF file is empty");
-    
+
     fs::remove_file(test_md).ok();
 }
 
@@ -98,7 +98,11 @@ $$
         "fraction",
     );
     assert_contains_any(&extracted, &["∉", "not-in"], "not-in operator");
-    assert_contains_any(&extracted, &["√(a² + b²)", "√(a^(2) + b^(2))", "sqrt(a^(2) + b^(2))"], "square root");
+    assert_contains_any(
+        &extracted,
+        &["√(a² + b²)", "√(a^(2) + b^(2))", "sqrt(a^(2) + b^(2))"],
+        "square root",
+    );
     // Display math places limits as separate positioned runs.
     assert_contains_any(
         &extracted,
@@ -166,10 +170,10 @@ fn test_unicode_roundtrip_extraction() {
 fn test_math_pdf_generation() {
     let test_md = "tests/fixtures/math_test.md";
     let test_pdf = "tests/output/math_test.pdf";
-    
+
     fs::create_dir_all("tests/fixtures").ok();
     fs::create_dir_all("tests/output").ok();
-    
+
     let content = r#"# Math Test
 
 Inline math: $E = mc^2$
@@ -188,14 +192,14 @@ $$
 \sum_{i=1}^{n} i = \frac{n(n+1)}{2}
 $$
 "#;
-    
+
     fs::write(test_md, content).expect("Failed to write test markdown");
-    
+
     let result = markdown::markdown_to_pdf(test_md, test_pdf);
     assert!(result.is_ok(), "Failed to generate PDF: {:?}", result.err());
-    
+
     assert!(Path::new(test_pdf).exists(), "PDF file was not created");
-    
+
     fs::remove_file(test_md).ok();
 }
 
@@ -203,10 +207,10 @@ $$
 fn test_code_pdf_generation() {
     let test_md = "tests/fixtures/code_test.md";
     let test_pdf = "tests/output/code_test.pdf";
-    
+
     fs::create_dir_all("tests/fixtures").ok();
     fs::create_dir_all("tests/output").ok();
-    
+
     let content = r#"# Code Test
 
 ## Rust Code
@@ -226,14 +230,14 @@ def hello():
 
 Inline code: `let x = 42;`
 "#;
-    
+
     fs::write(test_md, content).expect("Failed to write test markdown");
-    
+
     let result = markdown::markdown_to_pdf(test_md, test_pdf);
     assert!(result.is_ok(), "Failed to generate PDF: {:?}", result.err());
-    
+
     assert!(Path::new(test_pdf).exists(), "PDF file was not created");
-    
+
     fs::remove_file(test_md).ok();
 }
 
@@ -241,10 +245,10 @@ Inline code: `let x = 42;`
 fn test_comprehensive_pdf_generation() {
     let test_md = "tests/fixtures/comprehensive_test.md";
     let test_pdf = "tests/output/comprehensive_test.pdf";
-    
+
     fs::create_dir_all("tests/fixtures").ok();
     fs::create_dir_all("tests/output").ok();
-    
+
     let content = r#"# Comprehensive Test
 
 ## Unicode
@@ -275,32 +279,32 @@ fn fibonacci(n: u32) -> u32 {
 ## Symbols
 ∑ ∫ ∞ ≈ ≠ € ¥ £
 "#;
-    
+
     fs::write(test_md, content).expect("Failed to write test markdown");
-    
+
     let result = markdown::markdown_to_pdf(test_md, test_pdf);
     assert!(result.is_ok(), "Failed to generate PDF: {:?}", result.err());
-    
+
     assert!(Path::new(test_pdf).exists(), "PDF file was not created");
-    
+
     let metadata = fs::metadata(test_pdf).expect("Failed to read PDF metadata");
     assert!(metadata.len() > 1000, "PDF file seems too small");
-    
+
     fs::remove_file(test_md).ok();
 }
 
 #[test]
 fn test_pdf_hex_string_extraction() {
     use pdfrs::pdf::{decode_pdf_hex_string, unescape_pdf_string};
-    
+
     assert_eq!(decode_pdf_hex_string("48656C6C6F"), "Hello");
     assert_eq!(decode_pdf_hex_string("576F726C64"), "World");
-    
+
     assert_eq!(decode_pdf_hex_string("FEFF00480065006C006C006F"), "Hello");
     assert_eq!(decode_pdf_hex_string("FEFF4F60597D"), "你好");
-    
+
     assert_eq!(decode_pdf_hex_string("FEFF03B103B203B3"), "αβγ");
-    
+
     assert_eq!(unescape_pdf_string(r"\101\102\103"), "ABC");
     assert_eq!(unescape_pdf_string(r"Hello\40World"), "Hello World");
 }
@@ -348,26 +352,26 @@ fn test_missing_glyph_falls_back_to_question_mark() {
 #[test]
 fn test_octal_escape_sequences() {
     use pdfrs::pdf::unescape_pdf_string;
-    
+
     assert_eq!(unescape_pdf_string(r"\101"), "A");
     assert_eq!(unescape_pdf_string(r"\102"), "B");
     assert_eq!(unescape_pdf_string(r"\103"), "C");
     assert_eq!(unescape_pdf_string(r"\60"), "0");
     assert_eq!(unescape_pdf_string(r"\61"), "1");
-    
+
     assert_eq!(unescape_pdf_string(r"\141\142\143"), "abc");
-    
+
     assert_eq!(unescape_pdf_string(r"Test\40String"), "Test String");
 }
 
 #[test]
 fn test_utf16be_surrogate_pairs() {
     use pdfrs::pdf::decode_pdf_hex_string;
-    
+
     let emoji_hex = "FEFFD83DDE00";
     let result = decode_pdf_hex_string(emoji_hex);
     assert_eq!(result, "😀");
-    
+
     let emoji_hex2 = "FEFFD83DDE01";
     let result2 = decode_pdf_hex_string(emoji_hex2);
     assert_eq!(result2, "😁");

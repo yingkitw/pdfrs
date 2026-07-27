@@ -179,10 +179,7 @@ pub(super) fn assemble_pdf_with_metadata(
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
 
-        let font_dict = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            font
-        );
+        let font_dict = format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n", font);
         generator.add_object(font_dict);
     }
 
@@ -237,25 +234,30 @@ pub fn extract_metadata_from_pdf(doc: &PdfDocument) -> Result<PdfMetadata> {
             // Convert dictionary to a string representation for parsing
             let dict_str = dict_to_string(data);
             if dict_str.contains("/Title")
-                && let Some(title) = extract_pdf_string_field(&dict_str, "/Title") {
-                    metadata.title = Some(title);
-                }
+                && let Some(title) = extract_pdf_string_field(&dict_str, "/Title")
+            {
+                metadata.title = Some(title);
+            }
             if dict_str.contains("/Author")
-                && let Some(author) = extract_pdf_string_field(&dict_str, "/Author") {
-                    metadata.author = Some(author);
-                }
+                && let Some(author) = extract_pdf_string_field(&dict_str, "/Author")
+            {
+                metadata.author = Some(author);
+            }
             if dict_str.contains("/Subject")
-                && let Some(subject) = extract_pdf_string_field(&dict_str, "/Subject") {
-                    metadata.subject = Some(subject);
-                }
+                && let Some(subject) = extract_pdf_string_field(&dict_str, "/Subject")
+            {
+                metadata.subject = Some(subject);
+            }
             if dict_str.contains("/Keywords")
-                && let Some(keywords) = extract_pdf_string_field(&dict_str, "/Keywords") {
-                    metadata.keywords = Some(keywords);
-                }
+                && let Some(keywords) = extract_pdf_string_field(&dict_str, "/Keywords")
+            {
+                metadata.keywords = Some(keywords);
+            }
             if dict_str.contains("/Creator")
-                && let Some(creator) = extract_pdf_string_field(&dict_str, "/Creator") {
-                    metadata.creator = Some(creator);
-                }
+                && let Some(creator) = extract_pdf_string_field(&dict_str, "/Creator")
+            {
+                metadata.creator = Some(creator);
+            }
         }
     }
 
@@ -283,23 +285,23 @@ fn value_to_string(value: &PdfValue) -> String {
 fn object_to_string(obj: &PdfObject) -> String {
     match obj {
         PdfObject::Dictionary(dict) => {
-            let entries: Vec<String> = dict.iter()
+            let entries: Vec<String> = dict
+                .iter()
                 .map(|(k, v)| format!("/{} {}", k, value_to_string(v)))
                 .collect();
             format!("<< {} >>", entries.join(" "))
         }
-        PdfObject::Stream { dictionary: _, data: _ } => {
-            "<< stream >>".to_string()
-        }
+        PdfObject::Stream {
+            dictionary: _,
+            data: _,
+        } => "<< stream >>".to_string(),
         PdfObject::Array(arr) => {
             let elems: Vec<String> = arr.iter().map(value_to_string).collect();
             format!("[{}]", elems.join(" "))
         }
         PdfObject::String(s) => format!("({})", super::escape_pdf_meta(s)),
         PdfObject::Number(n) => n.to_string(),
-        PdfObject::Boolean(b) => {
-            if *b { "true" } else { "false" }.to_string()
-        }
+        PdfObject::Boolean(b) => if *b { "true" } else { "false" }.to_string(),
         PdfObject::Null => "null".to_string(),
         PdfObject::Reference(id, generation) => format!("{} {} R", id, generation),
         PdfObject::Name(n) => format!("/{}", n),
@@ -368,15 +370,17 @@ pub(super) fn unescape_pdf_string(s: &str) -> String {
                         // Octal escape sequence (up to 3 digits)
                         let mut octal = String::from(next);
                         if let Some(&c) = chars.peek()
-                            && ('0'..='7').contains(&c) {
+                            && ('0'..='7').contains(&c)
+                        {
+                            chars.next();
+                            octal.push(c);
+                            if let Some(&c) = chars.peek()
+                                && ('0'..='7').contains(&c)
+                            {
                                 chars.next();
                                 octal.push(c);
-                                if let Some(&c) = chars.peek()
-                                    && ('0'..='7').contains(&c) {
-                                        chars.next();
-                                        octal.push(c);
-                                    }
                             }
+                        }
                         if let Ok(code) = u8::from_str_radix(&octal, 8) {
                             result.push(code as char);
                         }
@@ -453,8 +457,14 @@ mod tests {
         metadata.add_custom_field("CustomField1".to_string(), "Value1".to_string());
         metadata.add_custom_field("CustomField2".to_string(), "Value2".to_string());
 
-        assert_eq!(metadata.get_custom_field("CustomField1"), Some(&"Value1".to_string()));
-        assert_eq!(metadata.get_custom_field("CustomField2"), Some(&"Value2".to_string()));
+        assert_eq!(
+            metadata.get_custom_field("CustomField1"),
+            Some(&"Value1".to_string())
+        );
+        assert_eq!(
+            metadata.get_custom_field("CustomField2"),
+            Some(&"Value2".to_string())
+        );
         assert_eq!(metadata.get_custom_field("NonExistent"), None);
 
         let removed = metadata.remove_custom_field("CustomField1");
@@ -506,8 +516,14 @@ mod tests {
         assert_eq!(merged.title, Some("New Title".to_string())); // Overwritten
         assert_eq!(merged.author, Some("Base Author".to_string())); // Preserved
         assert_eq!(merged.subject, Some("New Subject".to_string())); // Added
-        assert_eq!(merged.get_custom_field("BaseField"), Some(&"BaseValue".to_string())); // Preserved
-        assert_eq!(merged.get_custom_field("NewField"), Some(&"NewValue".to_string())); // Added
+        assert_eq!(
+            merged.get_custom_field("BaseField"),
+            Some(&"BaseValue".to_string())
+        ); // Preserved
+        assert_eq!(
+            merged.get_custom_field("NewField"),
+            Some(&"NewValue".to_string())
+        ); // Added
     }
 
     #[test]
@@ -523,8 +539,14 @@ mod tests {
     #[test]
     fn test_extract_pdf_string_field() {
         let content = r"<< /Title (Test Title) /Author (Test \(Author\) ) /Subject None >>";
-        assert_eq!(extract_pdf_string_field(content, "/Title"), Some("Test Title".to_string()));
-        assert_eq!(extract_pdf_string_field(content, "/Author"), Some("Test (Author) ".to_string()));
+        assert_eq!(
+            extract_pdf_string_field(content, "/Title"),
+            Some("Test Title".to_string())
+        );
+        assert_eq!(
+            extract_pdf_string_field(content, "/Author"),
+            Some("Test (Author) ".to_string())
+        );
         assert_eq!(extract_pdf_string_field(content, "/Subject"), None);
         assert_eq!(extract_pdf_string_field(content, "/NonExistent"), None);
     }
@@ -532,8 +554,8 @@ mod tests {
 
 #[cfg(test)]
 mod proptest_tests {
-    use proptest::prelude::*;
     use super::*;
+    use proptest::prelude::*;
 
     proptest! {
         #[test]

@@ -1,5 +1,5 @@
 use pdfrs::elements;
-use pdfrs::pdf_generator::{generate_pdf_bytes, PageLayout};
+use pdfrs::pdf_generator::{PageLayout, generate_pdf_bytes};
 use std::fs;
 
 fn main() -> anyhow::Result<()> {
@@ -31,6 +31,9 @@ fn hello() {
     let pdf_bytes = generate_pdf_bytes(&elements, "Helvetica", 12.0, layout)?;
 
     fs::write("examples/output/basic.pdf", &pdf_bytes)?;
-    println!("Generated examples/output/basic.pdf ({} bytes)", pdf_bytes.len());
+    println!(
+        "Generated examples/output/basic.pdf ({} bytes)",
+        pdf_bytes.len()
+    );
     Ok(())
 }

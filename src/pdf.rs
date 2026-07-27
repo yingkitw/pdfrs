@@ -46,10 +46,10 @@ pdf_regex!(re_page_eol, r"/Type\s+/Page\s*\n");
 /// call sites continue to work without changes.
 mod validation;
 pub use validation::{
-    check_screen_reader_compliance, check_screen_reader_compliance_bytes, PdfAValidation,
-    PdfUaValidation, PdfValidation, ScreenReaderComplianceReport, validate_pdf, validate_pdf_a,
-    validate_pdf_a3, validate_pdf_a3_bytes, validate_pdf_a_bytes, validate_pdf_bytes,
-    validate_pdf_ua, validate_pdf_ua_bytes,
+    PdfAValidation, PdfUaValidation, PdfValidation, ScreenReaderComplianceReport,
+    check_screen_reader_compliance, check_screen_reader_compliance_bytes, validate_pdf,
+    validate_pdf_a, validate_pdf_a_bytes, validate_pdf_a3, validate_pdf_a3_bytes,
+    validate_pdf_bytes, validate_pdf_ua, validate_pdf_ua_bytes,
 };
 
 #[derive(Debug, Clone)]
@@ -157,7 +157,9 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 // --- Font encoding tables ---
@@ -201,22 +203,25 @@ fn winansi_decode(byte: u8) -> char {
 /// MacRomanEncoding: maps byte values 0x80..0xFF to Unicode.
 fn macroman_decode(byte: u8) -> char {
     static MACROMAN_HIGH: [char; 128] = [
-        '\u{00C4}', '\u{00C5}', '\u{00C7}', '\u{00C9}', '\u{00D1}', '\u{00D6}', '\u{00DC}', '\u{00E1}',
-        '\u{00E0}', '\u{00E2}', '\u{00E4}', '\u{00E3}', '\u{00E5}', '\u{00E7}', '\u{00E9}', '\u{00E8}',
-        '\u{00EA}', '\u{00EB}', '\u{00ED}', '\u{00EC}', '\u{00EE}', '\u{00EF}', '\u{00F1}', '\u{00F3}',
-        '\u{00F2}', '\u{00F4}', '\u{00F6}', '\u{00F5}', '\u{00FA}', '\u{00F9}', '\u{00FB}', '\u{00FC}',
-        '\u{2020}', '\u{00B0}', '\u{00A2}', '\u{00A3}', '\u{00A7}', '\u{2022}', '\u{00B6}', '\u{00DF}',
-        '\u{00AE}', '\u{00A9}', '\u{2122}', '\u{00B4}', '\u{00A8}', '\u{2260}', '\u{00C6}', '\u{00D8}',
-        '\u{221E}', '\u{00B1}', '\u{2264}', '\u{2265}', '\u{00A5}', '\u{00B5}', '\u{2202}', '\u{2211}',
-        '\u{220F}', '\u{03C0}', '\u{222B}', '\u{00AA}', '\u{00BA}', '\u{2126}', '\u{00E6}', '\u{00F8}',
-        '\u{00BF}', '\u{00A1}', '\u{00AC}', '\u{221A}', '\u{0192}', '\u{2248}', '\u{2206}', '\u{00AB}',
-        '\u{00BB}', '\u{2026}', '\u{00A0}', '\u{00C0}', '\u{00C3}', '\u{00D5}', '\u{0152}', '\u{0153}',
-        '\u{2013}', '\u{2014}', '\u{201C}', '\u{201D}', '\u{2018}', '\u{2019}', '\u{00F7}', '\u{25CA}',
-        '\u{00FF}', '\u{0178}', '\u{2044}', '\u{20AC}', '\u{2039}', '\u{203A}', '\u{FB01}', '\u{FB02}',
-        '\u{2021}', '\u{00B7}', '\u{201A}', '\u{201E}', '\u{2030}', '\u{00C2}', '\u{00CA}', '\u{00C1}',
-        '\u{00CB}', '\u{00C8}', '\u{00CD}', '\u{00CE}', '\u{00CF}', '\u{00CC}', '\u{00D3}', '\u{00D4}',
-        '\u{F8FF}', '\u{00D2}', '\u{00DA}', '\u{00DB}', '\u{00D9}', '\u{0131}', '\u{02C6}', '\u{02DC}',
-        '\u{00AF}', '\u{02D8}', '\u{02D9}', '\u{02DA}', '\u{00B8}', '\u{02DD}', '\u{02DB}', '\u{02C7}',
+        '\u{00C4}', '\u{00C5}', '\u{00C7}', '\u{00C9}', '\u{00D1}', '\u{00D6}', '\u{00DC}',
+        '\u{00E1}', '\u{00E0}', '\u{00E2}', '\u{00E4}', '\u{00E3}', '\u{00E5}', '\u{00E7}',
+        '\u{00E9}', '\u{00E8}', '\u{00EA}', '\u{00EB}', '\u{00ED}', '\u{00EC}', '\u{00EE}',
+        '\u{00EF}', '\u{00F1}', '\u{00F3}', '\u{00F2}', '\u{00F4}', '\u{00F6}', '\u{00F5}',
+        '\u{00FA}', '\u{00F9}', '\u{00FB}', '\u{00FC}', '\u{2020}', '\u{00B0}', '\u{00A2}',
+        '\u{00A3}', '\u{00A7}', '\u{2022}', '\u{00B6}', '\u{00DF}', '\u{00AE}', '\u{00A9}',
+        '\u{2122}', '\u{00B4}', '\u{00A8}', '\u{2260}', '\u{00C6}', '\u{00D8}', '\u{221E}',
+        '\u{00B1}', '\u{2264}', '\u{2265}', '\u{00A5}', '\u{00B5}', '\u{2202}', '\u{2211}',
+        '\u{220F}', '\u{03C0}', '\u{222B}', '\u{00AA}', '\u{00BA}', '\u{2126}', '\u{00E6}',
+        '\u{00F8}', '\u{00BF}', '\u{00A1}', '\u{00AC}', '\u{221A}', '\u{0192}', '\u{2248}',
+        '\u{2206}', '\u{00AB}', '\u{00BB}', '\u{2026}', '\u{00A0}', '\u{00C0}', '\u{00C3}',
+        '\u{00D5}', '\u{0152}', '\u{0153}', '\u{2013}', '\u{2014}', '\u{201C}', '\u{201D}',
+        '\u{2018}', '\u{2019}', '\u{00F7}', '\u{25CA}', '\u{00FF}', '\u{0178}', '\u{2044}',
+        '\u{20AC}', '\u{2039}', '\u{203A}', '\u{FB01}', '\u{FB02}', '\u{2021}', '\u{00B7}',
+        '\u{201A}', '\u{201E}', '\u{2030}', '\u{00C2}', '\u{00CA}', '\u{00C1}', '\u{00CB}',
+        '\u{00C8}', '\u{00CD}', '\u{00CE}', '\u{00CF}', '\u{00CC}', '\u{00D3}', '\u{00D4}',
+        '\u{F8FF}', '\u{00D2}', '\u{00DA}', '\u{00DB}', '\u{00D9}', '\u{0131}', '\u{02C6}',
+        '\u{02DC}', '\u{00AF}', '\u{02D8}', '\u{02D9}', '\u{02DA}', '\u{00B8}', '\u{02DD}',
+        '\u{02DB}', '\u{02C7}',
     ];
     if byte < 0x80 {
         byte as char
@@ -294,9 +299,10 @@ impl PdfDocument {
 
         // Parse PDF header
         if let Some(header_line) = content.lines().next()
-            && header_line.starts_with("%PDF-") {
-                doc.version = header_line[5..].to_string();
-            }
+            && header_line.starts_with("%PDF-")
+        {
+            doc.version = header_line[5..].to_string();
+        }
 
         // Find all stream data ranges in raw bytes before string parsing corrupts them
         let stream_ranges = find_stream_ranges(buffer);
@@ -322,9 +328,10 @@ impl PdfDocument {
         // Parse catalog reference from trailer so to_bytes() can write the correct /Root
         let root_re = re_root();
         if let Some(caps) = root_re.captures(&content)
-            && let Ok(id) = caps[1].parse::<u32>() {
-                doc.catalog = id;
-            }
+            && let Ok(id) = caps[1].parse::<u32>()
+        {
+            doc.catalog = id;
+        }
 
         Ok(doc)
     }
@@ -335,10 +342,11 @@ impl PdfDocument {
             PdfValue::Object(PdfObject::String(s)) => {
                 if let Some(caps) = re_obj_ref().captures(s)
                     && let Ok(id) = caps[1].parse::<u32>()
-                        && id == old_id {
-                            let generation = &caps[2];
-                            *s = format!("{} {} R", new_id, generation);
-                        }
+                    && id == old_id
+                {
+                    let generation = &caps[2];
+                    *s = format!("{} {} R", new_id, generation);
+                }
             }
             PdfValue::Object(PdfObject::Dictionary(dict)) => {
                 for v in dict.values_mut() {
@@ -421,7 +429,8 @@ impl PdfDocument {
     /// This is most effective after stream recompression has normalized filters and lengths,
     /// so identical streams truly share the same dictionary + data bytes.
     pub fn deduplicate_objects(&mut self) {
-        let mut content_map: std::collections::HashMap<Vec<u8>, u32> = std::collections::HashMap::new();
+        let mut content_map: std::collections::HashMap<Vec<u8>, u32> =
+            std::collections::HashMap::new();
         let mut duplicates: Vec<(u32, u32)> = Vec::new(); // (duplicate_id, canonical_id)
 
         // Sort by ID so the lowest ID is always chosen as the canonical copy
@@ -463,7 +472,9 @@ impl PdfDocument {
     /// before publishing them to the web.
     pub fn sanitize(&mut self) {
         // Pass 1: identify dangerous object IDs
-        let ids_to_remove: Vec<u32> = self.objects.iter()
+        let ids_to_remove: Vec<u32> = self
+            .objects
+            .iter()
             .filter(|(_, obj)| Self::object_is_dangerous(obj))
             .map(|(id, _)| *id)
             .collect();
@@ -495,7 +506,10 @@ impl PdfDocument {
     fn object_is_dangerous(obj: &PdfObject) -> bool {
         let mut content = String::new();
         match obj {
-            PdfObject::Dictionary(dict) | PdfObject::Stream { dictionary: dict, .. } => {
+            PdfObject::Dictionary(dict)
+            | PdfObject::Stream {
+                dictionary: dict, ..
+            } => {
                 for (k, v) in dict {
                     content.push_str(k);
                     content.push(' ');
@@ -508,9 +522,10 @@ impl PdfDocument {
         }
         // Standalone JavaScript script objects
         if let PdfObject::Dictionary(dict) = obj
-            && (dict.contains_key("JS") || dict.contains_key("JavaScript")) {
-                return true;
-            }
+            && (dict.contains_key("JS") || dict.contains_key("JavaScript"))
+        {
+            return true;
+        }
         // Launch actions or embedded malicious scripts in string form
         if content.contains("/S /Launch") || content.contains("/Launch") {
             return true;
@@ -533,13 +548,15 @@ impl PdfDocument {
                     format!("[ {} ]", parts.join(" "))
                 }
                 PdfObject::Dictionary(dict) => {
-                    let parts: Vec<String> = dict.iter()
+                    let parts: Vec<String> = dict
+                        .iter()
                         .map(|(k, v)| format!("/{} {}", k, Self::value_to_string(v)))
                         .collect();
                     format!("<< {} >>", parts.join(" "))
                 }
                 PdfObject::Stream { dictionary, .. } => {
-                    let parts: Vec<String> = dictionary.iter()
+                    let parts: Vec<String> = dictionary
+                        .iter()
                         .map(|(k, v)| format!("/{} {}", k, Self::value_to_string(v)))
                         .collect();
                     format!("<< {} >>", parts.join(" "))
@@ -551,7 +568,8 @@ impl PdfDocument {
 
     /// Strip dangerous keys from a dictionary in-place.
     fn strip_dangerous_keys(dict: &mut HashMap<String, PdfValue>) {
-        let dangerous_keys: Vec<String> = dict.keys()
+        let dangerous_keys: Vec<String> = dict
+            .keys()
             .filter(|k| {
                 let lower = k.to_lowercase();
                 lower == "js" ||
@@ -648,7 +666,9 @@ impl PdfDocument {
             PdfObject::Stream { dictionary, .. } => {
                 Self::scan_dict_for_javascript(Some(id), dictionary, actions)
             }
-            PdfObject::String(content) => Self::scan_string_for_javascript(Some(id), content, actions),
+            PdfObject::String(content) => {
+                Self::scan_string_for_javascript(Some(id), content, actions)
+            }
             _ => {}
         }
     }
@@ -667,9 +687,7 @@ impl PdfDocument {
         }
 
         for (key, val) in dict {
-            if key.eq_ignore_ascii_case("URI")
-                && Self::value_contains_javascript_uri(val)
-            {
+            if key.eq_ignore_ascii_case("URI") && Self::value_contains_javascript_uri(val) {
                 actions.push(JavaScriptAction {
                     object_id: id,
                     kind: "javascript_uri".to_string(),
@@ -701,7 +719,11 @@ impl PdfDocument {
         }
     }
 
-    fn scan_string_for_javascript(id: Option<u32>, content: &str, actions: &mut Vec<JavaScriptAction>) {
+    fn scan_string_for_javascript(
+        id: Option<u32>,
+        content: &str,
+        actions: &mut Vec<JavaScriptAction>,
+    ) {
         let lower = content.to_ascii_lowercase();
         if lower.contains("/s /javascript")
             || lower.contains("/js")
@@ -726,14 +748,16 @@ impl PdfDocument {
         if dict.contains_key("JS") || dict.contains_key("JavaScript") {
             return true;
         }
-        dict.get("S").is_some_and(|v| {
-            matches!(v, PdfValue::Object(PdfObject::String(s)) if s.contains("JavaScript"))
-        })
+        dict.get("S").is_some_and(
+            |v| matches!(v, PdfValue::Object(PdfObject::String(s)) if s.contains("JavaScript")),
+        )
     }
 
     fn value_contains_javascript_uri(val: &PdfValue) -> bool {
         match val {
-            PdfValue::Object(PdfObject::String(s)) => s.to_ascii_lowercase().contains("javascript:"),
+            PdfValue::Object(PdfObject::String(s)) => {
+                s.to_ascii_lowercase().contains("javascript:")
+            }
             _ => false,
         }
     }
@@ -769,7 +793,9 @@ impl PdfDocument {
 
         let uri_keys: Vec<String> = dict
             .iter()
-            .filter(|(key, val)| key.eq_ignore_ascii_case("URI") && Self::value_contains_javascript_uri(val))
+            .filter(|(key, val)| {
+                key.eq_ignore_ascii_case("URI") && Self::value_contains_javascript_uri(val)
+            })
             .map(|(k, _)| k.clone())
             .collect();
 
@@ -812,15 +838,27 @@ impl PdfDocument {
 
         // 1. Embedded file stream object
         let mut ef_dict = HashMap::new();
-        ef_dict.insert("Type".to_string(), PdfValue::Object(PdfObject::String("/EmbeddedFile".to_string())));
-        ef_dict.insert("Subtype".to_string(), PdfValue::Object(PdfObject::String("/application#2Foctet-stream".to_string())));
-        ef_dict.insert("Length".to_string(), PdfValue::Object(PdfObject::Number(data.len() as f64)));
+        ef_dict.insert(
+            "Type".to_string(),
+            PdfValue::Object(PdfObject::String("/EmbeddedFile".to_string())),
+        );
+        ef_dict.insert(
+            "Subtype".to_string(),
+            PdfValue::Object(PdfObject::String("/application#2Foctet-stream".to_string())),
+        );
+        ef_dict.insert(
+            "Length".to_string(),
+            PdfValue::Object(PdfObject::Number(data.len() as f64)),
+        );
 
         let ef_id = next_id;
-        self.objects.insert(ef_id, PdfObject::Stream {
-            dictionary: ef_dict,
-            data: data.to_vec(),
-        });
+        self.objects.insert(
+            ef_id,
+            PdfObject::Stream {
+                dictionary: ef_dict,
+                data: data.to_vec(),
+            },
+        );
 
         // 2. File specification object
         let fs_id = next_id + 1;
@@ -834,7 +872,9 @@ impl PdfDocument {
         if let Some(PdfObject::Dictionary(catalog_dict)) = self.objects.get_mut(&self.catalog) {
             // Build or update /Names entry
             let names_entry = catalog_dict.entry("Names".to_string()).or_insert_with(|| {
-                PdfValue::Object(PdfObject::String("<< /EmbeddedFiles << /Names [ ] >> >>".to_string()))
+                PdfValue::Object(PdfObject::String(
+                    "<< /EmbeddedFiles << /Names [ ] >> >>".to_string(),
+                ))
             });
 
             // We can't easily mutate the string representation, so rebuild it
@@ -843,9 +883,10 @@ impl PdfDocument {
                 // Parse existing entries between /Names [ and ]
                 let mut entries = String::new();
                 if let Some(start) = existing.find("/Names [")
-                    && let Some(end) = existing[start..].find("]") {
-                        entries = existing[start + 8..start + end].trim().to_string();
-                    }
+                    && let Some(end) = existing[start..].find("]")
+                {
+                    entries = existing[start + 8..start + end].trim().to_string();
+                }
 
                 if !entries.is_empty() {
                     entries.push(' ');
@@ -920,7 +961,14 @@ impl PdfDocument {
         };
 
         pdf.extend_from_slice(b"trailer\n");
-        pdf.extend_from_slice(format!("<< /Size {} /Root {} 0 R >>\n", sorted_ids.len() + 1, root_id).as_bytes());
+        pdf.extend_from_slice(
+            format!(
+                "<< /Size {} /Root {} 0 R >>\n",
+                sorted_ids.len() + 1,
+                root_id
+            )
+            .as_bytes(),
+        );
         pdf.extend_from_slice(b"startxref\n");
         pdf.extend_from_slice(format!("{}\n", xref_offset).as_bytes());
         pdf.extend_from_slice(b"%%EOF\n");
@@ -1019,7 +1067,9 @@ impl PdfDocument {
                         for str_caps in tj_str_re.captures_iter(array_content) {
                             let extracted = &str_caps[1];
                             let unescaped = unescape_pdf_string(extracted);
-                            if space_before_next_text && !text.ends_with(' ') && !text.ends_with('\n')
+                            if space_before_next_text
+                                && !text.ends_with(' ')
+                                && !text.ends_with('\n')
                             {
                                 text.push(' ');
                             }
@@ -1031,7 +1081,9 @@ impl PdfDocument {
                             let hex_str = hex_caps[1].replace(char::is_whitespace, "");
                             let decoded =
                                 decode_pdf_hex_string_with_map(&hex_str, Some(&tounicode));
-                            if space_before_next_text && !text.ends_with(' ') && !text.ends_with('\n')
+                            if space_before_next_text
+                                && !text.ends_with(' ')
+                                && !text.ends_with('\n')
                             {
                                 text.push(' ');
                             }
@@ -1145,9 +1197,7 @@ fn parse_object_content(content: &str) -> Result<PdfObject> {
             .collect();
         Ok(PdfObject::Array(items))
     } else if content.starts_with('(') && content.ends_with(')') {
-        Ok(PdfObject::String(
-            content[1..content.len() - 1].to_string(),
-        ))
+        Ok(PdfObject::String(content[1..content.len() - 1].to_string()))
     } else {
         Ok(PdfObject::String(content.to_string()))
     }
@@ -1156,10 +1206,7 @@ fn parse_object_content(content: &str) -> Result<PdfObject> {
 /// Parse dictionary entries from << ... >> content
 fn parse_dict_entries(raw: &str) -> HashMap<String, PdfValue> {
     let mut dict = HashMap::new();
-    let inner = raw
-        .trim()
-        .trim_start_matches("<<")
-        .trim_end_matches(">>");
+    let inner = raw.trim().trim_start_matches("<<").trim_end_matches(">>");
     let tokens: Vec<&str> = inner.split_whitespace().collect();
     let mut i = 0;
     while i < tokens.len() {
@@ -1168,10 +1215,7 @@ fn parse_dict_entries(raw: &str) -> HashMap<String, PdfValue> {
             i += 1;
             if i < tokens.len() {
                 let val = tokens[i].to_string();
-                dict.insert(
-                    key,
-                    PdfValue::Object(PdfObject::String(val)),
-                );
+                dict.insert(key, PdfValue::Object(PdfObject::String(val)));
             }
         }
         i += 1;
@@ -1302,9 +1346,10 @@ impl LazyPdfDocument {
         let content = String::from_utf8_lossy(data);
         let mut version = "1.4".to_string();
         if let Some(header) = content.lines().next()
-            && header.starts_with("%PDF-") {
-                version = header[5..].to_string();
-            }
+            && header.starts_with("%PDF-")
+        {
+            version = header[5..].to_string();
+        }
 
         let catalog = {
             let root_re = re_root();
@@ -1411,10 +1456,11 @@ impl LazyPdfDocument {
                     for cap in tj_hex_re.captures_iter(&content) {
                         if let Some(m) = cap.get(1)
                             && let Some(bytes) = Self::decode_hex(m.as_str())
-                                && let Ok(s) = String::from_utf8(bytes) {
-                                    text.push_str(&s);
-                                    text.push(' ');
-                                }
+                            && let Ok(s) = String::from_utf8(bytes)
+                        {
+                            text.push_str(&s);
+                            text.push(' ');
+                        }
                     }
 
                     for cap in tj_array_re.captures_iter(&content) {
@@ -1427,9 +1473,10 @@ impl LazyPdfDocument {
                             for inner in tj_hex_str_re.captures_iter(m.as_str()) {
                                 if let Some(inner_m) = inner.get(1)
                                     && let Some(bytes) = Self::decode_hex(inner_m.as_str())
-                                        && let Ok(s) = String::from_utf8(bytes) {
-                                            text.push_str(&s);
-                                        }
+                                    && let Ok(s) = String::from_utf8(bytes)
+                                {
+                                    text.push_str(&s);
+                                }
                             }
                         }
                     }
@@ -1534,7 +1581,9 @@ pub fn diff_pdf_bytes(old: &[u8], new: &[u8]) -> Result<PdfDiff> {
     for id in old_doc.objects.keys() {
         if !new_doc.objects.contains_key(id) {
             removed_objects.push(*id);
-        } else if PdfDocument::object_content_key(&old_doc.objects[id]) != PdfDocument::object_content_key(&new_doc.objects[id]) {
+        } else if PdfDocument::object_content_key(&old_doc.objects[id])
+            != PdfDocument::object_content_key(&new_doc.objects[id])
+        {
             modified_objects.push(*id);
         }
     }
@@ -1557,8 +1606,10 @@ pub fn diff_pdf_bytes(old: &[u8], new: &[u8]) -> Result<PdfDiff> {
             || old_content.contains("/Title ") != new_content.contains("/Title ")
     };
 
-    let has_embedded_files_old = old_content.contains("/EmbeddedFiles") && old_content.contains("/Filespec");
-    let has_embedded_files_new = new_content.contains("/EmbeddedFiles") && new_content.contains("/Filespec");
+    let has_embedded_files_old =
+        old_content.contains("/EmbeddedFiles") && old_content.contains("/Filespec");
+    let has_embedded_files_new =
+        new_content.contains("/EmbeddedFiles") && new_content.contains("/Filespec");
 
     Ok(PdfDiff {
         object_count_old,
@@ -1596,7 +1647,7 @@ pub fn extract_text(filename: &str) -> Result<String> {
 pub fn unescape_pdf_string(s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars().peekable();
-    
+
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
@@ -1647,10 +1698,13 @@ pub fn decode_pdf_hex_string(s: &str) -> String {
     decode_pdf_hex_string_with_map(s, None)
 }
 
-pub(crate) fn decode_pdf_hex_string_with_map(s: &str, tounicode: Option<&HashMap<u16, char>>) -> String {
+pub(crate) fn decode_pdf_hex_string_with_map(
+    s: &str,
+    tounicode: Option<&HashMap<u16, char>>,
+) -> String {
     let hex_str: String = s.chars().filter(|c| !c.is_whitespace()).collect();
     let mut bytes = Vec::new();
-    
+
     for i in (0..hex_str.len()).step_by(2) {
         if i + 1 < hex_str.len() {
             let byte_str = &hex_str[i..i + 2];
@@ -1664,7 +1718,7 @@ pub(crate) fn decode_pdf_hex_string_with_map(s: &str, tounicode: Option<&HashMap
             }
         }
     }
-    
+
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         decode_utf16be(&bytes[2..])
     } else {
@@ -1717,9 +1771,11 @@ pub(crate) fn collect_tounicode_gid_map(doc: &PdfDocument) -> HashMap<u16, char>
 
 fn resolve_unicode_ttf_path_for_extraction() -> Option<String> {
     if let Ok(path) = std::env::var("PDFRS_UNICODE_FONT_PATH")
-        && !path.trim().is_empty() && Path::new(&path).exists() {
-            return Some(path);
-        }
+        && !path.trim().is_empty()
+        && Path::new(&path).exists()
+    {
+        return Some(path);
+    }
 
     let candidates = [
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
@@ -1811,11 +1867,11 @@ fn decode_unicode_glyph_id_bytes_with_map(
 fn decode_utf16be(bytes: &[u8]) -> String {
     let mut result = String::new();
     let mut i = 0;
-    
+
     while i + 1 < bytes.len() {
         let high = (bytes[i] as u16) << 8 | (bytes[i + 1] as u16);
         i += 2;
-        
+
         if (0xD800..=0xDBFF).contains(&high) && i + 1 < bytes.len() {
             let low = (bytes[i] as u16) << 8 | (bytes[i + 1] as u16);
             if (0xDC00..=0xDFFF).contains(&low) {
@@ -1827,12 +1883,12 @@ fn decode_utf16be(bytes: &[u8]) -> String {
                 continue;
             }
         }
-        
+
         if let Some(ch) = char::from_u32(high as u32) {
             result.push(ch);
         }
     }
-    
+
     result
 }
 
@@ -1909,7 +1965,7 @@ mod tests {
     fn test_decode_utf16be_surrogate_pairs() {
         let bytes = vec![0xD8, 0x3D, 0xDE, 0x00];
         assert_eq!(decode_utf16be(&bytes), "😀");
-        
+
         let bytes2 = vec![0xD8, 0x3D, 0xDE, 0x01];
         assert_eq!(decode_utf16be(&bytes2), "😁");
     }
@@ -1951,7 +2007,7 @@ mod tests {
         let mut tracker = TextPositionTracker::new();
         assert!(!tracker.moved_to_new_line(720.0)); // first call, no previous
         assert!(!tracker.moved_to_new_line(720.0)); // same Y
-        assert!(tracker.moved_to_new_line(700.0));  // moved 20 units
+        assert!(tracker.moved_to_new_line(700.0)); // moved 20 units
         assert!(!tracker.moved_to_new_line(700.0)); // same Y again
     }
 
@@ -2038,14 +2094,24 @@ mod tests {
     fn test_validate_pdf_bytes_valid() {
         // Generate a valid PDF via the library
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "Test Title".into() },
-            crate::elements::Element::Paragraph { text: "Hello world paragraph.".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Test Title".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Hello world paragraph.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let result = validate_pdf_bytes(&pdf_bytes);
-        assert!(result.valid, "Generated PDF should be valid. Errors: {:?}", result.errors);
+        assert!(
+            result.valid,
+            "Generated PDF should be valid. Errors: {:?}",
+            result.errors
+        );
         assert!(result.page_count >= 1, "Should have at least 1 page");
         assert!(result.object_count > 0, "Should have objects");
         assert!(result.errors.is_empty());
@@ -2055,14 +2121,24 @@ mod tests {
     fn test_validate_pdf_bytes_invalid_header() {
         let result = validate_pdf_bytes(b"NOT A PDF FILE");
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("Missing PDF header")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("Missing PDF header"))
+        );
     }
 
     #[test]
     fn test_validate_pdf_bytes_empty() {
         let result = validate_pdf_bytes(b"");
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("Missing PDF header")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("Missing PDF header"))
+        );
     }
 
     #[test]
@@ -2076,39 +2152,79 @@ mod tests {
     fn test_roundtrip_generate_validate_parse() {
         // Round-trip: elements → PDF bytes → validate → parse → extract text → verify
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "Roundtrip Title".into() },
-            crate::elements::Element::Paragraph { text: "This is roundtrip content.".into() },
-            crate::elements::Element::UnorderedListItem { text: "Item one".into(), depth: 0 },
-            crate::elements::Element::UnorderedListItem { text: "Item two".into(), depth: 0 },
-            crate::elements::Element::CodeBlock { language: "rust".into(), code: "fn main() {}".into() },
-            crate::elements::Element::BlockQuote { text: "A quote".into(), depth: 1 },
-            crate::elements::Element::Link { text: "Example".into(), url: "https://example.com".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Roundtrip Title".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "This is roundtrip content.".into(),
+            },
+            crate::elements::Element::UnorderedListItem {
+                text: "Item one".into(),
+                depth: 0,
+            },
+            crate::elements::Element::UnorderedListItem {
+                text: "Item two".into(),
+                depth: 0,
+            },
+            crate::elements::Element::CodeBlock {
+                language: "rust".into(),
+                code: "fn main() {}".into(),
+            },
+            crate::elements::Element::BlockQuote {
+                text: "A quote".into(),
+                depth: 1,
+            },
+            crate::elements::Element::Link {
+                text: "Example".into(),
+                url: "https://example.com".into(),
+            },
             crate::elements::Element::Image {
                 alt: "Logo".into(),
                 path: format!("{}/tests/fixtures/sample.png", env!("CARGO_MANIFEST_DIR")),
             },
-            crate::elements::Element::Footnote { label: "1".into(), text: "A footnote.".into() },
+            crate::elements::Element::Footnote {
+                label: "1".into(),
+                text: "A footnote.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         // 1. Validate structure
         let validation = validate_pdf_bytes(&pdf_bytes);
-        assert!(validation.valid, "PDF should be valid. Errors: {:?}", validation.errors);
+        assert!(
+            validation.valid,
+            "PDF should be valid. Errors: {:?}",
+            validation.errors
+        );
         assert!(validation.page_count >= 1);
 
         // 2. Parse back and extract text
         let content = String::from_utf8_lossy(&pdf_bytes);
         // Check key content strings are present in the raw PDF
-        assert!(content.contains("Roundtrip Title"), "Title not found in PDF");
-        assert!(content.contains("roundtrip content"), "Paragraph not found in PDF");
+        assert!(
+            content.contains("Roundtrip Title"),
+            "Title not found in PDF"
+        );
+        assert!(
+            content.contains("roundtrip content"),
+            "Paragraph not found in PDF"
+        );
         assert!(content.contains("Item one"), "List item not found in PDF");
-        assert!(content.contains("fn") && content.contains("main"), "Code block not found in PDF");
+        assert!(
+            content.contains("fn") && content.contains("main"),
+            "Code block not found in PDF"
+        );
         assert!(content.contains("quote"), "Blockquote not found in PDF");
         assert!(content.contains("Example"), "Link text not found in PDF");
         assert!(content.contains("example.com"), "Link URL not found in PDF");
         assert!(content.contains("Logo"), "Image alt not found in PDF");
-        assert!(content.contains("/XObject"), "embedded image XObject missing");
+        assert!(
+            content.contains("/XObject"),
+            "embedded image XObject missing"
+        );
         assert!(content.contains("footnote"), "Footnote not found in PDF");
     }
 
@@ -2116,57 +2232,136 @@ mod tests {
     fn test_roundtrip_all_element_types() {
         // Comprehensive round-trip: every element type → PDF → validate → verify text
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "H1 Title".into() },
-            crate::elements::Element::Heading { level: 2, text: "H2 Subtitle".into() },
-            crate::elements::Element::Heading { level: 3, text: "H3 Section".into() },
-            crate::elements::Element::Paragraph { text: "Normal paragraph text here.".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "H1 Title".into(),
+            },
+            crate::elements::Element::Heading {
+                level: 2,
+                text: "H2 Subtitle".into(),
+            },
+            crate::elements::Element::Heading {
+                level: 3,
+                text: "H3 Section".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Normal paragraph text here.".into(),
+            },
             crate::elements::Element::EmptyLine,
-            crate::elements::Element::UnorderedListItem { text: "Bullet item".into(), depth: 0 },
-            crate::elements::Element::OrderedListItem { number: 1, text: "Numbered item".into(), depth: 0 },
-            crate::elements::Element::TaskListItem { checked: true, text: "Done task".into() },
-            crate::elements::Element::TaskListItem { checked: false, text: "Todo task".into() },
-            crate::elements::Element::CodeBlock { language: "python".into(), code: "print('hello')".into() },
-            crate::elements::Element::InlineCode { code: "let x = 42".into() },
+            crate::elements::Element::UnorderedListItem {
+                text: "Bullet item".into(),
+                depth: 0,
+            },
+            crate::elements::Element::OrderedListItem {
+                number: 1,
+                text: "Numbered item".into(),
+                depth: 0,
+            },
+            crate::elements::Element::TaskListItem {
+                checked: true,
+                text: "Done task".into(),
+            },
+            crate::elements::Element::TaskListItem {
+                checked: false,
+                text: "Todo task".into(),
+            },
+            crate::elements::Element::CodeBlock {
+                language: "python".into(),
+                code: "print('hello')".into(),
+            },
+            crate::elements::Element::InlineCode {
+                code: "let x = 42".into(),
+            },
             crate::elements::Element::TableRow {
                 cells: vec!["Name".into(), "Age".into()],
                 is_separator: false,
-                alignments: vec![crate::elements::TableAlignment::Left, crate::elements::TableAlignment::Left],
+                alignments: vec![
+                    crate::elements::TableAlignment::Left,
+                    crate::elements::TableAlignment::Left,
+                ],
             },
-            crate::elements::Element::BlockQuote { text: "Wise words".into(), depth: 1 },
-            crate::elements::Element::DefinitionItem { term: "Rust".into(), definition: "A language".into() },
-            crate::elements::Element::Footnote { label: "fn1".into(), text: "See reference".into() },
-            crate::elements::Element::Link { text: "Google".into(), url: "https://google.com".into() },
+            crate::elements::Element::BlockQuote {
+                text: "Wise words".into(),
+                depth: 1,
+            },
+            crate::elements::Element::DefinitionItem {
+                term: "Rust".into(),
+                definition: "A language".into(),
+            },
+            crate::elements::Element::Footnote {
+                label: "fn1".into(),
+                text: "See reference".into(),
+            },
+            crate::elements::Element::Link {
+                text: "Google".into(),
+                url: "https://google.com".into(),
+            },
             crate::elements::Element::Image {
                 alt: "Photo".into(),
                 path: format!("{}/tests/fixtures/sample.png", env!("CARGO_MANIFEST_DIR")),
             },
-            crate::elements::Element::StyledText { text: "Bold text".into(), bold: true, italic: false },
+            crate::elements::Element::StyledText {
+                text: "Bold text".into(),
+                bold: true,
+                italic: false,
+            },
             crate::elements::Element::HorizontalRule,
             crate::elements::Element::PageBreak,
-            crate::elements::Element::Paragraph { text: "After page break.".into() },
+            crate::elements::Element::Paragraph {
+                text: "After page break.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         // Validate
         let validation = validate_pdf_bytes(&pdf_bytes);
-        assert!(validation.valid, "PDF with all elements should be valid. Errors: {:?}", validation.errors);
-        assert!(validation.page_count >= 2, "PageBreak should create at least 2 pages, got {}", validation.page_count);
+        assert!(
+            validation.valid,
+            "PDF with all elements should be valid. Errors: {:?}",
+            validation.errors
+        );
+        assert!(
+            validation.page_count >= 2,
+            "PageBreak should create at least 2 pages, got {}",
+            validation.page_count
+        );
 
         // Verify content
         let content = String::from_utf8_lossy(&pdf_bytes);
         let expected_strings = vec![
-            "H1 Title", "H2 Subtitle", "H3 Section",
-            "Normal paragraph", "Bullet item", "Numbered item",
-            "Done task", "Todo task", "print", "let", "x = 42",
-            "Name", "Age", "Wise words", "Rust", "A language",
-            "See reference", "Google", "google.com",
-            "Photo", "Figure", "Bold text", "After page break",
+            "H1 Title",
+            "H2 Subtitle",
+            "H3 Section",
+            "Normal paragraph",
+            "Bullet item",
+            "Numbered item",
+            "Done task",
+            "Todo task",
+            "print",
+            "let",
+            "x = 42",
+            "Name",
+            "Age",
+            "Wise words",
+            "Rust",
+            "A language",
+            "See reference",
+            "Google",
+            "google.com",
+            "Photo",
+            "Figure",
+            "Bold text",
+            "After page break",
         ];
         for s in &expected_strings {
             assert!(content.contains(s), "Expected '{}' in PDF content", s);
         }
-        assert!(content.contains("/XObject"), "embedded image XObject missing");
+        assert!(
+            content.contains("/XObject"),
+            "embedded image XObject missing"
+        );
     }
 
     #[test]
@@ -2188,14 +2383,24 @@ mod tests {
     #[test]
     fn test_roundtrip_landscape() {
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "Landscape Doc".into() },
-            crate::elements::Element::Paragraph { text: "Wide content.".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Landscape Doc".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Wide content.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::landscape();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let validation = validate_pdf_bytes(&pdf_bytes);
-        assert!(validation.valid, "Landscape PDF should be valid. Errors: {:?}", validation.errors);
+        assert!(
+            validation.valid,
+            "Landscape PDF should be valid. Errors: {:?}",
+            validation.errors
+        );
 
         // Check landscape dimensions (792 x 612)
         let content = String::from_utf8_lossy(&pdf_bytes);
@@ -2206,11 +2411,17 @@ mod tests {
     #[test]
     fn test_load_from_bytes_roundtrip() {
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "Roundtrip".into() },
-            crate::elements::Element::Paragraph { text: "Testing load_from_bytes.".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Roundtrip".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Testing load_from_bytes.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         // Parse from bytes
         let doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
@@ -2223,25 +2434,48 @@ mod tests {
         // Re-parse and verify text is intact
         let doc2 = PdfDocument::load_from_bytes(&roundtrip_bytes).unwrap();
         let text = doc2.get_text().unwrap();
-        assert!(text.contains("Roundtrip"), "Text lost after roundtrip: {}", text);
-        assert!(text.contains("Testing load_from_bytes."), "Text lost after roundtrip: {}", text);
+        assert!(
+            text.contains("Roundtrip"),
+            "Text lost after roundtrip: {}",
+            text
+        );
+        assert!(
+            text.contains("Testing load_from_bytes."),
+            "Text lost after roundtrip: {}",
+            text
+        );
     }
 
     #[test]
     fn test_validate_pdf_a_generated_pdf() {
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "PDF/A Test".into() },
-            crate::elements::Element::Paragraph { text: "Testing PDF/A validation.".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "PDF/A Test".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Testing PDF/A validation.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let result = validate_pdf_a_bytes(&pdf_bytes);
         // Generated PDFs use Base-14 fonts without embedding, so they won't be fully PDF/A compliant
         // but should have no encryption, no JS, no external references
-        assert!(!result.has_encryption, "Generated PDF should not have encryption");
-        assert!(!result.errors.iter().any(|e| e.contains("JavaScript")), "No JS expected");
-        assert!(!result.errors.iter().any(|e| e.contains("external")), "No external refs expected");
+        assert!(
+            !result.has_encryption,
+            "Generated PDF should not have encryption"
+        );
+        assert!(
+            !result.errors.iter().any(|e| e.contains("JavaScript")),
+            "No JS expected"
+        );
+        assert!(
+            !result.errors.iter().any(|e| e.contains("external")),
+            "No external refs expected"
+        );
     }
 
     #[test]
@@ -2249,12 +2483,17 @@ mod tests {
         let mut doc = PdfDocument::new();
 
         // Insert two identical objects
-        doc.objects.insert(1, PdfObject::String("shared_content".to_string()));
-        doc.objects.insert(2, PdfObject::String("shared_content".to_string()));
+        doc.objects
+            .insert(1, PdfObject::String("shared_content".to_string()));
+        doc.objects
+            .insert(2, PdfObject::String("shared_content".to_string()));
 
         // Insert a dictionary that references object 2
         let mut dict = HashMap::new();
-        dict.insert("Ref".to_string(), PdfValue::Object(PdfObject::String("2 0 R".to_string())));
+        dict.insert(
+            "Ref".to_string(),
+            PdfValue::Object(PdfObject::String("2 0 R".to_string())),
+        );
         doc.objects.insert(3, PdfObject::Dictionary(dict));
         doc.catalog = 3;
 
@@ -2264,9 +2503,18 @@ mod tests {
 
         // Object 2 (duplicate) should be removed; object 1 (canonical) kept
         assert_eq!(doc.objects.len(), 2, "Should remove one duplicate");
-        assert!(doc.objects.contains_key(&1), "Canonical object 1 should remain");
-        assert!(!doc.objects.contains_key(&2), "Duplicate object 2 should be removed");
-        assert!(doc.objects.contains_key(&3), "Referencing object 3 should remain");
+        assert!(
+            doc.objects.contains_key(&1),
+            "Canonical object 1 should remain"
+        );
+        assert!(
+            !doc.objects.contains_key(&2),
+            "Duplicate object 2 should be removed"
+        );
+        assert!(
+            doc.objects.contains_key(&3),
+            "Referencing object 3 should remain"
+        );
 
         // Reference inside object 3 should now point to 1
         if let PdfObject::Dictionary(d) = &doc.objects[&3] {
@@ -2283,12 +2531,20 @@ mod tests {
     #[test]
     fn test_lazy_pdf_document_text_extraction() {
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "Lazy Test".into() },
-            crate::elements::Element::Paragraph { text: "Testing lazy text extraction.".into() },
-            crate::elements::Element::Paragraph { text: "Second paragraph for good measure.".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Lazy Test".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Testing lazy text extraction.".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Second paragraph for good measure.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         // Lazy document should extract same text as full document
         let lazy_doc = LazyPdfDocument::load_from_bytes(&pdf_bytes).unwrap();
@@ -2299,15 +2555,18 @@ mod tests {
 
         assert!(
             lazy_text.contains("Lazy Test"),
-            "Lazy text should contain heading: {}", lazy_text
+            "Lazy text should contain heading: {}",
+            lazy_text
         );
         assert!(
             lazy_text.contains("Testing lazy text extraction."),
-            "Lazy text should contain paragraph: {}", lazy_text
+            "Lazy text should contain paragraph: {}",
+            lazy_text
         );
         assert!(
             lazy_text.contains("Second paragraph"),
-            "Lazy text should contain second paragraph: {}", lazy_text
+            "Lazy text should contain second paragraph: {}",
+            lazy_text
         );
 
         // Lazy document should have fewer/no non-stream objects materialized
@@ -2320,11 +2579,12 @@ mod tests {
 
     #[test]
     fn test_embed_file_attachment() {
-        let elements = vec![
-            crate::elements::Element::Paragraph { text: "Document with attachment".into() },
-        ];
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Document with attachment".into(),
+        }];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
         let original_count = doc.objects.len();
@@ -2341,11 +2601,17 @@ mod tests {
         );
 
         // Verify the file spec object exists
-        assert!(doc.objects.contains_key(&fs_id), "File spec object should exist");
+        assert!(
+            doc.objects.contains_key(&fs_id),
+            "File spec object should exist"
+        );
 
         // Verify the embedded file stream exists (should be fs_id - 1)
         let ef_id = fs_id - 1;
-        assert!(doc.objects.contains_key(&ef_id), "Embedded file stream object should exist");
+        assert!(
+            doc.objects.contains_key(&ef_id),
+            "Embedded file stream object should exist"
+        );
 
         // Verify the catalog was updated with /Names
         if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get(&doc.catalog) {
@@ -2359,22 +2625,35 @@ mod tests {
 
         // Verify the output PDF serializes correctly
         let output_bytes = doc.to_bytes();
-        assert!(!output_bytes.is_empty(), "PDF with attachment should serialize");
+        assert!(
+            !output_bytes.is_empty(),
+            "PDF with attachment should serialize"
+        );
 
         // Verify /EmbeddedFile appears in output
         let content = String::from_utf8_lossy(&output_bytes);
-        assert!(content.contains("/EmbeddedFile"), "Output should contain /EmbeddedFile type");
-        assert!(content.contains("/Filespec"), "Output should contain /Filespec type");
-        assert!(content.contains("test.txt"), "Output should contain attachment filename");
+        assert!(
+            content.contains("/EmbeddedFile"),
+            "Output should contain /EmbeddedFile type"
+        );
+        assert!(
+            content.contains("/Filespec"),
+            "Output should contain /Filespec type"
+        );
+        assert!(
+            content.contains("test.txt"),
+            "Output should contain attachment filename"
+        );
     }
 
     #[test]
     fn test_validate_pdf_a3_fails_without_embedded_files() {
-        let elements = vec![
-            crate::elements::Element::Paragraph { text: "No attachments".into() },
-        ];
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "No attachments".into(),
+        }];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let result = validate_pdf_a3_bytes(&pdf_bytes);
         assert!(
@@ -2382,16 +2661,20 @@ mod tests {
             "PDF/A-3 should fail without embedded files: {:?}",
             result.errors
         );
-        assert!(!result.compliant, "Should not be PDF/A-3 compliant without attachments");
+        assert!(
+            !result.compliant,
+            "Should not be PDF/A-3 compliant without attachments"
+        );
     }
 
     #[test]
     fn test_validate_pdf_a3_passes_with_embedded_files() {
-        let elements = vec![
-            crate::elements::Element::Paragraph { text: "With attachment".into() },
-        ];
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "With attachment".into(),
+        }];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
         doc.embed_file("data.csv", b"a,b,c\n1,2,3").unwrap();
@@ -2408,17 +2691,24 @@ mod tests {
 
     #[test]
     fn test_validate_pdf_ua_detects_missing_accessibility() {
-        let elements = vec![
-            crate::elements::Element::Paragraph { text: "Untagged doc".into() },
-        ];
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Untagged doc".into(),
+        }];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let result = validate_pdf_ua_bytes(&pdf_bytes);
         // Our generated PDFs don't have MarkInfo, StructTreeRoot, Lang, or Title yet
-        assert!(!result.compliant, "Untagged PDF should not be PDF/UA compliant");
+        assert!(
+            !result.compliant,
+            "Untagged PDF should not be PDF/UA compliant"
+        );
         assert!(!result.has_mark_info, "Should detect missing MarkInfo");
-        assert!(!result.has_struct_tree, "Should detect missing StructTreeRoot");
+        assert!(
+            !result.has_struct_tree,
+            "Should detect missing StructTreeRoot"
+        );
         assert!(!result.has_lang, "Should detect missing Lang");
         assert!(!result.has_title, "Should detect missing Title");
     }
@@ -2436,8 +2726,8 @@ mod tests {
             },
         ];
 
-        let untagged = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout)
-            .unwrap();
+        let untagged =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
         let untagged_report = check_screen_reader_compliance_bytes(&untagged);
         assert!(
             !untagged_report.compliant,
@@ -2464,62 +2754,102 @@ mod tests {
             tagged_report.issues
         );
         assert!(tagged_report.text_extractable);
-        assert!(tagged_report.structure_element_types.contains(&"Document".to_string()));
+        assert!(
+            tagged_report
+                .structure_element_types
+                .contains(&"Document".to_string())
+        );
     }
 
     #[test]
     fn test_sanitize_removes_dangerous_objects() {
-        let elements = vec![
-            crate::elements::Element::Paragraph { text: "Safe document".into() },
-        ];
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Safe document".into(),
+        }];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
         let original_count = doc.objects.len();
 
         // Inject a fake JavaScript object
         let mut js_dict = HashMap::new();
-        js_dict.insert("JS".to_string(), PdfValue::Object(PdfObject::String("app.alert('xss')".to_string())));
+        js_dict.insert(
+            "JS".to_string(),
+            PdfValue::Object(PdfObject::String("app.alert('xss')".to_string())),
+        );
         doc.objects.insert(999, PdfObject::Dictionary(js_dict));
 
         // Inject a fake launch action
         let mut launch_dict = HashMap::new();
-        launch_dict.insert("S".to_string(), PdfValue::Object(PdfObject::String("/Launch".to_string())));
-        launch_dict.insert("F".to_string(), PdfValue::Object(PdfObject::String("(malware.exe)".to_string())));
+        launch_dict.insert(
+            "S".to_string(),
+            PdfValue::Object(PdfObject::String("/Launch".to_string())),
+        );
+        launch_dict.insert(
+            "F".to_string(),
+            PdfValue::Object(PdfObject::String("(malware.exe)".to_string())),
+        );
         doc.objects.insert(998, PdfObject::Dictionary(launch_dict));
 
         // Add OpenAction to catalog
         if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get_mut(&doc.catalog) {
-            catalog_dict.insert("OpenAction".to_string(), PdfValue::Object(PdfObject::String("999 0 R".to_string())));
+            catalog_dict.insert(
+                "OpenAction".to_string(),
+                PdfValue::Object(PdfObject::String("999 0 R".to_string())),
+            );
         }
 
-        assert_eq!(doc.objects.len(), original_count + 2, "Should have injected 2 dangerous objects");
+        assert_eq!(
+            doc.objects.len(),
+            original_count + 2,
+            "Should have injected 2 dangerous objects"
+        );
 
         // Sanitize
         doc.sanitize();
 
         // JS object should be removed entirely
-        assert!(!doc.objects.contains_key(&999), "JavaScript object should be removed");
+        assert!(
+            !doc.objects.contains_key(&999),
+            "JavaScript object should be removed"
+        );
 
         // Launch action should be removed entirely
-        assert!(!doc.objects.contains_key(&998), "Launch action object should be removed");
+        assert!(
+            !doc.objects.contains_key(&998),
+            "Launch action object should be removed"
+        );
 
         // Catalog should no longer have OpenAction
         if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get(&doc.catalog) {
-            assert!(!catalog_dict.contains_key("OpenAction"), "OpenAction should be stripped from catalog");
+            assert!(
+                !catalog_dict.contains_key("OpenAction"),
+                "OpenAction should be stripped from catalog"
+            );
         } else {
             panic!("Catalog should remain a dictionary");
         }
 
         // Safe objects should still be present
-        assert_eq!(doc.objects.len(), original_count, "Only dangerous objects should be removed");
+        assert_eq!(
+            doc.objects.len(),
+            original_count,
+            "Only dangerous objects should be removed"
+        );
 
         // Verify PDF still serializes correctly
         let output_bytes = doc.to_bytes();
-        assert!(!output_bytes.is_empty(), "Sanitized PDF should still serialize");
+        assert!(
+            !output_bytes.is_empty(),
+            "Sanitized PDF should still serialize"
+        );
         let content = String::from_utf8_lossy(&output_bytes);
-        assert!(!content.contains("app.alert"), "JS payload should not remain in output");
+        assert!(
+            !content.contains("app.alert"),
+            "JS payload should not remain in output"
+        );
     }
 
     #[test]
@@ -2580,17 +2910,25 @@ mod tests {
 
     #[test]
     fn test_diff_pdf_bytes_detects_changes() {
-        let elements_old = vec![
-            crate::elements::Element::Paragraph { text: "First version".into() },
-        ];
+        let elements_old = vec![crate::elements::Element::Paragraph {
+            text: "First version".into(),
+        }];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let old_bytes = crate::pdf_generator::generate_pdf_bytes(&elements_old, "Helvetica", 12.0, layout).unwrap();
+        let old_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements_old, "Helvetica", 12.0, layout)
+                .unwrap();
 
         let elements_new = vec![
-            crate::elements::Element::Paragraph { text: "Second version with more content".into() },
-            crate::elements::Element::Paragraph { text: "Extra paragraph".into() },
+            crate::elements::Element::Paragraph {
+                text: "Second version with more content".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Extra paragraph".into(),
+            },
         ];
-        let new_bytes = crate::pdf_generator::generate_pdf_bytes(&elements_new, "Helvetica", 12.0, layout).unwrap();
+        let new_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements_new, "Helvetica", 12.0, layout)
+                .unwrap();
 
         let diff = diff_pdf_bytes(&old_bytes, &new_bytes).unwrap();
 
@@ -2614,32 +2952,51 @@ mod tests {
 
     #[test]
     fn test_diff_pdf_bytes_identical() {
-        let elements = vec![
-            crate::elements::Element::Paragraph { text: "Same content".into() },
-        ];
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Same content".into(),
+        }];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         let diff = diff_pdf_bytes(&bytes, &bytes).unwrap();
 
         // Identical PDFs should have 100% text similarity
-        assert_eq!(diff.text_similarity, 1.0, "Identical PDFs should have 100% text similarity");
+        assert_eq!(
+            diff.text_similarity, 1.0,
+            "Identical PDFs should have 100% text similarity"
+        );
 
         // No added, removed, or modified objects
-        assert!(diff.added_objects.is_empty(), "Identical PDFs should have no added objects");
-        assert!(diff.removed_objects.is_empty(), "Identical PDFs should have no removed objects");
-        assert!(diff.modified_objects.is_empty(), "Identical PDFs should have no modified objects");
+        assert!(
+            diff.added_objects.is_empty(),
+            "Identical PDFs should have no added objects"
+        );
+        assert!(
+            diff.removed_objects.is_empty(),
+            "Identical PDFs should have no removed objects"
+        );
+        assert!(
+            diff.modified_objects.is_empty(),
+            "Identical PDFs should have no modified objects"
+        );
     }
 
     #[test]
     fn test_repl_like_workflow() {
         // Simulate a REPL session: create -> load -> modify -> save -> reload -> verify
         let elements = vec![
-            crate::elements::Element::Heading { level: 1, text: "REPL Test".into() },
-            crate::elements::Element::Paragraph { text: "First paragraph.".into() },
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "REPL Test".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "First paragraph.".into(),
+            },
         ];
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
         // "load" step
         let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
@@ -2666,10 +3023,17 @@ mod tests {
         // "reload" step
         let reloaded = PdfDocument::load_from_bytes(&saved_bytes).unwrap();
         let reloaded_text = reloaded.get_text().unwrap();
-        assert!(reloaded_text.contains("REPL Test"), "Text should survive round-trip");
+        assert!(
+            reloaded_text.contains("REPL Test"),
+            "Text should survive round-trip"
+        );
 
         // "validate" step
         let validation = validate_pdf_bytes(&saved_bytes);
-        assert!(validation.valid, "Round-tripped PDF should be valid: {:?}", validation.errors);
+        assert!(
+            validation.valid,
+            "Round-tripped PDF should be valid: {:?}",
+            validation.errors
+        );
     }
 }

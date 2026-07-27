@@ -10,12 +10,16 @@
 //! require rich hints still benefit from the early object ordering.
 
 use crate::pdf::{PdfDocument, PdfObject, PdfValue};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
 /// Returns true if the PDF begins with a `/Linearized` dictionary (Fast Web View).
 pub fn is_linearized(data: &[u8]) -> bool {
-    let head = if data.len() > 2048 { &data[..2048] } else { data };
+    let head = if data.len() > 2048 {
+        &data[..2048]
+    } else {
+        data
+    };
     let text = String::from_utf8_lossy(head);
     text.contains("/Linearized")
 }
@@ -82,7 +86,14 @@ fn write_linearized(doc: &PdfDocument) -> Result<Vec<u8>> {
          /T {}\n\
          >>\n\
          endobj\n",
-        lin_id, PLACEHOLDER, PLACEHOLDER, PLACEHOLDER, first_page_id, PLACEHOLDER, n_pages, PLACEHOLDER
+        lin_id,
+        PLACEHOLDER,
+        PLACEHOLDER,
+        PLACEHOLDER,
+        first_page_id,
+        PLACEHOLDER,
+        n_pages,
+        PLACEHOLDER
     );
     // Record byte positions of each 10-digit field for patching (L, H0, H1, E, T)
     let field_positions = find_placeholder_positions(lin_offset, &lin_dict);
@@ -126,9 +137,7 @@ fn write_linearized(doc: &PdfDocument) -> Result<Vec<u8>> {
         first_page_id
     };
     pdf.extend_from_slice(b"trailer\n");
-    pdf.extend_from_slice(
-        format!("<< /Size {} /Root {} 0 R >>\n", max_id + 1, root_id).as_bytes(),
-    );
+    pdf.extend_from_slice(format!("<< /Size {} /Root {} 0 R >>\n", max_id + 1, root_id).as_bytes());
     pdf.extend_from_slice(b"startxref\n");
     pdf.extend_from_slice(format!("{}\n", xref_offset).as_bytes());
     pdf.extend_from_slice(b"%%EOF\n");
@@ -198,7 +207,9 @@ fn serialize_value(val: &PdfValue) -> String {
 }
 
 fn escape_pdf_literal(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)")
+    s.replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
 }
 
 fn serialize_object(obj: &PdfObject) -> String {
@@ -332,7 +343,10 @@ fn collect_refs_from_object(doc: &PdfDocument, id: u32, out: &mut Vec<u32>, max_
 
 fn collect_refs_in_object(obj: &PdfObject, refs: &mut Vec<u32>) {
     match obj {
-        PdfObject::Dictionary(dict) | PdfObject::Stream { dictionary: dict, .. } => {
+        PdfObject::Dictionary(dict)
+        | PdfObject::Stream {
+            dictionary: dict, ..
+        } => {
             for v in dict.values() {
                 collect_refs_in_value(v, refs);
             }
@@ -358,7 +372,7 @@ fn collect_refs_in_value(val: &PdfValue, refs: &mut Vec<u32>) {
 mod tests {
     use super::*;
     use crate::elements::Element;
-    use crate::pdf_generator::{generate_pdf_bytes, PageLayout};
+    use crate::pdf_generator::{PageLayout, generate_pdf_bytes};
 
     fn sample_pdf() -> Vec<u8> {
         let elements = vec![

@@ -7,7 +7,7 @@
 //! Pixel filters ([`ImageFilter`]) work on raw RGB (BMP, or PNG after scanline
 //! reconstruction). JPEG must be converted to BMP/PNG first.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::fs;
 
 /// Detected image metadata
@@ -172,7 +172,7 @@ fn reconstruct_png_to_raw_rgb(info: ImageInfo) -> Result<ImageInfo> {
             return Err(anyhow!(
                 "PNG filter support requires 1 or 3 color components (got {})",
                 info.color_components
-            ))
+            ));
         }
     };
     let row_bytes = width * components;
@@ -358,10 +358,8 @@ pub fn create_filtered_image_pdf(
     let mut generator = crate::pdf_generator::PdfGenerator::new();
     let image_id = create_image_object(&mut generator, filtered)?;
     let content = create_image_content_stream(50.0, 50.0, dw, dh, "Im1");
-    let content_id = generator.add_stream_object(
-        format!("<< /Length {} >>\n", content.len()),
-        content,
-    );
+    let content_id =
+        generator.add_stream_object(format!("<< /Length {} >>\n", content.len()), content);
     let page_dict = format!(
         "<< /Type /Page\n\
          /Parent 5 0 R\n\
@@ -372,10 +370,7 @@ pub fn create_filtered_image_pdf(
         content_id, image_id
     );
     let page_id = generator.add_object(page_dict);
-    let pages_dict = format!(
-        "<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n",
-        page_id
-    );
+    let pages_dict = format!("<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n", page_id);
     let pages_id = generator.add_object(pages_dict);
     let catalog = format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", pages_id);
     generator.add_object(catalog);
@@ -432,7 +427,8 @@ fn extract_png_idat_chunks(data: &[u8]) -> Result<Vec<u8>> {
     let mut i = 8; // Skip PNG signature
 
     while i + 8 <= data.len() {
-        let chunk_length = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+        let chunk_length =
+            u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
         let chunk_type = &data[i + 4..i + 8];
         let chunk_data_start = i + 8;
         let chunk_data_end = chunk_data_start + chunk_length;
@@ -441,8 +437,8 @@ fn extract_png_idat_chunks(data: &[u8]) -> Result<Vec<u8>> {
             return Err(anyhow!("PNG chunk data extends beyond file"));
         }
 
-        let chunk_type_str = std::str::from_utf8(chunk_type)
-            .map_err(|_| anyhow!("Invalid PNG chunk type"))?;
+        let chunk_type_str =
+            std::str::from_utf8(chunk_type).map_err(|_| anyhow!("Invalid PNG chunk type"))?;
 
         if chunk_type_str == "IDAT" {
             idat_data.extend_from_slice(&data[chunk_data_start..chunk_data_end]);
@@ -565,7 +561,12 @@ fn parse_bmp_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
     let (bytes_per_pixel, _has_alpha) = match bits_per_pixel {
         24 => (3, false),
         32 => (4, true),
-        _ => return Err(anyhow!("Unsupported BMP bit depth: {} (only 24/32 supported)", bits_per_pixel)),
+        _ => {
+            return Err(anyhow!(
+                "Unsupported BMP bit depth: {} (only 24/32 supported)",
+                bits_per_pixel
+            ));
+        }
     };
 
     // Calculate row size (BMP rows are padded to 4-byte boundaries)
@@ -622,7 +623,9 @@ pub fn create_jpeg_image_object(
          /Filter /DCTDecode\n\
          /Length {}\n\
          >>\n",
-        width, height, jpeg_data.len()
+        width,
+        height,
+        jpeg_data.len()
     );
     generator.add_stream_object(image_dict, jpeg_data)
 }
@@ -654,8 +657,14 @@ pub fn create_png_image_object(
          /DecodeParms << /Predictor 15 /Colors {} /BitsPerComponent {} /Columns {} >>\n\
          /Length {}\n\
          >>\n",
-        width, height, bits_per_component, color_space,
-        color_components, bits_per_component, width, png_data.len()
+        width,
+        height,
+        bits_per_component,
+        color_space,
+        color_components,
+        bits_per_component,
+        width,
+        png_data.len()
     );
     generator.add_stream_object(image_dict, png_data)
 }
@@ -676,7 +685,9 @@ pub fn create_bmp_image_object(
          /ColorSpace /DeviceRGB\n\
          /Length {}\n\
          >>\n",
-        width, height, bmp_data.len()
+        width,
+        height,
+        bmp_data.len()
     );
     generator.add_stream_object(image_dict, bmp_data)
 }
@@ -728,9 +739,7 @@ pub fn create_image_content_stream(
 ) -> Vec<u8> {
     let mut content = Vec::new();
     content.extend_from_slice(b"q\n");
-    content.extend_from_slice(
-        format!("{} 0 0 {} {} {} cm\n", width, height, x, y).as_bytes(),
-    );
+    content.extend_from_slice(format!("{} 0 0 {} {} {} cm\n", width, height, x, y).as_bytes());
     content.extend_from_slice(format!("/{} Do\n", image_name).as_bytes());
     content.extend_from_slice(b"Q\n");
     content
@@ -754,10 +763,8 @@ pub fn add_image_to_pdf(
 
     // 2. Content stream that draws the image
     let content = create_image_content_stream(x, y, display_width, display_height, "Im1");
-    let content_id = generator.add_stream_object(
-        format!("<< /Length {} >>\n", content.len()),
-        content,
-    );
+    let content_id =
+        generator.add_stream_object(format!("<< /Length {} >>\n", content.len()), content);
 
     // 3. Page object
     let page_dict = format!(
@@ -772,10 +779,7 @@ pub fn add_image_to_pdf(
     let page_id = generator.add_object(page_dict);
 
     // 4. Pages
-    let pages_dict = format!(
-        "<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n",
-        page_id
-    );
+    let pages_dict = format!("<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n", page_id);
     let pages_id = generator.add_object(pages_dict);
 
     // 5. Catalog
@@ -881,7 +885,10 @@ mod tests {
 
     #[test]
     fn test_image_filter_parse() {
-        assert_eq!(ImageFilter::parse("grayscale").unwrap(), ImageFilter::Grayscale);
+        assert_eq!(
+            ImageFilter::parse("grayscale").unwrap(),
+            ImageFilter::Grayscale
+        );
         assert_eq!(ImageFilter::parse("invert").unwrap(), ImageFilter::Invert);
         assert_eq!(ImageFilter::parse("sepia").unwrap(), ImageFilter::Sepia);
         assert_eq!(

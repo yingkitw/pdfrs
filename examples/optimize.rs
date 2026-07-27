@@ -1,4 +1,4 @@
-use pdfrs::optimization::{optimize_pdf_bytes, OptimizationProfile};
+use pdfrs::optimization::{OptimizationProfile, optimize_pdf_bytes};
 use std::fs;
 
 fn main() -> anyhow::Result<()> {
@@ -22,11 +22,7 @@ fn main() -> anyhow::Result<()> {
 
     println!(
         "Optimized {} -> {} ({} bytes -> {} bytes, {:.1}% reduction)",
-        input_path,
-        output_path,
-        original_size,
-        new_size,
-        savings
+        input_path, output_path, original_size, new_size, savings
     );
     Ok(())
 }

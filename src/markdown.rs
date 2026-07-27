@@ -69,7 +69,9 @@ fn elements_to_text(elements: &[Element]) -> String {
                 text.push_str(t);
                 text.push('\n');
             }
-            Element::OrderedListItem { number: _, text: t, .. } => {
+            Element::OrderedListItem {
+                number: _, text: t, ..
+            } => {
                 text.push_str("• ");
                 text.push_str(t);
                 text.push('\n');
@@ -88,9 +90,14 @@ fn elements_to_text(elements: &[Element]) -> String {
                 text.push_str(code);
                 text.push_str("\n\n");
             }
-            Element::TableRow { cells, is_separator, alignments: _ } => {
+            Element::TableRow {
+                cells,
+                is_separator,
+                alignments: _,
+            } => {
                 if *is_separator {
-                    let sep: Vec<String> = cells.iter().map(|c| "-".repeat(c.len().max(4))).collect();
+                    let sep: Vec<String> =
+                        cells.iter().map(|c| "-".repeat(c.len().max(4))).collect();
                     text.push_str(&sep.join("  "));
                 } else {
                     text.push_str(&cells.join("  "));
@@ -130,7 +137,11 @@ fn elements_to_text(elements: &[Element]) -> String {
                 text.push_str(path);
                 text.push_str(")\n");
             }
-            Element::Chart { kind, title, points } => {
+            Element::Chart {
+                kind,
+                title,
+                points,
+            } => {
                 text.push_str("[Chart ");
                 text.push_str(match kind {
                     crate::elements::ChartKind::Bar => "bar",
@@ -236,14 +247,7 @@ pub fn markdown_to_pdf_full(
         .parent()
         .map(|p| p.to_path_buf());
     let bytes = crate::pdf_generator::generate_pdf_bytes_internal_with_base(
-        &elements,
-        font,
-        font_size,
-        layout,
-        None,
-        false,
-        None,
-        image_base,
+        &elements, font, font_size, layout, None, false, None, image_base,
     )?;
     std::fs::write(pdf_file, bytes)?;
     Ok(())
@@ -270,8 +274,8 @@ pub fn watch_markdown_to_pdf(
     orientation: crate::pdf_generator::PageOrientation,
     interval_ms: Option<u64>,
 ) -> Result<()> {
-    use std::time::Duration;
     use std::thread;
+    use std::time::Duration;
 
     let interval = Duration::from_millis(interval_ms.unwrap_or(1000));
     let mut last_modified = std::fs::metadata(markdown_file)?.modified()?;
@@ -279,7 +283,10 @@ pub fn watch_markdown_to_pdf(
     // Generate initial PDF
     println!("[watch] Generating initial PDF from {}", markdown_file);
     markdown_to_pdf_full(markdown_file, pdf_file, font, font_size, orientation)?;
-    println!("[watch] Watching {} for changes (interval: {:?}). Press Ctrl+C to stop.", markdown_file, interval);
+    println!(
+        "[watch] Watching {} for changes (interval: {:?}). Press Ctrl+C to stop.",
+        markdown_file, interval
+    );
 
     loop {
         thread::sleep(interval);
@@ -302,7 +309,10 @@ pub fn watch_markdown_to_pdf(
 
         if current_modified > last_modified {
             last_modified = current_modified;
-            println!("[watch] Change detected at {:?}, regenerating PDF...", current_modified);
+            println!(
+                "[watch] Change detected at {:?}, regenerating PDF...",
+                current_modified
+            );
             match markdown_to_pdf_full(markdown_file, pdf_file, font, font_size, orientation) {
                 Ok(_) => println!("[watch] PDF updated: {}", pdf_file),
                 Err(e) => eprintln!("[watch] Error regenerating PDF: {}", e),
@@ -335,7 +345,8 @@ mod tests {
             "Helvetica",
             12.0,
             crate::pdf_generator::PageOrientation::Portrait,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(pdf_path.exists(), "PDF should be created");
         let bytes1 = std::fs::read(&pdf_path).unwrap();
@@ -355,15 +366,18 @@ mod tests {
             "Helvetica",
             12.0,
             crate::pdf_generator::PageOrientation::Portrait,
-        ).unwrap();
+        )
+        .unwrap();
 
         let bytes2 = std::fs::read(&pdf_path).unwrap();
         assert!(!bytes2.is_empty(), "Regenerated PDF should not be empty");
 
         // PDF content should reflect the update
         let content = String::from_utf8_lossy(&bytes2);
-        assert!(content.contains("Updated") || content.contains("New content"),
-            "Updated PDF should contain new content");
+        assert!(
+            content.contains("Updated") || content.contains("New content"),
+            "Updated PDF should contain new content"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&md_path);

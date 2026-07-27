@@ -1,7 +1,7 @@
 //! Document structure detection (headings, sections) from PDF content streams.
 
 use anyhow::Result;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A text fragment augmented with font information for structure detection.
 #[derive(Debug, Clone, PartialEq)]
@@ -68,12 +68,16 @@ pub fn detect_document_structure(input_file: &str) -> Result<DocumentStructure> 
     let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
     let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
     let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
-    let tm_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm").unwrap();
+    let tm_re = regex::Regex::new(
+        r"([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm",
+    )
+    .unwrap();
     let tf_re = regex::Regex::new(r"/(\S+)\s+([\d.\-]+)\s+Tf").unwrap();
 
     for obj in doc.objects.values() {
         if let PdfObject::Stream { data, .. } = obj {
-            let processed_data = crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.to_vec());
+            let processed_data =
+                crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.to_vec());
             let content = String::from_utf8_lossy(&processed_data);
 
             let mut current_x: f32 = 0.0;
@@ -87,29 +91,38 @@ pub fn detect_document_structure(input_file: &str) -> Result<DocumentStructure> 
 
                 // Track font change: /FontName size Tf
                 if let Some(caps) = tf_re.captures(line)
-                    && let Ok(size) = caps[2].parse::<f32>() {
-                        current_font_name = caps[1].to_string();
-                        current_font_size = size;
-                    }
+                    && let Ok(size) = caps[2].parse::<f32>()
+                {
+                    current_font_name = caps[1].to_string();
+                    current_font_size = size;
+                }
 
                 // Track positioning
                 if let Some(caps) = td_re.captures(line)
-                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
-                        current_x = x;
-                        current_y = y;
-                    }
+                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>())
+                {
+                    current_x = x;
+                    current_y = y;
+                }
                 if let Some(caps) = tm_re.captures(line)
-                    && let (Ok(a), Ok(_d), Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[4].parse::<f32>(), caps[5].parse::<f32>(), caps[6].parse::<f32>()) {
-                        current_x = x;
-                        current_y = y;
-                        // Effective font scale from matrix (a = x-scale, d = y-scale)
-                        tm_scale = a.abs();
-                        // Also adjust font size by y-scale if it's meaningful
-                        if let Ok(d) = caps[4].parse::<f32>()
-                            && d.abs() > 0.01 {
-                                tm_scale = d.abs();
-                            }
+                    && let (Ok(a), Ok(_d), Ok(x), Ok(y)) = (
+                        caps[1].parse::<f32>(),
+                        caps[4].parse::<f32>(),
+                        caps[5].parse::<f32>(),
+                        caps[6].parse::<f32>(),
+                    )
+                {
+                    current_x = x;
+                    current_y = y;
+                    // Effective font scale from matrix (a = x-scale, d = y-scale)
+                    tm_scale = a.abs();
+                    // Also adjust font size by y-scale if it's meaningful
+                    if let Ok(d) = caps[4].parse::<f32>()
+                        && d.abs() > 0.01
+                    {
+                        tm_scale = d.abs();
                     }
+                }
 
                 // Extract text fragments
                 for caps in tj_re.captures_iter(line) {
@@ -216,12 +229,17 @@ pub fn detect_document_structure(input_file: &str) -> Result<DocumentStructure> 
     let mut current_section_title: Option<String> = None;
 
     for line in &merged_lines {
-        let line_text: String = line.iter().map(|f| &f.text as &str).collect::<Vec<_>>().join(" ");
+        let line_text: String = line
+            .iter()
+            .map(|f| &f.text as &str)
+            .collect::<Vec<_>>()
+            .join(" ");
         if line_text.trim().is_empty() {
             continue;
         }
 
-        let avg_font_size = line.iter().map(|f| f.font_size).sum::<f32>() / line.len().max(1) as f32;
+        let avg_font_size =
+            line.iter().map(|f| f.font_size).sum::<f32>() / line.len().max(1) as f32;
         let is_bold = line.iter().any(|f| {
             let name = f.font_name.to_lowercase();
             name.contains("bold") || name.contains("heavy") || name.contains("black")
@@ -286,8 +304,14 @@ pub fn detect_document_structure(input_file: &str) -> Result<DocumentStructure> 
     }
 
     // Estimate page count from Y range (A4 = 842 pts height)
-    let y_min = all_fragments.iter().map(|f| f.y).fold(f32::INFINITY, f32::min);
-    let y_max = all_fragments.iter().map(|f| f.y).fold(f32::NEG_INFINITY, f32::max);
+    let y_min = all_fragments
+        .iter()
+        .map(|f| f.y)
+        .fold(f32::INFINITY, f32::min);
+    let y_max = all_fragments
+        .iter()
+        .map(|f| f.y)
+        .fold(f32::NEG_INFINITY, f32::max);
     let estimated_pages = ((y_max - y_min) / 800.0).ceil().max(1.0) as u32;
 
     Ok(DocumentStructure {

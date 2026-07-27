@@ -4,9 +4,9 @@
 //! Provides [`compress_deflate`] for writing and [`decompress_deflate`] for reading.
 
 use anyhow::Result;
+use flate2::Compression;
 use flate2::bufread::ZlibDecoder;
 use flate2::write::ZlibEncoder;
-use flate2::Compression;
 use std::io::{Read, Write};
 
 pub fn decompress_deflate(data: &[u8]) -> Result<Vec<u8>> {

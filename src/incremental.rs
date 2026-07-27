@@ -15,7 +15,7 @@
 //! assert!(is_incremental_pdf(&updated));
 //! ```
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 /// Returns true if the PDF appears to contain more than one `%%EOF` (incremental updates).
 pub fn is_incremental_pdf(data: &[u8]) -> bool {
@@ -115,10 +115,7 @@ pub fn incremental_append_objects(
     // Free entry for object 0 is conventional in subsections starting at 0;
     // for sparse updates we emit one subsection per object (simple + correct).
     for (id, off) in &offsets {
-        xref.push_str(&format!(
-            "{id} 1\n{:010} 00000 n \n",
-            *off as u32
-        ));
+        xref.push_str(&format!("{id} 1\n{:010} 00000 n \n", *off as u32));
     }
     out.extend_from_slice(xref.as_bytes());
 
@@ -140,7 +137,9 @@ pub fn incremental_append_objects(
 }
 
 fn escape_info(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)")
+    s.replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
 }
 
 /// Incrementally set `/Info` metadata (title / author) without rewriting the PDF body.
@@ -162,7 +161,12 @@ pub fn incremental_set_info(
     dict.push_str(">>");
 
     let body = format!("{} 0 obj\n{}\nendobj\n", info_id, dict);
-    incremental_append_objects(original, &[(info_id, body.into_bytes())], None, Some(info_id))
+    incremental_append_objects(
+        original,
+        &[(info_id, body.into_bytes())],
+        None,
+        Some(info_id),
+    )
 }
 
 /// Incrementally append a free-text note as a `/Text` annotation on the first page.
@@ -241,7 +245,7 @@ mod tests {
     use super::*;
     use crate::elements::Element;
     use crate::pdf::validate_pdf_bytes;
-    use crate::pdf_generator::{generate_pdf_bytes, PageLayout};
+    use crate::pdf_generator::{PageLayout, generate_pdf_bytes};
 
     fn sample() -> Vec<u8> {
         let elements = vec![
@@ -260,7 +264,8 @@ mod tests {
     fn test_incremental_set_info() {
         let original = sample();
         assert!(!is_incremental_pdf(&original));
-        let updated = incremental_set_info(&original, Some("Updated Title"), Some("Tester")).unwrap();
+        let updated =
+            incremental_set_info(&original, Some("Updated Title"), Some("Tester")).unwrap();
         assert!(is_incremental_pdf(&updated));
         assert!(updated.len() > original.len());
         assert!(validate_pdf_bytes(&updated).valid);

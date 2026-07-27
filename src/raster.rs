@@ -40,9 +40,9 @@
 
 use crate::compression::decompress_deflate;
 use crate::pdf::{PdfDocument, PdfObject, PdfValue};
-use anyhow::{anyhow, Result};
-use flate2::write::ZlibEncoder;
+use anyhow::{Result, anyhow};
 use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -75,9 +75,12 @@ impl RasterPage {
 pub fn rasterize_page(pdf_bytes: &[u8], page_index: usize, dpi: u32) -> Result<RasterPage> {
     let doc = PdfDocument::load_from_bytes(pdf_bytes)?;
     let pages = crate::search::collect_pages_from_doc(&doc, Some(pdf_bytes));
-    let page_id = *pages
-        .get(page_index)
-        .ok_or_else(|| anyhow!("page index {page_index} out of range ({} pages)", pages.len()))?;
+    let page_id = *pages.get(page_index).ok_or_else(|| {
+        anyhow!(
+            "page index {page_index} out of range ({} pages)",
+            pages.len()
+        )
+    })?;
 
     let (width_pt, height_pt) = page_media_box(pdf_bytes, &doc, page_id)?;
     let scale = (dpi as f32) / 72.0;
@@ -133,8 +136,8 @@ fn page_media_box(pdf_bytes: &[u8], doc: &PdfDocument, page_id: u32) -> Result<(
     }
 
     // Fallback to the parsed dict (in case the PDF was already structured).
-    let dict = object_dict(doc, page_id)
-        .ok_or_else(|| anyhow!("page {page_id} not a dictionary"))?;
+    let dict =
+        object_dict(doc, page_id).ok_or_else(|| anyhow!("page {page_id} not a dictionary"))?;
     if let Some(mb) = dict.get("MediaBox") {
         let values: Vec<f32> = if let Some(arr) = as_array(doc, mb) {
             arr.iter().filter_map(|v| as_number(doc, v)).collect()
@@ -144,9 +147,7 @@ fn page_media_box(pdf_bytes: &[u8], doc: &PdfDocument, page_id: u32) -> Result<(
             && let Some(obj) = doc.objects.get(id)
         {
             match obj {
-                PdfObject::Array(items) => {
-                    items.iter().filter_map(|v| as_number(doc, v)).collect()
-                }
+                PdfObject::Array(items) => items.iter().filter_map(|v| as_number(doc, v)).collect(),
                 PdfObject::String(s) => parse_bracket_or_numbers(s),
                 _ => Vec::new(),
             }
@@ -183,10 +184,7 @@ fn raw_mediabox(pdf_bytes: &[u8], page_id: u32) -> Option<Vec<f32>> {
 /// number strings into a flat `Vec<f32>`.
 fn parse_bracket_or_numbers(s: &str) -> Vec<f32> {
     let trimmed = s.trim();
-    let inner = trimmed
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .trim();
+    let inner = trimmed.trim_start_matches('[').trim_end_matches(']').trim();
     inner
         .split_whitespace()
         .filter_map(|tok| tok.parse::<f32>().ok())
@@ -195,8 +193,8 @@ fn parse_bracket_or_numbers(s: &str) -> Vec<f32> {
 
 /// Returns the IDs of all content streams referenced by the page dictionary.
 fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
-    let dict = object_dict(doc, page_id)
-        .ok_or_else(|| anyhow!("page {page_id} not a dictionary"))?;
+    let dict =
+        object_dict(doc, page_id).ok_or_else(|| anyhow!("page {page_id} not a dictionary"))?;
     let mut out = Vec::new();
     if let Some(contents) = dict.get("Contents") {
         match contents {
@@ -323,11 +321,7 @@ fn collect_font_metrics(doc: &PdfDocument) -> HashMap<String, FontMetrics> {
     out
 }
 
-fn walk_resources(
-    doc: &PdfDocument,
-    val: &PdfValue,
-    out: &mut HashMap<String, FontMetrics>,
-) {
+fn walk_resources(doc: &PdfDocument, val: &PdfValue, out: &mut HashMap<String, FontMetrics>) {
     let Some(dict) = (match val {
         PdfValue::Object(PdfObject::Dictionary(d)) => Some(d),
         PdfValue::Reference(id, _) => object_dict(doc, *id),
@@ -343,7 +337,9 @@ fn walk_resources(
         })
     {
         for (name, font_ref) in font_dict {
-            let Some(font_id) = as_ref_id(font_ref) else { continue };
+            let Some(font_id) = as_ref_id(font_ref) else {
+                continue;
+            };
             let Some(font_obj) = object_dict(doc, font_id) else {
                 continue;
             };
@@ -388,8 +384,11 @@ fn font_metrics_for(doc: &PdfDocument, font: &HashMap<String, PdfValue>) -> Font
 
     // Try FirstChar/LastChar/Widths array for simple Type1 fonts
     if let (Some(fc), Some(lc), Some(widths)) = (
-        font.get("FirstChar").and_then(|v| as_number(doc, v)).map(|n| n as u32),
-        font.get("LastChar").and_then(|v| as_number(doc, v).map(|n| n as u32)),
+        font.get("FirstChar")
+            .and_then(|v| as_number(doc, v))
+            .map(|n| n as u32),
+        font.get("LastChar")
+            .and_then(|v| as_number(doc, v).map(|n| n as u32)),
         font.get("Widths").and_then(|v| as_array(doc, v)),
     ) {
         let mut map = HashMap::new();
@@ -589,7 +588,13 @@ impl Surface {
                     cur = (*x, *y);
                 }
                 PathSegment::Curve(x1, y1, x2, y2, x3, y3) => {
-                    flatten_cubic_into_unsafe(&mut segments, cur, (*x1, *y1), (*x2, *y2), (*x3, *y3));
+                    flatten_cubic_into_unsafe(
+                        &mut segments,
+                        cur,
+                        (*x1, *y1),
+                        (*x2, *y2),
+                        (*x3, *y3),
+                    );
                     cur = (*x3, *y3);
                 }
                 PathSegment::Close => {
@@ -651,8 +656,8 @@ impl Surface {
         let (sx1, sy1) = self.transform_pt(x1, y1);
         let (sx2, sy2) = self.transform_pt(x2, y2);
         let color = self.state.stroke;
-        let radius = (lw * 0.5 * (self.transform[0].abs() + self.transform[3].abs()) * 0.5)
-            .max(0.5);
+        let radius =
+            (lw * 0.5 * (self.transform[0].abs() + self.transform[3].abs()) * 0.5).max(0.5);
 
         // Use Bresenham-style with a thin brush radius for anti-aliased strokes.
         let steps = ((sx2 - sx1).hypot(sy2 - sy1).ceil() as i32 + 2).max(2);
@@ -729,7 +734,13 @@ impl Surface {
     }
 }
 
-fn flatten_cubic_into(poly: &mut Vec<(f32, f32)>, p0: (f32, f32), p1: (f32, f32), p2: (f32, f32), p3: (f32, f32)) {
+fn flatten_cubic_into(
+    poly: &mut Vec<(f32, f32)>,
+    p0: (f32, f32),
+    p1: (f32, f32),
+    p2: (f32, f32),
+    p3: (f32, f32),
+) {
     flatten_cubic_points(poly, p0, p1, p2, p3);
 }
 
@@ -825,7 +836,14 @@ fn render_content_stream(surface: &mut Surface, src: &str, fonts: &HashMap<Strin
             "cm" => {
                 if operands.len() == 6 {
                     let m = surface.transform;
-                    let n = [operands[0], operands[1], operands[2], operands[3], operands[4], operands[5]];
+                    let n = [
+                        operands[0],
+                        operands[1],
+                        operands[2],
+                        operands[3],
+                        operands[4],
+                        operands[5],
+                    ];
                     surface.transform = [
                         m[0] * n[0] + m[2] * n[1],
                         m[1] * n[0] + m[3] * n[1],
@@ -897,7 +915,9 @@ fn render_content_stream(surface: &mut Surface, src: &str, fonts: &HashMap<Strin
                     let y2 = operands[n - 3];
                     let x1 = operands[n - 6];
                     let y1 = operands[n - 5];
-                    surface.path.push(PathSegment::Curve(x1, y1, x2, y2, x3, y3));
+                    surface
+                        .path
+                        .push(PathSegment::Curve(x1, y1, x2, y2, x3, y3));
                     surface.current_point = (x3, y3);
                 }
             }
@@ -959,7 +979,14 @@ fn render_content_stream(surface: &mut Surface, src: &str, fonts: &HashMap<Strin
             }
             "Tm" => {
                 if operands.len() == 6 {
-                    let n = [operands[0], operands[1], operands[2], operands[3], operands[4], operands[5]];
+                    let n = [
+                        operands[0],
+                        operands[1],
+                        operands[2],
+                        operands[3],
+                        operands[4],
+                        operands[5],
+                    ];
                     surface.text_matrix = n;
                     surface.text_line_matrix = n;
                 }
@@ -969,7 +996,10 @@ fn render_content_stream(surface: &mut Surface, src: &str, fonts: &HashMap<Strin
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = surface.text_line_matrix;
                     surface.text_line_matrix = [
-                        m[0], m[1], m[2], m[3],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[3],
                         m[0] * tx + m[2] * ty + m[4],
                         m[1] * tx + m[3] * ty + m[5],
                     ];
@@ -981,7 +1011,10 @@ fn render_content_stream(surface: &mut Surface, src: &str, fonts: &HashMap<Strin
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = surface.text_line_matrix;
                     surface.text_line_matrix = [
-                        m[0], m[1], m[2], m[3],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[3],
                         m[0] * tx + m[2] * ty + m[4],
                         m[1] * tx + m[3] * ty + m[5],
                     ];
@@ -1197,10 +1230,7 @@ fn draw_text(surface: &mut Surface, text: &str) {
 
     for ch in text.chars() {
         let cp = ch as u32;
-        let advance_units = metrics
-            .as_ref()
-            .map(|m| m.advance(cp))
-            .unwrap_or(500);
+        let advance_units = metrics.as_ref().map(|m| m.advance(cp)).unwrap_or(500);
         let advance_pt = advance_units as f32 * size / 1000.0;
         let cap_height = size * 0.7;
         // Draw a thin rectangle representing the glyph cell.
@@ -1403,9 +1433,7 @@ fn base14_font_metrics(name: &str) -> FontMetrics {
             helvetica_widths()
         }
         "Times-Roman" | "Times-Bold" | "Times-Italic" | "Times-BoldItalic" => times_widths(),
-        "Courier" | "Courier-Bold" | "Courier-Oblique" | "Courier-BoldOblique" => {
-            courier_widths()
-        }
+        "Courier" | "Courier-Bold" | "Courier-Oblique" | "Courier-BoldOblique" => courier_widths(),
         _ => HashMap::new(),
     };
     FontMetrics {
@@ -1417,20 +1445,102 @@ fn base14_font_metrics(name: &str) -> FontMetrics {
 fn helvetica_widths() -> HashMap<u32, u16> {
     // PDF 32000-1:2008 Table H.3 (subset for typical ASCII + Latin-1 range)
     let raw: &[(u32, u16)] = &[
-        (32, 278), (33, 278), (34, 355), (35, 556), (36, 556), (37, 889), (38, 667),
-        (39, 191), (40, 333), (41, 333), (42, 389), (43, 584), (44, 278), (45, 333),
-        (46, 278), (47, 278), (48, 556), (49, 556), (50, 556), (51, 556), (52, 556),
-        (53, 556), (54, 556), (55, 556), (56, 556), (57, 556), (58, 278), (59, 278),
-        (60, 584), (61, 584), (62, 584), (63, 556), (64, 1015), (65, 667), (66, 667),
-        (67, 722), (68, 722), (69, 667), (70, 611), (71, 778), (72, 722), (73, 278),
-        (74, 500), (75, 667), (76, 556), (77, 833), (78, 722), (79, 778), (80, 667),
-        (81, 778), (82, 722), (83, 667), (84, 611), (85, 722), (86, 667), (87, 944),
-        (88, 667), (89, 667), (90, 611), (91, 278), (92, 278), (93, 278), (94, 584),
-        (95, 556), (96, 278), (97, 556), (98, 556), (99, 500), (100, 556), (101, 556),
-        (102, 278), (103, 556), (104, 556), (105, 222), (106, 222), (107, 500),
-        (108, 222), (109, 833), (110, 556), (111, 556), (112, 556), (113, 556), (114, 333),
-        (115, 500), (116, 278), (117, 556), (118, 500), (119, 722), (120, 500), (121, 500),
-        (122, 500), (123, 334), (124, 260), (125, 334), (126, 584), (127, 350),
+        (32, 278),
+        (33, 278),
+        (34, 355),
+        (35, 556),
+        (36, 556),
+        (37, 889),
+        (38, 667),
+        (39, 191),
+        (40, 333),
+        (41, 333),
+        (42, 389),
+        (43, 584),
+        (44, 278),
+        (45, 333),
+        (46, 278),
+        (47, 278),
+        (48, 556),
+        (49, 556),
+        (50, 556),
+        (51, 556),
+        (52, 556),
+        (53, 556),
+        (54, 556),
+        (55, 556),
+        (56, 556),
+        (57, 556),
+        (58, 278),
+        (59, 278),
+        (60, 584),
+        (61, 584),
+        (62, 584),
+        (63, 556),
+        (64, 1015),
+        (65, 667),
+        (66, 667),
+        (67, 722),
+        (68, 722),
+        (69, 667),
+        (70, 611),
+        (71, 778),
+        (72, 722),
+        (73, 278),
+        (74, 500),
+        (75, 667),
+        (76, 556),
+        (77, 833),
+        (78, 722),
+        (79, 778),
+        (80, 667),
+        (81, 778),
+        (82, 722),
+        (83, 667),
+        (84, 611),
+        (85, 722),
+        (86, 667),
+        (87, 944),
+        (88, 667),
+        (89, 667),
+        (90, 611),
+        (91, 278),
+        (92, 278),
+        (93, 278),
+        (94, 584),
+        (95, 556),
+        (96, 278),
+        (97, 556),
+        (98, 556),
+        (99, 500),
+        (100, 556),
+        (101, 556),
+        (102, 278),
+        (103, 556),
+        (104, 556),
+        (105, 222),
+        (106, 222),
+        (107, 500),
+        (108, 222),
+        (109, 833),
+        (110, 556),
+        (111, 556),
+        (112, 556),
+        (113, 556),
+        (114, 333),
+        (115, 500),
+        (116, 278),
+        (117, 556),
+        (118, 500),
+        (119, 722),
+        (120, 500),
+        (121, 500),
+        (122, 500),
+        (123, 334),
+        (124, 260),
+        (125, 334),
+        (126, 584),
+        (127, 350),
     ];
     raw.iter().copied().collect()
 }
@@ -1438,20 +1548,102 @@ fn helvetica_widths() -> HashMap<u32, u16> {
 fn times_widths() -> HashMap<u32, u16> {
     // PDF 32000-1:2008 Table H.5 (subset)
     let raw: &[(u32, u16)] = &[
-        (32, 250), (33, 333), (34, 408), (35, 500), (36, 500), (37, 833), (38, 778),
-        (39, 180), (40, 333), (41, 333), (42, 500), (43, 564), (44, 250), (45, 333),
-        (46, 250), (47, 278), (48, 500), (49, 500), (50, 500), (51, 500), (52, 500),
-        (53, 500), (54, 500), (55, 500), (56, 500), (57, 500), (58, 278), (59, 278),
-        (60, 564), (61, 564), (62, 564), (63, 444), (64, 921), (65, 722), (66, 667),
-        (67, 667), (68, 722), (69, 611), (70, 556), (71, 722), (72, 722), (73, 333),
-        (74, 389), (75, 722), (76, 611), (77, 889), (78, 722), (79, 722), (80, 556),
-        (81, 722), (82, 667), (83, 556), (84, 611), (85, 722), (86, 722), (87, 944),
-        (88, 722), (89, 722), (90, 611), (91, 333), (92, 278), (93, 333), (94, 469),
-        (95, 500), (96, 333), (97, 444), (98, 500), (99, 444), (100, 500), (101, 444),
-        (102, 333), (103, 500), (104, 500), (105, 278), (106, 278), (107, 500),
-        (108, 278), (109, 778), (110, 500), (111, 500), (112, 500), (113, 500), (114, 333),
-        (115, 389), (116, 278), (117, 500), (118, 500), (119, 722), (120, 500), (121, 500),
-        (122, 444), (123, 480), (124, 200), (125, 480), (126, 541), (127, 350),
+        (32, 250),
+        (33, 333),
+        (34, 408),
+        (35, 500),
+        (36, 500),
+        (37, 833),
+        (38, 778),
+        (39, 180),
+        (40, 333),
+        (41, 333),
+        (42, 500),
+        (43, 564),
+        (44, 250),
+        (45, 333),
+        (46, 250),
+        (47, 278),
+        (48, 500),
+        (49, 500),
+        (50, 500),
+        (51, 500),
+        (52, 500),
+        (53, 500),
+        (54, 500),
+        (55, 500),
+        (56, 500),
+        (57, 500),
+        (58, 278),
+        (59, 278),
+        (60, 564),
+        (61, 564),
+        (62, 564),
+        (63, 444),
+        (64, 921),
+        (65, 722),
+        (66, 667),
+        (67, 667),
+        (68, 722),
+        (69, 611),
+        (70, 556),
+        (71, 722),
+        (72, 722),
+        (73, 333),
+        (74, 389),
+        (75, 722),
+        (76, 611),
+        (77, 889),
+        (78, 722),
+        (79, 722),
+        (80, 556),
+        (81, 722),
+        (82, 667),
+        (83, 556),
+        (84, 611),
+        (85, 722),
+        (86, 722),
+        (87, 944),
+        (88, 722),
+        (89, 722),
+        (90, 611),
+        (91, 333),
+        (92, 278),
+        (93, 333),
+        (94, 469),
+        (95, 500),
+        (96, 333),
+        (97, 444),
+        (98, 500),
+        (99, 444),
+        (100, 500),
+        (101, 444),
+        (102, 333),
+        (103, 500),
+        (104, 500),
+        (105, 278),
+        (106, 278),
+        (107, 500),
+        (108, 278),
+        (109, 778),
+        (110, 500),
+        (111, 500),
+        (112, 500),
+        (113, 500),
+        (114, 333),
+        (115, 389),
+        (116, 278),
+        (117, 500),
+        (118, 500),
+        (119, 722),
+        (120, 500),
+        (121, 500),
+        (122, 444),
+        (123, 480),
+        (124, 200),
+        (125, 480),
+        (126, 541),
+        (127, 350),
     ];
     raw.iter().copied().collect()
 }
@@ -1527,7 +1719,11 @@ const CRC_TABLE: [u32; 256] = {
         let mut c = i as u32;
         let mut k = 0;
         while k < 8 {
-            c = if c & 1 != 0 { 0xedb8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xedb8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
             k += 1;
         }
         t[i] = c;
@@ -1555,8 +1751,8 @@ impl Crc {
 mod tests {
     use super::*;
     use crate::elements;
-    use crate::pdf_generator::{generate_pdf_bytes, PageLayout};
-    use crate::vector::{demo_canvas, VectorCanvas};
+    use crate::pdf_generator::{PageLayout, generate_pdf_bytes};
+    use crate::vector::{VectorCanvas, demo_canvas};
 
     #[test]
     fn rasterize_generated_text_pdf_yields_png() {
@@ -1598,9 +1794,7 @@ mod tests {
 
     #[test]
     fn rasterize_landscape_wider_than_tall() {
-        let pdf = demo_canvas()
-            .to_pdf_bytes(PageLayout::landscape())
-            .unwrap();
+        let pdf = demo_canvas().to_pdf_bytes(PageLayout::landscape()).unwrap();
         let page = rasterize_page(&pdf, 0, 72).unwrap();
         assert!(page.width > page.height);
     }

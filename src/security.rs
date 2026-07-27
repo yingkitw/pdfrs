@@ -2,8 +2,8 @@
 //!
 //! This module provides password protection and permission management for PDF documents.
 
-use anyhow::{anyhow, Result};
 use crate::pdf_generator::escape_pdf_string;
+use anyhow::{Result, anyhow};
 
 /// PDF permission flags for controlling what operations are allowed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,12 +82,12 @@ impl PdfPermissions {
         let mut flags = 0xFFFFF0C0u32;
 
         // Clear permission bits first (bits 2-5, 8-9, 11-12)
-        flags &= !(1 << 2);  // Clear print bit
-        flags &= !(1 << 3);  // Clear modify bit
-        flags &= !(1 << 4);  // Clear copy bit
-        flags &= !(1 << 5);  // Clear annotate bit
-        flags &= !(1 << 8);  // Clear fill_forms bit
-        flags &= !(1 << 9);  // Clear extract bit
+        flags &= !(1 << 2); // Clear print bit
+        flags &= !(1 << 3); // Clear modify bit
+        flags &= !(1 << 4); // Clear copy bit
+        flags &= !(1 << 5); // Clear annotate bit
+        flags &= !(1 << 8); // Clear fill_forms bit
+        flags &= !(1 << 9); // Clear extract bit
         flags &= !(1 << 11); // Clear assemble bit
         flags &= !(1 << 12); // Clear print_high_quality bit
 
@@ -282,7 +282,9 @@ impl PdfSecurity {
         if !self.is_protected() {
             return Ok(Vec::new());
         }
-        Err(anyhow!("PDF encryption key derivation is not implemented yet"))
+        Err(anyhow!(
+            "PDF encryption key derivation is not implemented yet"
+        ))
     }
 
     /// Create the encryption dictionary for the PDF trailer.
@@ -457,7 +459,12 @@ impl CertificateStore {
     }
 
     /// Import a PEM certificate file into the store under `id`.
-    pub fn import(&self, id: &str, pem_path: &str, subject: Option<&str>) -> Result<SigningCertificate> {
+    pub fn import(
+        &self,
+        id: &str,
+        pem_path: &str,
+        subject: Option<&str>,
+    ) -> Result<SigningCertificate> {
         let cert = load_certificate_pem(id, pem_path)?;
         let cert = if let Some(subject) = subject {
             SigningCertificate {
@@ -526,7 +533,9 @@ pub fn parse_certificate_pem(id: impl Into<String>, pem: &str) -> Result<Signing
     let fingerprint_sha256 = {
         use sha2::{Digest, Sha256};
         let hash = Sha256::digest(&der);
-        hash.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        hash.iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
     };
 
     let subject = parse_subject_from_der(&der).unwrap_or_else(|| id.clone());
@@ -693,8 +702,7 @@ mod tests {
 
     #[test]
     fn test_security_with_user_password() {
-        let security = PdfSecurity::new()
-            .with_user_password("test123".to_string());
+        let security = PdfSecurity::new().with_user_password("test123".to_string());
 
         assert!(security.is_protected());
         assert!(security.validate().is_ok());
@@ -702,8 +710,7 @@ mod tests {
 
     #[test]
     fn test_security_empty_password_rejected() {
-        let security = PdfSecurity::new()
-            .with_user_password("".to_string());
+        let security = PdfSecurity::new().with_user_password("".to_string());
 
         assert!(security.validate().is_err());
     }

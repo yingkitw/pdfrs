@@ -26,7 +26,10 @@ use std::path::Path;
 /// let inputs = vec!["file1.pdf", "file2.pdf", "file3.pdf"];
 /// let result = parallel::merge_pdfs_parallel(&inputs, "merged.pdf");
 /// ```
-pub fn merge_pdfs_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P], output_path: P) -> Result<()> {
+pub fn merge_pdfs_parallel<P: AsRef<Path> + Send + Sync>(
+    input_paths: &[P],
+    output_path: P,
+) -> Result<()> {
     if input_paths.is_empty() {
         anyhow::bail!("No input PDFs provided");
     }
@@ -68,7 +71,9 @@ pub fn merge_pdfs_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P], outp
 ///     }
 /// }
 /// ```
-pub fn extract_text_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> Result<Vec<(String, String)>> {
+pub fn extract_text_parallel<P: AsRef<Path> + Send + Sync>(
+    input_paths: &[P],
+) -> Result<Vec<(String, String)>> {
     input_paths
         .par_iter()
         .map(|path| {
@@ -85,7 +90,9 @@ pub fn extract_text_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) ->
 }
 
 /// Batch validate multiple PDFs in parallel
-pub fn validate_pdfs_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> Result<Vec<(String, bool)>> {
+pub fn validate_pdfs_parallel<P: AsRef<Path> + Send + Sync>(
+    input_paths: &[P],
+) -> Result<Vec<(String, bool)>> {
     input_paths
         .par_iter()
         .map(|path| {
@@ -103,7 +110,9 @@ pub fn validate_pdfs_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -
 }
 
 /// Count pages in multiple PDFs in parallel
-pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> Result<Vec<(String, usize)>> {
+pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(
+    input_paths: &[P],
+) -> Result<Vec<(String, usize)>> {
     input_paths
         .par_iter()
         .map(|path| {
@@ -114,16 +123,23 @@ pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> 
             PdfDocument::load_from_file(path_file)
                 .map(|doc| {
                     // Count page streams (objects that look like content streams)
-                    let page_count = doc.objects.iter()
+                    let page_count = doc
+                        .objects
+                        .iter()
                         .filter(|(_, obj)| {
                             if let crate::pdf::PdfObject::Stream { data, .. } = obj {
-                                let decompressed = if data.len() > 2 && data[0] == 0x78 && (data[1] == 0x9C || data[1] == 0xDA) {
+                                let decompressed = if data.len() > 2
+                                    && data[0] == 0x78
+                                    && (data[1] == 0x9C || data[1] == 0xDA)
+                                {
                                     crate::compression::decompress_deflate(data).unwrap_or_default()
                                 } else {
                                     data.clone()
                                 };
                                 let content = String::from_utf8_lossy(&decompressed);
-                                content.contains("Tj") || content.contains("TJ") || content.contains("BT")
+                                content.contains("Tj")
+                                    || content.contains("TJ")
+                                    || content.contains("BT")
                             } else {
                                 false
                             }
@@ -153,10 +169,7 @@ pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(input_paths: &[P]) -> 
 ///     }
 /// );
 /// ```
-pub fn process_pdfs_parallel<P, F, R>(
-    input_paths: &[P],
-    processor: F,
-) -> Result<Vec<(String, R)>>
+pub fn process_pdfs_parallel<P, F, R>(input_paths: &[P], processor: F) -> Result<Vec<(String, R)>>
 where
     P: AsRef<Path> + Send + Sync,
     F: Fn(&PdfDocument) -> Result<R> + Sync + Send,
@@ -224,7 +237,7 @@ impl ParallelPdfGenerator {
                     &elements,
                     &self._font,
                     self._font_size,
-                    self._layout
+                    self._layout,
                 )?;
                 Ok((filename.clone(), pdf_bytes))
             })

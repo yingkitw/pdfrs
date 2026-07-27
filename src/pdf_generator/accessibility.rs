@@ -3,8 +3,8 @@
 //! Used by [`generate_tagged_pdf_bytes`](super::generate_tagged_pdf_bytes) and
 //! structure-tree helpers.
 
-use crate::elements::{Element, TextSegment};
 use super::{escape_pdf_string, render_math_text};
+use crate::elements::{Element, TextSegment};
 
 // --- Accessibility / Tagged PDF support ---
 
@@ -188,7 +188,10 @@ impl StructureElement {
 
     /// Generate the structure element dictionary for PDF
     pub fn to_pdf_dict(&self, obj_id: u32) -> String {
-        let mut dict = format!("<< /Type /StructElem /S /{}", self.struct_type.as_pdf_name());
+        let mut dict = format!(
+            "<< /Type /StructElem /S /{}",
+            self.struct_type.as_pdf_name()
+        );
 
         if let Some(ref alt) = self.alt_text {
             dict.push_str(&format!(" /Alt {}", escape_pdf_string(alt)));
@@ -201,7 +204,9 @@ impl StructureElement {
         if let Some(ref content_id) = self.content_id {
             dict.push_str(&format!(" /K {} 0 R", content_id));
         } else if !self.children.is_empty() {
-            let kid_refs: Vec<String> = self.children.iter()
+            let kid_refs: Vec<String> = self
+                .children
+                .iter()
                 .enumerate()
                 .map(|(i, _)| format!("{} 0 R", obj_id + 1 + i as u32))
                 .collect();
@@ -227,96 +232,70 @@ pub fn element_to_structure(element: &Element) -> StructureElement {
                 5 => StructureType::H5,
                 _ => StructureType::H6,
             };
-            StructureElement::new(struct_type)
-                .with_actual_text(text.clone())
+            StructureElement::new(struct_type).with_actual_text(text.clone())
         }
         Element::Paragraph { text } => {
-            StructureElement::new(StructureType::P)
-                .with_actual_text(text.clone())
+            StructureElement::new(StructureType::P).with_actual_text(text.clone())
         }
         Element::RichParagraph { segments } => {
-            let text = segments.iter().map(|s| match s {
-                TextSegment::Plain(t)
-                | TextSegment::Bold(t)
-                | TextSegment::Italic(t)
-                | TextSegment::BoldItalic(t)
-                | TextSegment::Strikethrough(t) => t.clone(),
-                TextSegment::Code(c) => format!("`{}`", c),
-                TextSegment::MathInline(expr) => render_math_text(expr),
-                TextSegment::Link { text, url } => format!("{} ({})", text, url),
-                TextSegment::Citation { key } => format!("[@{}]", key),
-            }).collect::<Vec<_>>().join("");
-            StructureElement::new(StructureType::P)
-                .with_actual_text(text)
+            let text = segments
+                .iter()
+                .map(|s| match s {
+                    TextSegment::Plain(t)
+                    | TextSegment::Bold(t)
+                    | TextSegment::Italic(t)
+                    | TextSegment::BoldItalic(t)
+                    | TextSegment::Strikethrough(t) => t.clone(),
+                    TextSegment::Code(c) => format!("`{}`", c),
+                    TextSegment::MathInline(expr) => render_math_text(expr),
+                    TextSegment::Link { text, url } => format!("{} ({})", text, url),
+                    TextSegment::Citation { key } => format!("[@{}]", key),
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            StructureElement::new(StructureType::P).with_actual_text(text)
         }
-        Element::UnorderedListItem { text, .. } | Element::OrderedListItem { text, .. } | Element::TaskListItem { text, .. } => {
-            StructureElement::new(StructureType::LI)
-                .with_actual_text(text.clone())
+        Element::UnorderedListItem { text, .. }
+        | Element::OrderedListItem { text, .. }
+        | Element::TaskListItem { text, .. } => {
+            StructureElement::new(StructureType::LI).with_actual_text(text.clone())
         }
         Element::CodeBlock { code, .. } => {
-            StructureElement::new(StructureType::Code)
-                .with_actual_text(code.clone())
+            StructureElement::new(StructureType::Code).with_actual_text(code.clone())
         }
         Element::BlockQuote { text, .. } => {
-            StructureElement::new(StructureType::BlockQuote)
-                .with_actual_text(text.clone())
+            StructureElement::new(StructureType::BlockQuote).with_actual_text(text.clone())
         }
-        Element::TableRow { .. } => {
-            StructureElement::new(StructureType::TR)
-        }
-        Element::HorizontalRule => {
-            StructureElement::new(StructureType::NonStruct)
-        }
-        Element::EmptyLine => {
-            StructureElement::new(StructureType::NonStruct)
-        }
-        Element::Columns { .. } => {
-            StructureElement::new(StructureType::NonStruct)
-        }
+        Element::TableRow { .. } => StructureElement::new(StructureType::TR),
+        Element::HorizontalRule => StructureElement::new(StructureType::NonStruct),
+        Element::EmptyLine => StructureElement::new(StructureType::NonStruct),
+        Element::Columns { .. } => StructureElement::new(StructureType::NonStruct),
         Element::PageNumberMode { .. }
         | Element::RunningHeaderMode { .. }
         | Element::Toc
         | Element::Bibliography
-        | Element::CitationDef { .. } => {
-            StructureElement::new(StructureType::NonStruct)
-        }
-        Element::Chart { title, .. } => {
-            StructureElement::new(StructureType::Figure)
-                .with_alt_text(title.clone().unwrap_or_else(|| "Chart".into()))
-        }
-        Element::Footnote { .. } => {
-            StructureElement::new(StructureType::Note)
-        }
-        Element::DefinitionItem { .. } => {
-            StructureElement::new(StructureType::Div)
-        }
+        | Element::CitationDef { .. } => StructureElement::new(StructureType::NonStruct),
+        Element::Chart { title, .. } => StructureElement::new(StructureType::Figure)
+            .with_alt_text(title.clone().unwrap_or_else(|| "Chart".into())),
+        Element::Footnote { .. } => StructureElement::new(StructureType::Note),
+        Element::DefinitionItem { .. } => StructureElement::new(StructureType::Div),
         Element::InlineCode { code } => {
-            StructureElement::new(StructureType::Code)
-                .with_actual_text(code.clone())
+            StructureElement::new(StructureType::Code).with_actual_text(code.clone())
         }
-        Element::Link { text, url } => {
-            StructureElement::new(StructureType::Link)
-                .with_actual_text(format!("{} ({})", text, url))
-        }
+        Element::Link { text, url } => StructureElement::new(StructureType::Link)
+            .with_actual_text(format!("{} ({})", text, url)),
         Element::Image { alt, .. } => {
-            StructureElement::new(StructureType::Figure)
-                .with_alt_text(alt.clone())
+            StructureElement::new(StructureType::Figure).with_alt_text(alt.clone())
         }
         Element::StyledText { text, .. } => {
-            StructureElement::new(StructureType::Span)
-                .with_actual_text(text.clone())
+            StructureElement::new(StructureType::Span).with_actual_text(text.clone())
         }
         Element::MathBlock { expression } => {
-            StructureElement::new(StructureType::Formula)
-                .with_actual_text(expression.clone())
+            StructureElement::new(StructureType::Formula).with_actual_text(expression.clone())
         }
         Element::MathInline { expression } => {
-            StructureElement::new(StructureType::Formula)
-                .with_actual_text(expression.clone())
+            StructureElement::new(StructureType::Formula).with_actual_text(expression.clone())
         }
-        Element::PageBreak => {
-            StructureElement::new(StructureType::NonStruct)
-        }
+        Element::PageBreak => StructureElement::new(StructureType::NonStruct),
     }
 }
-

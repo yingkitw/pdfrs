@@ -5,7 +5,7 @@
 //! large reports or server scenarios where early bytes can be streamed.
 
 use crate::elements::{Element, TextSegment};
-use crate::pdf_generator::{escape_pdf_string, Color, PageLayout, PdfGenerator};
+use crate::pdf_generator::{Color, PageLayout, PdfGenerator, escape_pdf_string};
 use anyhow::Result;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -42,7 +42,7 @@ pub struct StreamingPdfGenerator {
     current_y: f32,
     font_state: FontState,
     page_contents: Vec<u32>, // Object IDs of page content streams
-    page_objects: Vec<u32>,    // Object IDs of page dictionaries
+    page_objects: Vec<u32>,  // Object IDs of page dictionaries
 }
 
 #[derive(Debug, Clone)]
@@ -89,16 +89,15 @@ impl StreamingPdfGenerator {
 
     fn _write_font_command(&mut self) {
         self.current_page.extend_from_slice(
-            format!("/{} {} Tf\n", self.font_state.name, self.font_state.size).as_bytes()
+            format!("/{} {} Tf\n", self.font_state.name, self.font_state.size).as_bytes(),
         );
     }
 
     /// Set the text color
     pub fn set_color(&mut self, color: Color) -> Result<()> {
         self.current_color = color;
-        self.current_page.extend_from_slice(
-            format!("{} {} {} rg\n", color.r, color.g, color.b).as_bytes()
-        );
+        self.current_page
+            .extend_from_slice(format!("{} {} {} rg\n", color.r, color.g, color.b).as_bytes());
         Ok(())
     }
 
@@ -110,11 +109,14 @@ impl StreamingPdfGenerator {
         self.current_page.extend_from_slice(b"BT\n");
         self._write_font_command();
         self.current_page.extend_from_slice(
-            format!("1 0 0 1 {} {} Tm\n", self.layout.margin_left, self.current_y).as_bytes()
+            format!(
+                "1 0 0 1 {} {} Tm\n",
+                self.layout.margin_left, self.current_y
+            )
+            .as_bytes(),
         );
-        self.current_page.extend_from_slice(
-            format!("({}) Tj\n", escaped).as_bytes()
-        );
+        self.current_page
+            .extend_from_slice(format!("({}) Tj\n", escaped).as_bytes());
         self.current_page.extend_from_slice(b"ET\n");
 
         self.current_y -= line_height;
@@ -235,7 +237,11 @@ impl StreamingPdfGenerator {
                     let indent = "  ".repeat(*depth as usize);
                     self.add_paragraph(&format!("{}- {}", indent, text))?;
                 }
-                Element::OrderedListItem { number, text, depth } => {
+                Element::OrderedListItem {
+                    number,
+                    text,
+                    depth,
+                } => {
                     let indent = "  ".repeat(*depth as usize);
                     self.add_paragraph(&format!("{}{}. {}", indent, number, text))?;
                 }
@@ -260,7 +266,11 @@ impl StreamingPdfGenerator {
                 Element::Image { alt, path } => {
                     self.add_paragraph(&format!("[Image: {}] ({})", alt, path))?;
                 }
-                Element::Chart { kind, title, points } => {
+                Element::Chart {
+                    kind,
+                    title,
+                    points,
+                } => {
                     let kind = match kind {
                         crate::elements::ChartKind::Bar => "bar",
                         crate::elements::ChartKind::Line => "line",
@@ -274,7 +284,11 @@ impl StreamingPdfGenerator {
                         points.len()
                     ))?;
                 }
-                Element::TableRow { cells, is_separator, .. } => {
+                Element::TableRow {
+                    cells,
+                    is_separator,
+                    ..
+                } => {
                     if !*is_separator {
                         self.add_paragraph(&cells.join(" | "))?;
                     }
@@ -318,15 +332,11 @@ impl StreamingPdfGenerator {
 
         // Write the content stream object
         let content_length = self.current_page.len();
-        let content_stream = format!(
-            "<< /Length {} >>\nstream\n",
-            content_length
-        );
+        let content_stream = format!("<< /Length {} >>\nstream\n", content_length);
 
-        let content_id = self.generator.add_stream_object(
-            content_stream,
-            self.current_page.clone()
-        );
+        let content_id = self
+            .generator
+            .add_stream_object(content_stream, self.current_page.clone());
 
         // Store for later page tree construction
         self.page_contents.push(content_id);
@@ -361,11 +371,12 @@ impl StreamingPdfGenerator {
                 "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-Oblique >>\n".to_string(),
             );
             let f4 = self.generator.add_object(
-                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-BoldOblique >>\n".to_string(),
+                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica-BoldOblique >>\n"
+                    .to_string(),
             );
-            let f5 = self.generator.add_object(
-                "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Courier >>\n".to_string(),
-            );
+            let f5 = self
+                .generator
+                .add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Courier >>\n".to_string());
 
             let page_dict = format!(
                 "<< /Type /Page\n\
@@ -380,11 +391,7 @@ impl StreamingPdfGenerator {
                      /Courier {} 0 R \
                  >> >>\n\
                  >>\n",
-                pages_obj_id,
-                self.layout.width,
-                self.layout.height,
-                content_id,
-                f1, f2, f3, f4, f5
+                pages_obj_id, self.layout.width, self.layout.height, content_id, f1, f2, f3, f4, f5
             );
             self.generator.add_object(page_dict);
         }
@@ -422,10 +429,8 @@ mod tests {
 
     #[test]
     fn test_streaming_basic() {
-        let mut pdf_gen = StreamingPdfGenerator::new(
-            "/tmp/test_stream.pdf",
-            PageLayout::portrait()
-        ).unwrap();
+        let mut pdf_gen =
+            StreamingPdfGenerator::new("/tmp/test_stream.pdf", PageLayout::portrait()).unwrap();
 
         pdf_gen.add_heading("Test", 1).unwrap();
         pdf_gen.add_paragraph("Content here").unwrap();

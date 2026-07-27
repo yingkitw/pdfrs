@@ -129,7 +129,10 @@ fn reorder_mixed(text: &str) -> String {
             while i < chars.len()
                 && (is_rtl_char(chars[i])
                     || (!is_ltr_char(chars[i]) && chars[i].is_whitespace())
-                    || matches!(chars[i], ',' | '.' | ':' | ';' | '!' | '?' | '-' | '\'' | '"'))
+                    || matches!(
+                        chars[i],
+                        ',' | '.' | ':' | ';' | '!' | '?' | '-' | '\'' | '"'
+                    ))
             {
                 // Don't swallow trailing whitespace into the RTL run
                 if chars[i].is_whitespace() {

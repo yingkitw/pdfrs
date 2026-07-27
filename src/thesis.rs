@@ -82,7 +82,13 @@ pub fn build_toc_elements(outlines: &[OutlineDest]) -> Vec<Element> {
         let title = dest.title.trim();
         let core = format!("{}{}", indent, title);
         let pad = (48usize.saturating_sub(core.chars().count())).max(3);
-        let line = format!("{} {}{} {}", core, dots.repeat(pad / dots.len()), dots, label);
+        let line = format!(
+            "{} {}{} {}",
+            core,
+            dots.repeat(pad / dots.len()),
+            dots,
+            label
+        );
         out.push(Element::Paragraph { text: line });
     }
     out.push(Element::EmptyLine);
@@ -213,6 +219,9 @@ mod tests {
         assert_eq!(r.number_for("smith"), 1);
         assert_eq!(r.number_for("jones"), 2);
         assert_eq!(r.number_for("smith"), 1);
-        assert_eq!(r.ordered_keys(), &["smith".to_string(), "jones".to_string()]);
+        assert_eq!(
+            r.ordered_keys(),
+            &["smith".to_string(), "jones".to_string()]
+        );
     }
 }

@@ -88,7 +88,8 @@ pub fn validate_pdf_bytes(data: &[u8]) -> PdfValidation {
     // 7. Count page objects (/Type /Page but NOT /Type /Pages)
     let page_re = super::re_page();
     let page_re_eol = super::re_page_eol();
-    let actual_pages = page_re.find_iter(&content).count() + page_re_eol.find_iter(&content).count();
+    let actual_pages =
+        page_re.find_iter(&content).count() + page_re_eol.find_iter(&content).count();
     if actual_pages == 0 {
         errors.push("No page objects found (/Type /Page)".to_string());
     }
@@ -110,8 +111,8 @@ pub fn validate_pdf_bytes(data: &[u8]) -> PdfValidation {
     }
 
     // 10. Check stream/endstream pairing
-    let stream_count = content.matches("\nstream\n").count()
-        + content.matches("\nstream\r\n").count();
+    let stream_count =
+        content.matches("\nstream\n").count() + content.matches("\nstream\r\n").count();
     let endstream_count = content.matches("endstream").count();
     if stream_count != endstream_count {
         warnings.push(format!(
@@ -251,7 +252,9 @@ pub fn validate_pdf_a3_bytes(data: &[u8]) -> PdfAValidation {
         && content.contains("/Filespec")
         && content.contains("/EmbeddedFile");
     if !has_embedded_files {
-        result.errors.push("PDF/A-3 requires at least one embedded file attachment".to_string());
+        result
+            .errors
+            .push("PDF/A-3 requires at least one embedded file attachment".to_string());
     }
 
     // Remove the transparency warning that only applies to PDF/A-1
@@ -337,7 +340,8 @@ pub fn validate_pdf_ua_bytes(data: &[u8]) -> PdfUaValidation {
         + content.matches("/FontFile3").count();
     let fonts_embedded = font_desc_count == 0 || font_file_count >= font_desc_count;
     if !fonts_embedded {
-        errors.push("Fonts not fully embedded (required for text extraction in PDF/UA)".to_string());
+        errors
+            .push("Fonts not fully embedded (required for text extraction in PDF/UA)".to_string());
     }
 
     // 7. No JavaScript (interferes with assistive technology)
@@ -443,8 +447,24 @@ pub fn check_screen_reader_compliance(filename: &str) -> Result<ScreenReaderComp
 
 fn detect_structure_element_types(content: &str) -> Vec<String> {
     const TYPES: &[&str] = &[
-        "Document", "H1", "H2", "H3", "H4", "H5", "H6", "P", "L", "LI", "Table", "TR", "Figure",
-        "Link", "Code", "Formula", "BlockQuote", "Note",
+        "Document",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "P",
+        "L",
+        "LI",
+        "Table",
+        "TR",
+        "Figure",
+        "Link",
+        "Code",
+        "Formula",
+        "BlockQuote",
+        "Note",
     ];
 
     TYPES
@@ -500,10 +520,12 @@ mod tests {
     #[test]
     fn validate_pdf_a3_requires_embedded_file() {
         let mut result = validate_pdf_a3_bytes(b"%PDF-1.4");
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.contains("embedded file attachment")));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("embedded file attachment"))
+        );
         assert_eq!(result.level, "PDF/A-3b");
         // Smoke-test that re-exported regex helpers from the parent module compile and run.
         result.compliant = false;

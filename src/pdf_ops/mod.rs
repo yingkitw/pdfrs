@@ -19,7 +19,7 @@ pub use security::*;
 pub use structure::*;
 pub use tables::*;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::fs;
 
 /// Merge multiple PDF files into a single output PDF.
@@ -223,10 +223,12 @@ pub(super) fn extract_page_streams(doc: &crate::pdf::PdfDocument) -> Vec<Vec<u8>
         .iter()
         .filter_map(|(id, obj)| {
             if let crate::pdf::PdfObject::Dictionary(dict) = obj
-                && let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(kind))) = dict.get("Type")
-                    && kind == "/Page" {
-                        return Some(*id);
-                    }
+                && let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(kind))) =
+                    dict.get("Type")
+                && kind == "/Page"
+            {
+                return Some(*id);
+            }
             None
         })
         .collect();
@@ -234,11 +236,14 @@ pub(super) fn extract_page_streams(doc: &crate::pdf::PdfDocument) -> Vec<Vec<u8>
 
     for page_id in page_ids {
         if let Some(crate::pdf::PdfObject::Dictionary(dict)) = doc.objects.get(&page_id)
-            && let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(contents_id_raw))) = dict.get("Contents")
-                && let Ok(contents_id) = contents_id_raw.parse::<u32>()
-                    && let Some(crate::pdf::PdfObject::Stream { data, .. }) = doc.objects.get(&contents_id) {
-                        streams.push(decompress_if_needed(data));
-                    }
+            && let Some(crate::pdf::PdfValue::Object(crate::pdf::PdfObject::String(
+                contents_id_raw,
+            ))) = dict.get("Contents")
+            && let Ok(contents_id) = contents_id_raw.parse::<u32>()
+            && let Some(crate::pdf::PdfObject::Stream { data, .. }) = doc.objects.get(&contents_id)
+        {
+            streams.push(decompress_if_needed(data));
+        }
     }
 
     // Fallback for malformed/simple PDFs where /Page dictionaries are not parsed as expected.
@@ -263,7 +268,10 @@ pub(super) fn extract_page_streams(doc: &crate::pdf::PdfDocument) -> Vec<Vec<u8>
 
 pub(super) fn decompress_if_needed(data: &[u8]) -> Vec<u8> {
     // Valid zlib header: CMF=0x78 and (CMF*256 + FLG) % 31 == 0
-    if data.len() > 2 && data[0] == 0x78 && ((data[0] as u16) * 256 + (data[1] as u16)).is_multiple_of(31) {
+    if data.len() > 2
+        && data[0] == 0x78
+        && ((data[0] as u16) * 256 + (data[1] as u16)).is_multiple_of(31)
+    {
         match crate::compression::decompress_deflate(data) {
             Ok(d) => d,
             Err(_) => data.to_vec(),
@@ -369,10 +377,7 @@ fn assemble_rotated_pdf(
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
-        let font_dict = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            font
-        );
+        let font_dict = format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n", font);
         generator.add_object(font_dict);
     }
 
@@ -385,10 +390,7 @@ fn assemble_rotated_pdf(
     let actual_pages_id = generator.add_object(pages_dict);
     assert_eq!(actual_pages_id, pages_obj_id);
 
-    let catalog_dict = format!(
-        "<< /Type /Catalog\n/Pages {} 0 R\n>>\n",
-        actual_pages_id
-    );
+    let catalog_dict = format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", actual_pages_id);
     generator.add_object(catalog_dict);
 
     let pdf_data = generator.generate();
@@ -427,10 +429,8 @@ pub fn create_pdf_with_images(
         content.extend_from_slice(b"Q\n");
     }
 
-    let content_id = generator.add_stream_object(
-        format!("<< /Length {} >>\n", content.len()),
-        content,
-    );
+    let content_id =
+        generator.add_stream_object(format!("<< /Length {} >>\n", content.len()), content);
 
     // Build XObject resource dictionary
     let xobj_entries: Vec<String> = image_refs
@@ -450,10 +450,7 @@ pub fn create_pdf_with_images(
     );
     let page_id = generator.add_object(page_dict);
 
-    let pages_dict = format!(
-        "<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n",
-        page_id
-    );
+    let pages_dict = format!("<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n", page_id);
     let pages_id = generator.add_object(pages_dict);
 
     let catalog = format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", pages_id);
@@ -536,7 +533,12 @@ pub fn watermark_pdf(
 }
 
 /// Build a content stream snippet that renders a diagonal watermark
-fn build_watermark_stream(text: &str, font_size: f32, opacity: f32, layout: &crate::pdf_generator::PageLayout) -> Vec<u8> {
+fn build_watermark_stream(
+    text: &str,
+    font_size: f32,
+    opacity: f32,
+    layout: &crate::pdf_generator::PageLayout,
+) -> Vec<u8> {
     let escaped = escape_pdf_meta(text);
     // Center of page
     let cx = layout.width / 2.0;
@@ -555,7 +557,12 @@ fn build_watermark_stream(text: &str, font_size: f32, opacity: f32, layout: &cra
     stream.extend_from_slice(
         format!(
             "{} {} {} {} {} {} Tm\n",
-            cos45, sin45, -sin45, cos45, cx - 100.0, cy - 50.0
+            cos45,
+            sin45,
+            -sin45,
+            cos45,
+            cx - 100.0,
+            cy - 50.0
         )
         .as_bytes(),
     );
@@ -629,10 +636,12 @@ pub fn overlay_image_on_pdf(
     let mut overlay_content = Vec::new();
     if opacity < 1.0 {
         // Set transparency
-        overlay_content.extend_from_slice(format!("{} {} {} rg\n", opacity, opacity, opacity).as_bytes());
+        overlay_content
+            .extend_from_slice(format!("{} {} {} rg\n", opacity, opacity, opacity).as_bytes());
     }
     overlay_content.extend_from_slice(b"q\n");
-    overlay_content.extend_from_slice(format!("{} 0 0 {} {} {} cm\n", width, height, x, y).as_bytes());
+    overlay_content
+        .extend_from_slice(format!("{} 0 0 {} {} {} cm\n", width, height, x, y).as_bytes());
     overlay_content.extend_from_slice(b"/Im1 Do\n");
     overlay_content.extend_from_slice(b"Q\n");
 
@@ -641,7 +650,6 @@ pub fn overlay_image_on_pdf(
     // For each page, append the overlay content
     let overlayed: Vec<Vec<u8>> = all_streams
         .iter()
-        
         .map(|stream| {
             let mut combined = stream.clone();
             combined.extend_from_slice(&overlay_content);
@@ -691,10 +699,7 @@ fn assemble_pdf_with_image_overlay(
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
 
-        let font_dict = format!(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n",
-            font
-        );
+        let font_dict = format!("<< /Type /Font\n/Subtype /Type1\n/BaseFont /{}\n>>\n", font);
         generator.add_object(font_dict);
     }
 
@@ -707,10 +712,7 @@ fn assemble_pdf_with_image_overlay(
     let actual_pages_id = generator.add_object(pages_dict);
     assert_eq!(actual_pages_id, pages_obj_id);
 
-    let catalog_dict = format!(
-        "<< /Type /Catalog\n/Pages {} 0 R\n>>\n",
-        actual_pages_id
-    );
+    let catalog_dict = format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", actual_pages_id);
     generator.add_object(catalog_dict);
 
     let pdf_data = generator.generate();
@@ -798,21 +800,11 @@ fn build_text_watermark_stream(
 ) -> Vec<u8> {
     let escaped = escape_pdf_meta(text);
     let (x, y, rotation) = match position {
-        WatermarkPosition::Center => {
-            (layout.width / 2.0, layout.height / 2.0, 0.0)
-        }
-        WatermarkPosition::TopLeft => {
-            (72.0, layout.height - 72.0, 0.0)
-        }
-        WatermarkPosition::TopRight => {
-            (layout.width - 72.0, layout.height - 72.0, 0.0)
-        }
-        WatermarkPosition::BottomLeft => {
-            (72.0, 72.0, 0.0)
-        }
-        WatermarkPosition::BottomRight => {
-            (layout.width - 72.0, 72.0, 0.0)
-        }
+        WatermarkPosition::Center => (layout.width / 2.0, layout.height / 2.0, 0.0),
+        WatermarkPosition::TopLeft => (72.0, layout.height - 72.0, 0.0),
+        WatermarkPosition::TopRight => (layout.width - 72.0, layout.height - 72.0, 0.0),
+        WatermarkPosition::BottomLeft => (72.0, 72.0, 0.0),
+        WatermarkPosition::BottomRight => (layout.width - 72.0, 72.0, 0.0),
         WatermarkPosition::Diagonal => {
             (layout.width / 2.0 - 100.0, layout.height / 2.0 - 50.0, 45.0)
         }
@@ -829,7 +821,7 @@ fn build_text_watermark_stream(
         let cos = rad.cos();
         let sin = rad.sin();
         stream.extend_from_slice(
-            format!("{} {} {} {} {} {} Tm\n", cos, sin, -sin, cos, x, y).as_bytes()
+            format!("{} {} {} {} {} {} Tm\n", cos, sin, -sin, cos, x, y).as_bytes(),
         );
     } else {
         stream.extend_from_slice(format!("{} {} Td\n", x, y).as_bytes());
@@ -851,32 +843,25 @@ fn build_image_watermark_stream(
     // Scale image to fit page if too large
     let max_width = layout.width * 0.5;
     let max_height = layout.height * 0.5;
-    let (img_width, img_height) = crate::image::scale_to_fit(
-        image_info.width,
-        image_info.height,
-        max_width,
-        max_height,
-    );
+    let (img_width, img_height) =
+        crate::image::scale_to_fit(image_info.width, image_info.height, max_width, max_height);
 
     let (x, y) = match position {
-        WatermarkPosition::Center => {
-            ((layout.width - img_width) / 2.0, (layout.height - img_height) / 2.0)
-        }
-        WatermarkPosition::TopLeft => {
-            (36.0, layout.height - img_height - 36.0)
-        }
-        WatermarkPosition::TopRight => {
-            (layout.width - img_width - 36.0, layout.height - img_height - 36.0)
-        }
-        WatermarkPosition::BottomLeft => {
-            (36.0, 36.0)
-        }
-        WatermarkPosition::BottomRight => {
-            (layout.width - img_width - 36.0, 36.0)
-        }
-        WatermarkPosition::Diagonal => {
-            ((layout.width - img_width) / 2.0, (layout.height - img_height) / 2.0)
-        }
+        WatermarkPosition::Center => (
+            (layout.width - img_width) / 2.0,
+            (layout.height - img_height) / 2.0,
+        ),
+        WatermarkPosition::TopLeft => (36.0, layout.height - img_height - 36.0),
+        WatermarkPosition::TopRight => (
+            layout.width - img_width - 36.0,
+            layout.height - img_height - 36.0,
+        ),
+        WatermarkPosition::BottomLeft => (36.0, 36.0),
+        WatermarkPosition::BottomRight => (layout.width - img_width - 36.0, 36.0),
+        WatermarkPosition::Diagonal => (
+            (layout.width - img_width) / 2.0,
+            (layout.height - img_height) / 2.0,
+        ),
     };
 
     let mut stream = Vec::new();
@@ -885,7 +870,8 @@ fn build_image_watermark_stream(
         stream.extend_from_slice(format!("{} {} {} rg\n", opacity, opacity, opacity).as_bytes());
     }
     stream.extend_from_slice(b"q\n");
-    stream.extend_from_slice(format!("{} 0 0 {} {} {} cm\n", img_width, img_height, x, y).as_bytes());
+    stream
+        .extend_from_slice(format!("{} 0 0 {} {} {} cm\n", img_width, img_height, x, y).as_bytes());
     stream.extend_from_slice(b"/Im1 Do\n");
     stream.extend_from_slice(b"Q\n");
     stream.extend_from_slice(b"Q\n");
@@ -944,10 +930,13 @@ pub(crate) fn escape_pdf_meta(s: &str) -> String {
 
 pub(super) fn extract_pdf_dict_value(dict: &str, key: &str) -> Option<String> {
     // Search for key as a standalone token (followed by whitespace or end)
-    let pos = dict.match_indices(key)
+    let pos = dict
+        .match_indices(key)
         .find(|(i, _)| {
             let end = i + key.len();
-            end == dict.len() || dict[end..].starts_with(|c: char| c.is_whitespace() || c == '(' || c == '<' || c == '[')
+            end == dict.len()
+                || dict[end..]
+                    .starts_with(|c: char| c.is_whitespace() || c == '(' || c == '<' || c == '[')
         })
         .map(|(i, _)| i)?;
     let after = dict[pos + key.len()..].trim_start();
@@ -962,10 +951,14 @@ pub(super) fn extract_pdf_dict_value(dict: &str, key: &str) -> Option<String> {
         Some(after[..=end].to_string())
     } else if let Some(name_after) = after.strip_prefix('/') {
         // PDF name: /Name
-        let end = name_after.find(|c: char| c.is_whitespace() || c == '/' || c == '>' || c == '[').unwrap_or(name_after.len());
+        let end = name_after
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '>' || c == '[')
+            .unwrap_or(name_after.len());
         Some(name_after[..end].to_string())
     } else {
-        let end = after.find(|c: char| c.is_whitespace() || c == '/' || c == '>').unwrap_or(after.len());
+        let end = after
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+            .unwrap_or(after.len());
         Some(after[..end].to_string())
     }
 }
@@ -997,7 +990,8 @@ pub fn extract_images_from_pdf(input_path: &str, output_dir: &str) -> Result<Vec
         };
 
         // Check if this is an image XObject
-        let is_image = dictionary.get("Subtype")
+        let is_image = dictionary
+            .get("Subtype")
             .and_then(|v| match v {
                 PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
                 _ => None,
@@ -1010,11 +1004,10 @@ pub fn extract_images_from_pdf(input_path: &str, output_dir: &str) -> Result<Vec
         }
 
         // Determine format from /Filter
-        let filter = dictionary.get("Filter")
-            .and_then(|v| match v {
-                PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
-                _ => None,
-            });
+        let filter = dictionary.get("Filter").and_then(|v| match v {
+            PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
+            _ => None,
+        });
 
         let (ext, raw_data) = match filter {
             Some("/DCTDecode") | Some("DCTDecode") => {
@@ -1132,10 +1125,12 @@ mod tests {
         let layout = crate::pdf_generator::PageLayout::portrait();
 
         // Test different positions
-        let center_stream = build_text_watermark_stream("TEST", 24.0, 0.5, &layout, WatermarkPosition::Center);
+        let center_stream =
+            build_text_watermark_stream("TEST", 24.0, 0.5, &layout, WatermarkPosition::Center);
         assert!(String::from_utf8_lossy(&center_stream).contains("(TEST) Tj"));
 
-        let diagonal_stream = build_text_watermark_stream("DRAFT", 48.0, 0.3, &layout, WatermarkPosition::Diagonal);
+        let diagonal_stream =
+            build_text_watermark_stream("DRAFT", 48.0, 0.3, &layout, WatermarkPosition::Diagonal);
         let content = String::from_utf8_lossy(&diagonal_stream);
         assert!(content.contains("(DRAFT) Tj"));
         assert!(content.contains("0.707")); // cos(45°)
@@ -1172,7 +1167,8 @@ mod tests {
             alt_text: None,
         };
 
-        let result = build_image_watermark_stream(&image_info, 0.5, &layout, WatermarkPosition::Center);
+        let result =
+            build_image_watermark_stream(&image_info, 0.5, &layout, WatermarkPosition::Center);
         assert!(result.is_ok());
 
         let stream = result.unwrap();
@@ -1185,8 +1181,8 @@ mod tests {
 
 #[cfg(test)]
 mod proptest_tests {
-    use proptest::prelude::*;
     use super::*;
+    use proptest::prelude::*;
 
     proptest! {
         #[test]

@@ -1,6 +1,6 @@
-use std::process::Command;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 /// Helper to run pdfcli commands using the pre-built binary directly.
 /// This avoids `cargo run` build-lock contention when tests run in parallel.
@@ -34,7 +34,11 @@ fn roundtrip_test(md_path: &str, label: &str) {
 
     println!("=== Roundtrip Test: {} ===", label);
     println!("Input: {}", md_file);
-    println!("Original MD length: {} bytes, {} lines", original_md.len(), original_md.lines().count());
+    println!(
+        "Original MD length: {} bytes, {} lines",
+        original_md.len(),
+        original_md.lines().count()
+    );
 
     // Step 1: MD -> PDF
     let (stdout, stderr, success) = run_pdf_cli(&["md-to-pdf", &md_file, &pdf_file]);
@@ -43,7 +47,11 @@ fn roundtrip_test(md_path: &str, label: &str) {
         println!("[MD->PDF] stderr: {}", stderr.trim());
     }
     assert!(success, "md-to-pdf failed for {}", label);
-    assert!(Path::new(&pdf_file).exists(), "PDF file not created: {}", pdf_file);
+    assert!(
+        Path::new(&pdf_file).exists(),
+        "PDF file not created: {}",
+        pdf_file
+    );
 
     let pdf_size = fs::metadata(&pdf_file).unwrap().len();
     println!("[MD->PDF] PDF size: {} bytes", pdf_size);
@@ -56,14 +64,23 @@ fn roundtrip_test(md_path: &str, label: &str) {
         println!("[PDF->MD] stderr: {}", stderr.trim());
     }
     assert!(success, "pdf-to-md failed for {}", label);
-    assert!(Path::new(&out_md_file).exists(), "Output MD file not created: {}", out_md_file);
+    assert!(
+        Path::new(&out_md_file).exists(),
+        "Output MD file not created: {}",
+        out_md_file
+    );
 
     let roundtrip_md = fs::read_to_string(&out_md_file).unwrap();
-    println!("[PDF->MD] Roundtrip MD length: {} bytes, {} lines", roundtrip_md.len(), roundtrip_md.lines().count());
+    println!(
+        "[PDF->MD] Roundtrip MD length: {} bytes, {} lines",
+        roundtrip_md.len(),
+        roundtrip_md.lines().count()
+    );
 
     // Step 3: Validate roundtrip content
     // We check that key content from the original is present in the roundtrip output
-    let original_lines: Vec<&str> = original_md.lines()
+    let original_lines: Vec<&str> = original_md
+        .lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty())
         .filter(|l| !l.starts_with("```"))
@@ -74,7 +91,8 @@ fn roundtrip_test(md_path: &str, label: &str) {
         .collect();
 
     // Extract plain text words from original (strip markdown syntax)
-    let original_words: Vec<String> = original_lines.iter()
+    let original_words: Vec<String> = original_lines
+        .iter()
         .flat_map(|line| {
             let clean = line
                 .replace("**", "")
@@ -83,7 +101,8 @@ fn roundtrip_test(md_path: &str, label: &str) {
                 .replace("#", "")
                 .replace("- ", "")
                 .replace("> ", "");
-            clean.split_whitespace()
+            clean
+                .split_whitespace()
                 .filter(|w| w.len() > 3)
                 .map(|w| w.to_string())
                 .collect::<Vec<_>>()
@@ -95,8 +114,13 @@ fn roundtrip_test(md_path: &str, label: &str) {
     let mut checked = 0;
     for word in &original_words {
         // Skip markdown-specific tokens and short words
-        if word.contains('|') || word.contains('[') || word.contains(']')
-            || word.contains('(') || word.contains(')') || word.len() < 4 {
+        if word.contains('|')
+            || word.contains('[')
+            || word.contains(']')
+            || word.contains('(')
+            || word.contains(')')
+            || word.len() < 4
+        {
             continue;
         }
         checked += 1;
@@ -105,8 +129,15 @@ fn roundtrip_test(md_path: &str, label: &str) {
         }
     }
 
-    let recovery_rate = if checked > 0 { (found as f64 / checked as f64) * 100.0 } else { 0.0 };
-    println!("[Validation] Words checked: {}, found: {}, recovery rate: {:.1}%", checked, found, recovery_rate);
+    let recovery_rate = if checked > 0 {
+        (found as f64 / checked as f64) * 100.0
+    } else {
+        0.0
+    };
+    println!(
+        "[Validation] Words checked: {}, found: {}, recovery rate: {:.1}%",
+        checked, found, recovery_rate
+    );
 
     // Print first 20 lines of roundtrip output for inspection
     println!("\n--- Roundtrip output (first 20 lines) ---");
@@ -117,7 +148,11 @@ fn roundtrip_test(md_path: &str, label: &str) {
 
     // We expect at least some content to survive the roundtrip
     // The exact threshold depends on how well the PDF parser works
-    assert!(roundtrip_md.len() > 0, "Roundtrip output is empty for {}", label);
+    assert!(
+        roundtrip_md.len() > 0,
+        "Roundtrip output is empty for {}",
+        label
+    );
     println!("=== PASSED: {} ===\n", label);
 }
 
@@ -174,8 +209,15 @@ fn test_roundtrip_landscape() {
     assert!(success, "pdf-to-md failed for landscape");
 
     let roundtrip = fs::read_to_string(&out_md_file).unwrap();
-    println!("[Landscape] Roundtrip MD: {} bytes, {} lines", roundtrip.len(), roundtrip.lines().count());
-    assert!(roundtrip.len() > 100, "Landscape roundtrip output too short");
+    println!(
+        "[Landscape] Roundtrip MD: {} bytes, {} lines",
+        roundtrip.len(),
+        roundtrip.lines().count()
+    );
+    assert!(
+        roundtrip.len() > 100,
+        "Landscape roundtrip output too short"
+    );
     assert!(roundtrip.contains("Enhanced Markdown Features Demo"));
     println!("=== PASSED: landscape ===");
 }
@@ -212,7 +254,10 @@ fn test_merge_pdfs() {
     let text = fs::read_to_string(&merged_md).unwrap();
 
     // Should contain content from both source files
-    assert!(text.contains("Test Document") || text.contains("Features"), "Merged PDF missing content from source A");
+    assert!(
+        text.contains("Test Document") || text.contains("Features"),
+        "Merged PDF missing content from source A"
+    );
     println!("=== PASSED: merge ===");
 }
 
@@ -232,7 +277,9 @@ fn test_split_pdf() {
     assert!(ok, "Failed to create source PDF");
 
     // Split: extract page 1 only
-    let (stdout, _, ok) = run_pdf_cli(&["split", &pdf_src, "-o", &pdf_split, "--start", "1", "--end", "1"]);
+    let (stdout, _, ok) = run_pdf_cli(&[
+        "split", &pdf_src, "-o", &pdf_split, "--start", "1", "--end", "1",
+    ]);
     assert!(ok, "Split failed");
     println!("[split] {}", stdout.trim());
     assert!(Path::new(&pdf_split).exists());
@@ -255,11 +302,17 @@ fn test_metadata_pdf() {
     let pdf_out = format!("{}/meta_test.pdf", out_dir);
 
     let (_, _, ok) = run_pdf_cli(&[
-        "md-to-pdf-meta", &md_src, &pdf_out,
-        "--title", "Integration Test",
-        "--author", "pdf-cli-test",
-        "--subject", "Testing metadata embedding",
-        "--keywords", "test,pdf,metadata",
+        "md-to-pdf-meta",
+        &md_src,
+        &pdf_out,
+        "--title",
+        "Integration Test",
+        "--author",
+        "pdf-cli-test",
+        "--subject",
+        "Testing metadata embedding",
+        "--keywords",
+        "test,pdf,metadata",
     ]);
     assert!(ok, "md-to-pdf-meta failed");
     assert!(Path::new(&pdf_out).exists());
@@ -267,9 +320,18 @@ fn test_metadata_pdf() {
     // Read raw PDF bytes and check metadata strings are present
     let raw_bytes = fs::read(&pdf_out).unwrap();
     let raw = String::from_utf8_lossy(&raw_bytes);
-    assert!(raw.contains("/Title (Integration Test)"), "Title not found in PDF");
-    assert!(raw.contains("/Author (pdf-cli-test)"), "Author not found in PDF");
-    assert!(raw.contains("/Producer (pdf-cli)"), "Producer not found in PDF");
+    assert!(
+        raw.contains("/Title (Integration Test)"),
+        "Title not found in PDF"
+    );
+    assert!(
+        raw.contains("/Author (pdf-cli-test)"),
+        "Author not found in PDF"
+    );
+    assert!(
+        raw.contains("/Producer (pdf-cli)"),
+        "Producer not found in PDF"
+    );
     println!("=== PASSED: metadata ===");
 }
 
@@ -320,7 +382,14 @@ fn test_watermark_pdf() {
     let (_, _, ok) = run_pdf_cli(&["md-to-pdf", &md_src, &pdf_src]);
     assert!(ok, "Failed to create source PDF");
 
-    let (stdout, _, ok) = run_pdf_cli(&["watermark", &pdf_src, "-o", &pdf_wm, "--text", "CONFIDENTIAL"]);
+    let (stdout, _, ok) = run_pdf_cli(&[
+        "watermark",
+        &pdf_src,
+        "-o",
+        &pdf_wm,
+        "--text",
+        "CONFIDENTIAL",
+    ]);
     assert!(ok, "Watermark failed");
     println!("[watermark] {}", stdout.trim());
     assert!(Path::new(&pdf_wm).exists());
@@ -328,7 +397,10 @@ fn test_watermark_pdf() {
     // Verify watermark text is in the PDF
     let raw = fs::read(&pdf_wm).unwrap();
     let content = String::from_utf8_lossy(&raw);
-    assert!(content.contains("CONFIDENTIAL"), "Watermark text not found in PDF");
+    assert!(
+        content.contains("CONFIDENTIAL"),
+        "Watermark text not found in PDF"
+    );
     println!("=== PASSED: watermark ===");
 }
 
@@ -388,10 +460,14 @@ fn test_full_features_roundtrip() {
     assert!(raw_str.contains("%%EOF"), "Missing EOF marker");
 
     // Count pages (should be multi-page due to content + pagebreak)
-    let page_count = raw_str.matches("/Type /Page\n").count()
-        + raw_str.matches("/Type /Page\r").count();
+    let page_count =
+        raw_str.matches("/Type /Page\n").count() + raw_str.matches("/Type /Page\r").count();
     println!("[full_features] Page objects found: {}", page_count);
-    assert!(page_count >= 4, "Expected at least 4 pages, got {}", page_count);
+    assert!(
+        page_count >= 4,
+        "Expected at least 4 pages, got {}",
+        page_count
+    );
 
     // Step 3: PDF -> MD round-trip
     let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
@@ -468,7 +544,10 @@ fn test_full_features_roundtrip() {
         missing.len(),
         missing
     );
-    println!("[full_features] All {} content checks passed", must_contain.len());
+    println!(
+        "[full_features] All {} content checks passed",
+        must_contain.len()
+    );
     println!("=== PASSED: full_features_roundtrip ===");
 }
 
@@ -483,11 +562,17 @@ fn test_full_features_landscape_metadata() {
 
     // Generate landscape PDF with metadata
     let (_, _, ok) = run_pdf_cli(&[
-        "md-to-pdf-meta", &md_src, &pdf_out,
-        "--title", "Full Features Showcase",
-        "--author", "pdf-rs test suite",
-        "--subject", "Integration testing",
-        "--keywords", "pdf,rust,test,library",
+        "md-to-pdf-meta",
+        &md_src,
+        &pdf_out,
+        "--title",
+        "Full Features Showcase",
+        "--author",
+        "pdf-rs test suite",
+        "--subject",
+        "Integration testing",
+        "--keywords",
+        "pdf,rust,test,library",
         "--landscape",
     ]);
     assert!(ok, "md-to-pdf-meta --landscape failed");
@@ -500,9 +585,18 @@ fn test_full_features_landscape_metadata() {
     assert!(content.contains("612"), "Missing landscape height 612");
 
     // Verify metadata
-    assert!(content.contains("/Title (Full Features Showcase)"), "Title missing");
-    assert!(content.contains("/Author (pdf-rs test suite)"), "Author missing");
-    assert!(content.contains("/Subject (Integration testing)"), "Subject missing");
+    assert!(
+        content.contains("/Title (Full Features Showcase)"),
+        "Title missing"
+    );
+    assert!(
+        content.contains("/Author (pdf-rs test suite)"),
+        "Author missing"
+    );
+    assert!(
+        content.contains("/Subject (Integration testing)"),
+        "Subject missing"
+    );
     assert!(content.contains("/Producer (pdf-cli)"), "Producer missing");
 
     // Verify content survived
@@ -529,10 +623,16 @@ fn test_full_features_watermark() {
 
     // Apply watermark
     let (_, _, ok) = run_pdf_cli(&[
-        "watermark", &pdf_src, "-o", &pdf_wm,
-        "--text", "DRAFT",
-        "--size", "60",
-        "--opacity", "0.2",
+        "watermark",
+        &pdf_src,
+        "-o",
+        &pdf_wm,
+        "--text",
+        "DRAFT",
+        "--size",
+        "60",
+        "--opacity",
+        "0.2",
     ]);
     assert!(ok, "Watermark failed");
 
@@ -541,7 +641,10 @@ fn test_full_features_watermark() {
     assert!(content.contains("DRAFT"), "Watermark text not found");
 
     // Original content should still be present
-    assert!(content.contains("fibonacci"), "Original content lost after watermark");
+    assert!(
+        content.contains("fibonacci"),
+        "Original content lost after watermark"
+    );
 
     println!("[watermark] Watermarked PDF size: {} bytes", raw.len());
     println!("=== PASSED: full_features_watermark ===");
@@ -558,25 +661,62 @@ fn test_library_api_generate_validate() {
 
     // Step 1: Parse markdown into elements
     let elements = pdfrs::elements::parse_markdown(&md_content);
-    println!("[lib_api] Parsed {} elements from full_features.md", elements.len());
-    assert!(elements.len() > 50, "Expected many elements, got {}", elements.len());
+    println!(
+        "[lib_api] Parsed {} elements from full_features.md",
+        elements.len()
+    );
+    assert!(
+        elements.len() > 50,
+        "Expected many elements, got {}",
+        elements.len()
+    );
 
     // Verify element type diversity
-    let has_heading = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Heading { .. }));
-    let has_paragraph = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Paragraph { .. }));
-    let has_list = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::UnorderedListItem { .. }));
-    let has_ordered = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::OrderedListItem { .. }));
-    let has_task = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::TaskListItem { .. }));
-    let has_code = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::CodeBlock { .. }));
-    let has_table = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::TableRow { .. }));
-    let has_quote = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::BlockQuote { .. }));
-    let has_def = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::DefinitionItem { .. }));
-    let has_footnote = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Footnote { .. }));
-    let has_link = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Link { .. }));
-    let has_image = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::Image { .. }));
-    let has_hr = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::HorizontalRule));
-    let has_pagebreak = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::PageBreak));
-    let has_empty = elements.iter().any(|e| matches!(e, pdfrs::elements::Element::EmptyLine));
+    let has_heading = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::Heading { .. }));
+    let has_paragraph = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::Paragraph { .. }));
+    let has_list = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::UnorderedListItem { .. }));
+    let has_ordered = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::OrderedListItem { .. }));
+    let has_task = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::TaskListItem { .. }));
+    let has_code = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::CodeBlock { .. }));
+    let has_table = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::TableRow { .. }));
+    let has_quote = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::BlockQuote { .. }));
+    let has_def = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::DefinitionItem { .. }));
+    let has_footnote = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::Footnote { .. }));
+    let has_link = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::Link { .. }));
+    let has_image = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::Image { .. }));
+    let has_hr = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::HorizontalRule));
+    let has_pagebreak = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::PageBreak));
+    let has_empty = elements
+        .iter()
+        .any(|e| matches!(e, pdfrs::elements::Element::EmptyLine));
 
     assert!(has_heading, "Missing Heading elements");
     assert!(has_paragraph, "Missing Paragraph elements");
@@ -599,34 +739,68 @@ fn test_library_api_generate_validate() {
     let layout = pdfrs::pdf_generator::PageLayout::portrait();
     let examples_dir = format!("{}/examples", base);
     let pdf_bytes = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
-        &elements, "Helvetica", 12.0, layout, &examples_dir,
-    ).expect("generate_pdf_bytes failed");
+        &elements,
+        "Helvetica",
+        12.0,
+        layout,
+        &examples_dir,
+    )
+    .expect("generate_pdf_bytes failed");
     println!("[lib_api] Generated {} bytes of PDF", pdf_bytes.len());
-    assert!(pdf_bytes.len() > 5000, "PDF too small: {} bytes", pdf_bytes.len());
+    assert!(
+        pdf_bytes.len() > 5000,
+        "PDF too small: {} bytes",
+        pdf_bytes.len()
+    );
 
     // Step 3: Validate PDF structure
     let validation = pdfrs::pdf::validate_pdf_bytes(&pdf_bytes);
-    println!("[lib_api] Validation: valid={}, pages={}, objects={}, errors={:?}, warnings={:?}",
-        validation.valid, validation.page_count, validation.object_count,
-        validation.errors, validation.warnings);
-    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
-    assert!(validation.page_count >= 4, "Expected >= 4 pages, got {}", validation.page_count);
-    assert!(validation.object_count > 10, "Expected many objects, got {}", validation.object_count);
+    println!(
+        "[lib_api] Validation: valid={}, pages={}, objects={}, errors={:?}, warnings={:?}",
+        validation.valid,
+        validation.page_count,
+        validation.object_count,
+        validation.errors,
+        validation.warnings
+    );
+    assert!(
+        validation.valid,
+        "PDF validation failed: {:?}",
+        validation.errors
+    );
+    assert!(
+        validation.page_count >= 4,
+        "Expected >= 4 pages, got {}",
+        validation.page_count
+    );
+    assert!(
+        validation.object_count > 10,
+        "Expected many objects, got {}",
+        validation.object_count
+    );
 
     // Step 4: Verify content strings in raw PDF bytes
     let content = String::from_utf8_lossy(&pdf_bytes);
     let content_checks = vec![
-        "Full Feature Showcase", "fibonacci", "quicksort",
-        "Completed task", "Pending task",
-        "First item at depth zero", "Deep nested",
+        "Full Feature Showcase",
+        "fibonacci",
+        "quicksort",
+        "Completed task",
+        "Pending task",
+        "First item at depth zero",
+        "Deep nested",
         "systems programming language",
-        "rust-lang.org", "Rust Logo",
+        "rust-lang.org",
+        "Rust Logo",
         "new page after the break",
     ];
     for s in &content_checks {
         assert!(content.contains(s), "PDF bytes missing content: '{}'", s);
     }
-    println!("[lib_api] All {} content checks passed", content_checks.len());
+    println!(
+        "[lib_api] All {} content checks passed",
+        content_checks.len()
+    );
 
     // Step 5: Write to disk for manual inspection
     let out_path = format!("{}/lib_api_generated.pdf", out_dir);
@@ -656,11 +830,25 @@ fn test_technical_report_complex_roundtrip() {
     // Step 2: Validate PDF structure via library API
     let raw = fs::read(&pdf_out).unwrap();
     let validation = pdfrs::pdf::validate_pdf_bytes(&raw);
-    println!("[tech_report] valid={}, pages={}, objects={}, errors={:?}",
-        validation.valid, validation.page_count, validation.object_count, validation.errors);
-    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
-    assert!(validation.page_count >= 6, "Expected >= 6 pages, got {}", validation.page_count);
-    assert!(validation.object_count > 15, "Expected many objects, got {}", validation.object_count);
+    println!(
+        "[tech_report] valid={}, pages={}, objects={}, errors={:?}",
+        validation.valid, validation.page_count, validation.object_count, validation.errors
+    );
+    assert!(
+        validation.valid,
+        "PDF validation failed: {:?}",
+        validation.errors
+    );
+    assert!(
+        validation.page_count >= 6,
+        "Expected >= 6 pages, got {}",
+        validation.page_count
+    );
+    assert!(
+        validation.object_count > 15,
+        "Expected many objects, got {}",
+        validation.object_count
+    );
 
     // Step 3: PDF -> MD round-trip
     let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
@@ -683,21 +871,37 @@ fn test_technical_report_complex_roundtrip() {
         "99.97%",
         "47%",
         // Tables
-        "gRPC", "Kafka", "NATS", "Redis",
-        "API Gateway", "Order Engine", "Inventory", "Pricing",
-        "847,000", "2,482,000",
-        "BM-001", "BM-005",
+        "gRPC",
+        "Kafka",
+        "NATS",
+        "Redis",
+        "API Gateway",
+        "Order Engine",
+        "Inventory",
+        "Pricing",
+        "847,000",
+        "2,482,000",
+        "BM-001",
+        "BM-005",
         // Code blocks (Rust)
-        "LoadGenerator", "Semaphore", "BenchmarkResult",
-        "target_rps", "concurrency",
+        "LoadGenerator",
+        "Semaphore",
+        "BenchmarkResult",
+        "target_rps",
+        "concurrency",
         // Code blocks (Python)
-        "LatencyDistribution", "confidence_interval",
+        "LatencyDistribution",
+        "confidence_interval",
         "np.percentile",
         // Code blocks (YAML)
-        "HorizontalPodAutoscaler", "order-engine",
-        "minReplicas", "maxReplicas",
+        "HorizontalPodAutoscaler",
+        "order-engine",
+        "minReplicas",
+        "maxReplicas",
         // Ordered lists with nesting
-        "Gateway Layer", "Core Business Logic", "Data Pipeline",
+        "Gateway Layer",
+        "Core Business Logic",
+        "Data Pipeline",
         "API Gateway with rate limiting",
         "Event ingestion",
         // Task lists
@@ -723,7 +927,8 @@ fn test_technical_report_complex_roundtrip() {
         // Page break content
         "Raw Benchmark Data",
         // Cost table
-        "142,000", "318,000",
+        "142,000",
+        "318,000",
     ];
 
     let mut missing = Vec::new();
@@ -736,9 +941,13 @@ fn test_technical_report_complex_roundtrip() {
     assert!(
         missing.is_empty(),
         "[tech_report] Round-trip missing {} items: {:?}",
-        missing.len(), missing
+        missing.len(),
+        missing
     );
-    println!("[tech_report] All {} content checks passed", must_contain.len());
+    println!(
+        "[tech_report] All {} content checks passed",
+        must_contain.len()
+    );
     println!("=== PASSED: technical_report_complex_roundtrip ===");
 }
 
@@ -762,10 +971,20 @@ fn test_api_reference_complex_roundtrip() {
     // Step 2: Validate PDF structure via library API
     let raw = fs::read(&pdf_out).unwrap();
     let validation = pdfrs::pdf::validate_pdf_bytes(&raw);
-    println!("[api_ref] valid={}, pages={}, objects={}, errors={:?}",
-        validation.valid, validation.page_count, validation.object_count, validation.errors);
-    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
-    assert!(validation.page_count >= 8, "Expected >= 8 pages, got {}", validation.page_count);
+    println!(
+        "[api_ref] valid={}, pages={}, objects={}, errors={:?}",
+        validation.valid, validation.page_count, validation.object_count, validation.errors
+    );
+    assert!(
+        validation.valid,
+        "PDF validation failed: {:?}",
+        validation.errors
+    );
+    assert!(
+        validation.page_count >= 8,
+        "Expected >= 8 pages, got {}",
+        validation.page_count
+    );
 
     // Step 3: PDF -> MD round-trip
     let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
@@ -785,27 +1004,55 @@ fn test_api_reference_complex_roundtrip() {
         "Error Handling",
         "Usage Examples",
         // Element enum variants in code blocks
-        "Heading", "Paragraph", "CodeBlock", "BlockQuote",
-        "UnorderedListItem", "OrderedListItem", "TaskListItem",
-        "InlineCode", "Link", "Image", "StyledText",
-        "TableRow", "DefinitionItem", "Footnote",
-        "HorizontalRule", "PageBreak", "EmptyLine",
+        "Heading",
+        "Paragraph",
+        "CodeBlock",
+        "BlockQuote",
+        "UnorderedListItem",
+        "OrderedListItem",
+        "TaskListItem",
+        "InlineCode",
+        "Link",
+        "Image",
+        "StyledText",
+        "TableRow",
+        "DefinitionItem",
+        "Footnote",
+        "HorizontalRule",
+        "PageBreak",
+        "EmptyLine",
         // Function signatures
-        "parse_markdown", "strip_inline_formatting",
-        "validate_pdf", "validate_pdf_bytes",
-        "generate_pdf_bytes", "extract_text",
+        "parse_markdown",
+        "strip_inline_formatting",
+        "validate_pdf",
+        "validate_pdf_bytes",
+        "generate_pdf_bytes",
+        "extract_text",
         // Types
-        "PdfDocument", "PdfValidation", "PageLayout", "Color",
-        "TextAlign", "PdfMetadata",
-        "TextAnnotation", "LinkAnnotation", "HighlightAnnotation",
+        "PdfDocument",
+        "PdfValidation",
+        "PageLayout",
+        "Color",
+        "TextAlign",
+        "PdfMetadata",
+        "TextAnnotation",
+        "LinkAnnotation",
+        "HighlightAnnotation",
         // Tables
-        "elements", "pdf_generator", "pdf_ops", "markdown",
-        "compression", "security",
+        "elements",
+        "pdf_generator",
+        "pdf_ops",
+        "markdown",
+        "compression",
+        "security",
         // Code examples
-        "Helvetica", "portrait",
-        "assert!", "validation.valid",
+        "Helvetica",
+        "portrait",
+        "assert!",
+        "validation.valid",
         // Definition items
-        "612 x 792", "792 x 612",
+        "612 x 792",
+        "792 x 612",
         "positioned text note",
         "clickable rectangular region",
         "colored highlight overlay",
@@ -813,7 +1060,8 @@ fn test_api_reference_complex_roundtrip() {
         "17 element variants",
         "In-memory validation",
         // Feature matrix
-        "FlateDecode", "DCTDecode",
+        "FlateDecode",
+        "DCTDecode",
         // Blockquotes
         "primary library API",
         "Best Practice",
@@ -830,7 +1078,8 @@ fn test_api_reference_complex_roundtrip() {
     assert!(
         missing.is_empty(),
         "[api_ref] Round-trip missing {} items: {:?}",
-        missing.len(), missing
+        missing.len(),
+        missing
     );
     println!("[api_ref] All {} content checks passed", must_contain.len());
     println!("=== PASSED: api_reference_complex_roundtrip ===");
@@ -851,50 +1100,88 @@ fn test_complex_examples_library_api_batch() {
 
     for (filename, min_elements, min_pages) in &examples {
         let md_path = format!("{}/examples/{}", base, filename);
-        let md_content = fs::read_to_string(&md_path)
-            .unwrap_or_else(|_| panic!("Failed to read {}", md_path));
+        let md_content =
+            fs::read_to_string(&md_path).unwrap_or_else(|_| panic!("Failed to read {}", md_path));
 
         // Parse
         let elements = pdfrs::elements::parse_markdown(&md_content);
         println!("[batch:{}] Parsed {} elements", filename, elements.len());
         assert!(
             elements.len() >= *min_elements,
-            "{}: expected >= {} elements, got {}", filename, min_elements, elements.len()
+            "{}: expected >= {} elements, got {}",
+            filename,
+            min_elements,
+            elements.len()
         );
 
         // Generate portrait (resolve images relative to examples/)
         let examples_dir = format!("{}/examples", base);
         let layout_p = pdfrs::pdf_generator::PageLayout::portrait();
         let bytes_p = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
-            &elements, "Helvetica", 12.0, layout_p, &examples_dir,
-        ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes portrait failed: {}", filename, e));
+            &elements,
+            "Helvetica",
+            12.0,
+            layout_p,
+            &examples_dir,
+        )
+        .unwrap_or_else(|e| panic!("{}: generate_pdf_bytes portrait failed: {}", filename, e));
 
         // Validate portrait
         let val_p = pdfrs::pdf::validate_pdf_bytes(&bytes_p);
-        assert!(val_p.valid, "{} portrait validation failed: {:?}", filename, val_p.errors);
+        assert!(
+            val_p.valid,
+            "{} portrait validation failed: {:?}",
+            filename, val_p.errors
+        );
         assert!(
             val_p.page_count >= *min_pages,
-            "{}: expected >= {} pages, got {}", filename, min_pages, val_p.page_count
+            "{}: expected >= {} pages, got {}",
+            filename,
+            min_pages,
+            val_p.page_count
         );
-        println!("[batch:{}] Portrait: {} bytes, {} pages, {} objects",
-            filename, bytes_p.len(), val_p.page_count, val_p.object_count);
+        println!(
+            "[batch:{}] Portrait: {} bytes, {} pages, {} objects",
+            filename,
+            bytes_p.len(),
+            val_p.page_count,
+            val_p.object_count
+        );
 
         // Generate landscape
         let layout_l = pdfrs::pdf_generator::PageLayout::landscape();
         let bytes_l = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
-            &elements, "Times-Roman", 11.0, layout_l, &examples_dir,
-        ).unwrap_or_else(|e| panic!("{}: generate_pdf_bytes landscape failed: {}", filename, e));
+            &elements,
+            "Times-Roman",
+            11.0,
+            layout_l,
+            &examples_dir,
+        )
+        .unwrap_or_else(|e| panic!("{}: generate_pdf_bytes landscape failed: {}", filename, e));
 
         // Validate landscape
         let val_l = pdfrs::pdf::validate_pdf_bytes(&bytes_l);
-        assert!(val_l.valid, "{} landscape validation failed: {:?}", filename, val_l.errors);
-        println!("[batch:{}] Landscape: {} bytes, {} pages, {} objects",
-            filename, bytes_l.len(), val_l.page_count, val_l.object_count);
+        assert!(
+            val_l.valid,
+            "{} landscape validation failed: {:?}",
+            filename, val_l.errors
+        );
+        println!(
+            "[batch:{}] Landscape: {} bytes, {} pages, {} objects",
+            filename,
+            bytes_l.len(),
+            val_l.page_count,
+            val_l.object_count
+        );
 
         // Write both for manual inspection
         let stem = filename.replace(".md", "");
         fs::write(format!("{}/batch_{}_portrait.pdf", out_dir, stem), &bytes_p).unwrap();
-        fs::write(format!("{}/batch_{}_landscape.pdf", out_dir, stem), &bytes_l).unwrap();
+        fs::write(
+            format!("{}/batch_{}_landscape.pdf", out_dir, stem),
+            &bytes_l,
+        )
+        .unwrap();
     }
 
     println!("=== PASSED: complex_examples_library_api_batch ===");
@@ -920,10 +1207,20 @@ fn test_math_and_formulas_roundtrip() {
     // Step 2: Validate PDF structure
     let raw = fs::read(&pdf_out).unwrap();
     let validation = pdfrs::pdf::validate_pdf_bytes(&raw);
-    println!("[math] valid={}, pages={}, objects={}, errors={:?}",
-        validation.valid, validation.page_count, validation.object_count, validation.errors);
-    assert!(validation.valid, "PDF validation failed: {:?}", validation.errors);
-    assert!(validation.page_count >= 5, "Expected >= 5 pages, got {}", validation.page_count);
+    println!(
+        "[math] valid={}, pages={}, objects={}, errors={:?}",
+        validation.valid, validation.page_count, validation.object_count, validation.errors
+    );
+    assert!(
+        validation.valid,
+        "PDF validation failed: {:?}",
+        validation.errors
+    );
+    assert!(
+        validation.page_count >= 5,
+        "Expected >= 5 pages, got {}",
+        validation.page_count
+    );
 
     // Step 3: PDF -> MD round-trip
     let (_, _, ok) = run_pdf_cli(&["pdf-to-md", &pdf_out, &md_out]);
@@ -952,10 +1249,17 @@ fn test_math_and_formulas_roundtrip() {
         "np.linalg.svd",
         "gradient_descent",
         // Tables
-        "Sigmoid", "Tanh", "ReLU", "Softmax",
-        "Gradient Descent", "Backpropagation",
-        "Bayes", "Cross-Entropy", "Attention",
-        "KL Divergence", "Fourier",
+        "Sigmoid",
+        "Tanh",
+        "ReLU",
+        "Softmax",
+        "Gradient Descent",
+        "Backpropagation",
+        "Bayes",
+        "Cross-Entropy",
+        "Attention",
+        "KL Divergence",
+        "Fourier",
         // Definitions and terms
         "Optimization",
         "Transformers",
@@ -974,7 +1278,8 @@ fn test_math_and_formulas_roundtrip() {
     assert!(
         missing.is_empty(),
         "[math] Round-trip missing {} items: {:?}",
-        missing.len(), missing
+        missing.len(),
+        missing
     );
     println!("[math] All {} content checks passed", must_contain.len());
     println!("=== PASSED: math_and_formulas_roundtrip ===");
@@ -1007,46 +1312,74 @@ Regular paragraph after math.
     let elements = pdfrs::elements::parse_markdown(md);
 
     // Check that MathInline and MathBlock elements are parsed
-    let math_inline_count = elements.iter().filter(|e| matches!(e, pdfrs::elements::Element::MathInline { .. })).count();
-    let math_block_count = elements.iter().filter(|e| matches!(e, pdfrs::elements::Element::MathBlock { .. })).count();
+    let math_inline_count = elements
+        .iter()
+        .filter(|e| matches!(e, pdfrs::elements::Element::MathInline { .. }))
+        .count();
+    let math_block_count = elements
+        .iter()
+        .filter(|e| matches!(e, pdfrs::elements::Element::MathBlock { .. }))
+        .count();
 
-    println!("[math_api] Parsed {} elements, {} inline math, {} block math",
-        elements.len(), math_inline_count, math_block_count);
+    println!(
+        "[math_api] Parsed {} elements, {} inline math, {} block math",
+        elements.len(),
+        math_inline_count,
+        math_block_count
+    );
 
-    assert!(math_inline_count >= 1, "Expected at least 1 MathInline, got {}. Elements: {:?}", math_inline_count, elements);
-    assert!(math_block_count >= 2, "Expected at least 2 MathBlock, got {}", math_block_count);
+    assert!(
+        math_inline_count >= 1,
+        "Expected at least 1 MathInline, got {}. Elements: {:?}",
+        math_inline_count,
+        elements
+    );
+    assert!(
+        math_block_count >= 2,
+        "Expected at least 2 MathBlock, got {}",
+        math_block_count
+    );
 
     // Verify specific math content
     let has_inline_emc2 = elements.iter().any(|e| {
         if let pdfrs::elements::Element::MathInline { expression } = e {
             expression.contains("E = mc")
-        } else { false }
+        } else {
+            false
+        }
     });
     assert!(has_inline_emc2, "MathInline with E=mc^2 not found");
 
     let has_block_frac = elements.iter().any(|e| {
         if let pdfrs::elements::Element::MathBlock { expression } = e {
             expression.contains("frac")
-        } else { false }
+        } else {
+            false
+        }
     });
     assert!(has_block_frac, "MathBlock with frac not found");
 
     let has_block_sum = elements.iter().any(|e| {
         if let pdfrs::elements::Element::MathBlock { expression } = e {
             expression.contains("sum")
-        } else { false }
+        } else {
+            false
+        }
     });
     assert!(has_block_sum, "MathBlock with sum not found");
 
     // Generate PDF and validate
     let layout = pdfrs::pdf_generator::PageLayout::portrait();
-    let bytes = pdfrs::pdf_generator::generate_pdf_bytes(
-        &elements, "Helvetica", 12.0, layout,
-    ).unwrap();
+    let bytes =
+        pdfrs::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
 
     let val = pdfrs::pdf::validate_pdf_bytes(&bytes);
     assert!(val.valid, "Math PDF validation failed: {:?}", val.errors);
-    println!("[math_api] Generated {} bytes, {} pages", bytes.len(), val.page_count);
+    println!(
+        "[math_api] Generated {} bytes, {} pages",
+        bytes.len(),
+        val.page_count
+    );
 
     // Check rendered math content in raw PDF
     let content = String::from_utf8_lossy(&bytes);

@@ -14,18 +14,65 @@ fn to_superscript(text: &str) -> Option<String> {
     let mut out = String::new();
     for ch in text.chars() {
         let mapped = match ch {
-            '0' => '⁰', '1' => '¹', '2' => '²', '3' => '³', '4' => '⁴',
-            '5' => '⁵', '6' => '⁶', '7' => '⁷', '8' => '⁸', '9' => '⁹',
-            '+' => '⁺', '-' => '⁻', '=' => '⁼', '(' => '⁽', ')' => '⁾',
-            'a' => 'ᵃ', 'b' => 'ᵇ', 'c' => 'ᶜ', 'd' => 'ᵈ', 'e' => 'ᵉ',
-            'f' => 'ᶠ', 'g' => 'ᵍ', 'h' => 'ʰ', 'i' => 'ⁱ', 'j' => 'ʲ',
-            'k' => 'ᵏ', 'l' => 'ˡ', 'm' => 'ᵐ', 'n' => 'ⁿ', 'o' => 'ᵒ',
-            'p' => 'ᵖ', 'r' => 'ʳ', 's' => 'ˢ', 't' => 'ᵗ', 'u' => 'ᵘ',
-            'v' => 'ᵛ', 'w' => 'ʷ', 'x' => 'ˣ', 'y' => 'ʸ', 'z' => 'ᶻ',
-            'A' => 'ᴬ', 'B' => 'ᴮ', 'D' => 'ᴰ', 'E' => 'ᴱ', 'G' => 'ᴳ',
-            'H' => 'ᴴ', 'I' => 'ᴵ', 'J' => 'ᴶ', 'K' => 'ᴷ', 'L' => 'ᴸ',
-            'M' => 'ᴹ', 'N' => 'ᴺ', 'O' => 'ᴼ', 'P' => 'ᴾ', 'R' => 'ᴿ',
-            'T' => 'ᵀ', 'U' => 'ᵁ', 'V' => 'ⱽ', 'W' => 'ᵂ',
+            '0' => '⁰',
+            '1' => '¹',
+            '2' => '²',
+            '3' => '³',
+            '4' => '⁴',
+            '5' => '⁵',
+            '6' => '⁶',
+            '7' => '⁷',
+            '8' => '⁸',
+            '9' => '⁹',
+            '+' => '⁺',
+            '-' => '⁻',
+            '=' => '⁼',
+            '(' => '⁽',
+            ')' => '⁾',
+            'a' => 'ᵃ',
+            'b' => 'ᵇ',
+            'c' => 'ᶜ',
+            'd' => 'ᵈ',
+            'e' => 'ᵉ',
+            'f' => 'ᶠ',
+            'g' => 'ᵍ',
+            'h' => 'ʰ',
+            'i' => 'ⁱ',
+            'j' => 'ʲ',
+            'k' => 'ᵏ',
+            'l' => 'ˡ',
+            'm' => 'ᵐ',
+            'n' => 'ⁿ',
+            'o' => 'ᵒ',
+            'p' => 'ᵖ',
+            'r' => 'ʳ',
+            's' => 'ˢ',
+            't' => 'ᵗ',
+            'u' => 'ᵘ',
+            'v' => 'ᵛ',
+            'w' => 'ʷ',
+            'x' => 'ˣ',
+            'y' => 'ʸ',
+            'z' => 'ᶻ',
+            'A' => 'ᴬ',
+            'B' => 'ᴮ',
+            'D' => 'ᴰ',
+            'E' => 'ᴱ',
+            'G' => 'ᴳ',
+            'H' => 'ᴴ',
+            'I' => 'ᴵ',
+            'J' => 'ᴶ',
+            'K' => 'ᴷ',
+            'L' => 'ᴸ',
+            'M' => 'ᴹ',
+            'N' => 'ᴺ',
+            'O' => 'ᴼ',
+            'P' => 'ᴾ',
+            'R' => 'ᴿ',
+            'T' => 'ᵀ',
+            'U' => 'ᵁ',
+            'V' => 'ⱽ',
+            'W' => 'ᵂ',
             _ => return None,
         };
         if !is_well_supported(mapped) {
@@ -42,9 +89,21 @@ fn to_subscript(text: &str) -> Option<String> {
     let mut out = String::new();
     for ch in text.chars() {
         let mapped = match ch {
-            '0' => '₀', '1' => '₁', '2' => '₂', '3' => '₃', '4' => '₄',
-            '5' => '₅', '6' => '₆', '7' => '₇', '8' => '₈', '9' => '₉',
-            '+' => '₊', '-' => '₋', '=' => '₌', '(' => '₍', ')' => '₎',
+            '0' => '₀',
+            '1' => '₁',
+            '2' => '₂',
+            '3' => '₃',
+            '4' => '₄',
+            '5' => '₅',
+            '6' => '₆',
+            '7' => '₇',
+            '8' => '₈',
+            '9' => '₉',
+            '+' => '₊',
+            '-' => '₋',
+            '=' => '₌',
+            '(' => '₍',
+            ')' => '₎',
             _ => return None,
         };
         if !is_well_supported(mapped) {
@@ -239,56 +298,116 @@ pub(crate) fn render_math_text(expr: &str) -> String {
 
     // Greek letters
     let greek = [
-        ("\\alpha", "\u{03B1}"), ("\\beta", "\u{03B2}"), ("\\gamma", "\u{03B3}"),
-        ("\\delta", "\u{03B4}"), ("\\epsilon", "\u{03B5}"), ("\\zeta", "\u{03B6}"),
-        ("\\eta", "\u{03B7}"), ("\\theta", "\u{03B8}"), ("\\iota", "\u{03B9}"),
-        ("\\kappa", "\u{03BA}"), ("\\lambda", "\u{03BB}"), ("\\mu", "\u{03BC}"),
-        ("\\nu", "\u{03BD}"), ("\\xi", "\u{03BE}"), ("\\pi", "\u{03C0}"),
-        ("\\rho", "\u{03C1}"), ("\\sigma", "\u{03C3}"), ("\\tau", "\u{03C4}"),
-        ("\\upsilon", "\u{03C5}"), ("\\phi", "\u{03C6}"), ("\\chi", "\u{03C7}"),
-        ("\\psi", "\u{03C8}"), ("\\omega", "\u{03C9}"),
-        ("\\Alpha", "A"), ("\\Beta", "B"), ("\\Gamma", "\u{0393}"),
-        ("\\Delta", "\u{0394}"), ("\\Theta", "\u{0398}"), ("\\Lambda", "\u{039B}"),
-        ("\\Xi", "\u{039E}"), ("\\Pi", "\u{03A0}"), ("\\Sigma", "\u{03A3}"),
-        ("\\Phi", "\u{03A6}"), ("\\Psi", "\u{03A8}"), ("\\Omega", "\u{03A9}"),
+        ("\\alpha", "\u{03B1}"),
+        ("\\beta", "\u{03B2}"),
+        ("\\gamma", "\u{03B3}"),
+        ("\\delta", "\u{03B4}"),
+        ("\\epsilon", "\u{03B5}"),
+        ("\\zeta", "\u{03B6}"),
+        ("\\eta", "\u{03B7}"),
+        ("\\theta", "\u{03B8}"),
+        ("\\iota", "\u{03B9}"),
+        ("\\kappa", "\u{03BA}"),
+        ("\\lambda", "\u{03BB}"),
+        ("\\mu", "\u{03BC}"),
+        ("\\nu", "\u{03BD}"),
+        ("\\xi", "\u{03BE}"),
+        ("\\pi", "\u{03C0}"),
+        ("\\rho", "\u{03C1}"),
+        ("\\sigma", "\u{03C3}"),
+        ("\\tau", "\u{03C4}"),
+        ("\\upsilon", "\u{03C5}"),
+        ("\\phi", "\u{03C6}"),
+        ("\\chi", "\u{03C7}"),
+        ("\\psi", "\u{03C8}"),
+        ("\\omega", "\u{03C9}"),
+        ("\\Alpha", "A"),
+        ("\\Beta", "B"),
+        ("\\Gamma", "\u{0393}"),
+        ("\\Delta", "\u{0394}"),
+        ("\\Theta", "\u{0398}"),
+        ("\\Lambda", "\u{039B}"),
+        ("\\Xi", "\u{039E}"),
+        ("\\Pi", "\u{03A0}"),
+        ("\\Sigma", "\u{03A3}"),
+        ("\\Phi", "\u{03A6}"),
+        ("\\Psi", "\u{03A8}"),
+        ("\\Omega", "\u{03A9}"),
         ("\\ell", "ℓ"),
     ];
 
     // Math operators and symbols — applied longest-first later.
     let operators = [
-        ("\\infty", "∞"), ("\\infinity", "∞"),
-        ("\\pm", "±"), ("\\mp", "∓"),
-        ("\\times", "×"), ("\\cdot", "·"),
-        ("\\div", "÷"), ("\\neq", "≠"), ("\\ne", "≠"),
-        ("\\leq", "≤"), ("\\le", "≤"),
-        ("\\geq", "≥"), ("\\ge", "≥"),
-        ("\\approx", "≈"), ("\\sim", "∼"),
-        ("\\equiv", "≡"), ("\\propto", "∝"),
-        ("\\rightarrow", "→"), ("\\leftarrow", "←"),
+        ("\\infty", "∞"),
+        ("\\infinity", "∞"),
+        ("\\pm", "±"),
+        ("\\mp", "∓"),
+        ("\\times", "×"),
+        ("\\cdot", "·"),
+        ("\\div", "÷"),
+        ("\\neq", "≠"),
+        ("\\ne", "≠"),
+        ("\\leq", "≤"),
+        ("\\le", "≤"),
+        ("\\geq", "≥"),
+        ("\\ge", "≥"),
+        ("\\approx", "≈"),
+        ("\\sim", "∼"),
+        ("\\equiv", "≡"),
+        ("\\propto", "∝"),
+        ("\\rightarrow", "→"),
+        ("\\leftarrow", "←"),
         ("\\to", "→"),
-        ("\\Rightarrow", "⇒"), ("\\Leftarrow", "⇐"),
+        ("\\Rightarrow", "⇒"),
+        ("\\Leftarrow", "⇐"),
         ("\\leftrightarrow", "↔"),
-        ("\\forall", "∀"), ("\\exists", "∃"),
-        ("\\notin", "∉"), ("\\in", "∈"),
-        ("\\subseteq", "⊆"), ("\\supseteq", "⊇"),
-        ("\\subsetneq", "⊊"), ("\\supsetneq", "⊋"),
-        ("\\subset", "⊂"), ("\\supset", "⊃"),
-        ("\\cup", "∪"), ("\\cap", "∩"),
-        ("\\wedge", "∧"), ("\\land", "∧"),
-        ("\\vee", "∨"), ("\\lor", "∨"),
-        ("\\neg", "¬"), ("\\lnot", "¬"),
-        ("\\iff", "⇔"), ("\\implies", "⇒"),
-        ("\\therefore", "∴"), ("\\because", "∵"),
+        ("\\forall", "∀"),
+        ("\\exists", "∃"),
+        ("\\notin", "∉"),
+        ("\\in", "∈"),
+        ("\\subseteq", "⊆"),
+        ("\\supseteq", "⊇"),
+        ("\\subsetneq", "⊊"),
+        ("\\supsetneq", "⊋"),
+        ("\\subset", "⊂"),
+        ("\\supset", "⊃"),
+        ("\\cup", "∪"),
+        ("\\cap", "∩"),
+        ("\\wedge", "∧"),
+        ("\\land", "∧"),
+        ("\\vee", "∨"),
+        ("\\lor", "∨"),
+        ("\\neg", "¬"),
+        ("\\lnot", "¬"),
+        ("\\iff", "⇔"),
+        ("\\implies", "⇒"),
+        ("\\therefore", "∴"),
+        ("\\because", "∵"),
         ("\\emptyset", "∅"),
-        ("\\nabla", "∇"), ("\\partial", "∂"),
-        ("\\ldots", "..."), ("\\cdots", "..."), ("\\dots", "..."),
-        ("\\quad", "  "), ("\\qquad", "    "),
-        ("\\,", " "), ("\\;", " "), ("\\!", ""),
-        ("\\left", ""), ("\\right", ""),
-        ("\\big", ""), ("\\Big", ""), ("\\bigg", ""), ("\\Bigg", ""),
-        ("\\argmax", "argmax"), ("\\argmin", "argmin"),
-        ("\\arg\\max", "argmax"), ("\\arg\\min", "argmin"),
-        ("\\|", "‖"), ("\\vert", "|"), ("\\lvert", "|"), ("\\rvert", "|"),
+        ("\\nabla", "∇"),
+        ("\\partial", "∂"),
+        ("\\ldots", "..."),
+        ("\\cdots", "..."),
+        ("\\dots", "..."),
+        ("\\quad", "  "),
+        ("\\qquad", "    "),
+        ("\\,", " "),
+        ("\\;", " "),
+        ("\\!", ""),
+        ("\\left", ""),
+        ("\\right", ""),
+        ("\\big", ""),
+        ("\\Big", ""),
+        ("\\bigg", ""),
+        ("\\Bigg", ""),
+        ("\\argmax", "argmax"),
+        ("\\argmin", "argmin"),
+        ("\\arg\\max", "argmax"),
+        ("\\arg\\min", "argmin"),
+        ("\\|", "‖"),
+        ("\\vert", "|"),
+        ("\\lvert", "|"),
+        ("\\rvert", "|"),
     ];
 
     // Apply Greek letter replacements (longer patterns first to avoid partial matches)
@@ -322,33 +441,45 @@ pub(crate) fn render_math_text(expr: &str) -> String {
 
     // Handle \sum, \prod, \int with limits
     let sum_re = Regex::new(r"\\sum_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = sum_re.replace_all(&s, |caps: &Captures| {
-        render_operator_with_limits("∑", &caps[1], &caps[2])
-    }).to_string();
+    s = sum_re
+        .replace_all(&s, |caps: &Captures| {
+            render_operator_with_limits("∑", &caps[1], &caps[2])
+        })
+        .to_string();
     let sum_re_simple = Regex::new(r"\\sum_([^\s\^_{}]+)\^([^\s\^_{}]+)").unwrap();
-    s = sum_re_simple.replace_all(&s, |caps: &Captures| {
-        render_operator_with_limits("∑", &caps[1], &caps[2])
-    }).to_string();
+    s = sum_re_simple
+        .replace_all(&s, |caps: &Captures| {
+            render_operator_with_limits("∑", &caps[1], &caps[2])
+        })
+        .to_string();
     s = s.replace("\\sum", "∑");
 
     let prod_re = Regex::new(r"\\prod_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = prod_re.replace_all(&s, |caps: &Captures| {
-        render_operator_with_limits("∏", &caps[1], &caps[2])
-    }).to_string();
+    s = prod_re
+        .replace_all(&s, |caps: &Captures| {
+            render_operator_with_limits("∏", &caps[1], &caps[2])
+        })
+        .to_string();
     let prod_re_simple = Regex::new(r"\\prod_([^\s\^_{}]+)\^([^\s\^_{}]+)").unwrap();
-    s = prod_re_simple.replace_all(&s, |caps: &Captures| {
-        render_operator_with_limits("∏", &caps[1], &caps[2])
-    }).to_string();
+    s = prod_re_simple
+        .replace_all(&s, |caps: &Captures| {
+            render_operator_with_limits("∏", &caps[1], &caps[2])
+        })
+        .to_string();
     s = s.replace("\\prod", "∏");
 
     let int_re = Regex::new(r"\\int_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = int_re.replace_all(&s, |caps: &Captures| {
-        render_operator_with_limits("∫", &caps[1], &caps[2])
-    }).to_string();
+    s = int_re
+        .replace_all(&s, |caps: &Captures| {
+            render_operator_with_limits("∫", &caps[1], &caps[2])
+        })
+        .to_string();
     let int_re_simple = Regex::new(r"\\int_([^\s\^_{}]+)\^([^\s\^_{}]+)").unwrap();
-    s = int_re_simple.replace_all(&s, |caps: &Captures| {
-        render_operator_with_limits("∫", &caps[1], &caps[2])
-    }).to_string();
+    s = int_re_simple
+        .replace_all(&s, |caps: &Captures| {
+            render_operator_with_limits("∫", &caps[1], &caps[2])
+        })
+        .to_string();
     s = s.replace("\\int", "∫");
 
     let lim_re = Regex::new(r"\\lim_\{([^}]*)\}").unwrap();
@@ -404,8 +535,8 @@ pub(crate) fn render_math_text(expr: &str) -> String {
 
     // Handle \log, \ln, \sin, \cos, \tan, \exp (longest first for sinh/cosh/tanh)
     for func in &[
-        "sinh", "cosh", "tanh", "log", "ln", "sin", "cos", "tan", "cot", "sec", "csc",
-        "exp", "min", "max", "det", "dim", "arg",
+        "sinh", "cosh", "tanh", "log", "ln", "sin", "cos", "tan", "cot", "sec", "csc", "exp",
+        "min", "max", "det", "dim", "arg",
     ] {
         let cmd = format!("\\{}", func);
         s = s.replace(&cmd, func);
@@ -596,10 +727,7 @@ pub(super) fn encode_pdf_text(text: &str) -> String {
         }
 
         // Format as hex string
-        let hex_string: String = utf16be_bytes
-            .iter()
-            .map(|b| format!("{:02X}", b))
-            .collect();
+        let hex_string: String = utf16be_bytes.iter().map(|b| format!("{:02X}", b)).collect();
 
         format!("<{}>", hex_string)
     }

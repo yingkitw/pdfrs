@@ -2,8 +2,8 @@
 //
 // Run benchmarks with: cargo bench
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use pdfrs::{pdf, pdf_ops, pdf_generator, elements, builder, optimization, parallel};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use pdfrs::{builder, elements, optimization, parallel, pdf, pdf_generator, pdf_ops};
 use std::collections::HashMap;
 
 /// Benchmark markdown parsing
@@ -11,7 +11,9 @@ fn bench_markdown_parsing(c: &mut Criterion) {
     let small_md = "# Title\n\nSome text here.";
     let medium_md = "# Title\n\n## Section 1\n\nText here.\n\n## Section 2\n\nMore text.";
     // Create a large markdown document for testing
-    let large_md: String = (0..100).map(|i| format!("## Section {}\n\nContent for section {}.\n\n", i, i)).collect();
+    let large_md: String = (0..100)
+        .map(|i| format!("## Section {}\n\nContent for section {}.\n\n", i, i))
+        .collect();
 
     let mut group = c.benchmark_group("markdown_parsing");
 
@@ -128,16 +130,21 @@ fn bench_pdf_scalability(c: &mut Criterion) {
     let mut group = c.benchmark_group("scalability");
 
     for page_count in [1, 5, 10, 20].iter() {
-        group.bench_with_input(BenchmarkId::from_parameter(page_count), page_count, |b, &pages| {
-            b.iter(|| {
-                let mut generator = pdf_generator::PdfGenerator::new();
-                for _ in 0..pages {
-                    let content = b"BT /F1 12 Tf 72 720 Td (Test) Tj ET\n";
-                    let _ = generator.add_stream_object("<< /Length 29 >>\n".to_string(), content.to_vec());
-                }
-                black_box(generator.generate())
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(page_count),
+            page_count,
+            |b, &pages| {
+                b.iter(|| {
+                    let mut generator = pdf_generator::PdfGenerator::new();
+                    for _ in 0..pages {
+                        let content = b"BT /F1 12 Tf 72 720 Td (Test) Tj ET\n";
+                        let _ = generator
+                            .add_stream_object("<< /Length 29 >>\n".to_string(), content.to_vec());
+                    }
+                    black_box(generator.generate())
+                })
+            },
+        );
     }
 
     group.finish();
@@ -151,10 +158,20 @@ fn bench_builder_api(c: &mut Criterion) {
     group.bench_function("direct_api", |b| {
         b.iter(|| {
             let elements = vec![
-                elements::Element::Heading { text: "Title".to_string(), level: 1 },
-                elements::Element::Paragraph { text: "Content".to_string() },
+                elements::Element::Heading {
+                    text: "Title".to_string(),
+                    level: 1,
+                },
+                elements::Element::Paragraph {
+                    text: "Content".to_string(),
+                },
             ];
-            pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, pdf_generator::PageLayout::portrait())
+            pdf_generator::generate_pdf_bytes(
+                &elements,
+                "Helvetica",
+                12.0,
+                pdf_generator::PageLayout::portrait(),
+            )
         })
     });
 
@@ -177,7 +194,12 @@ fn bench_parallel_generation(c: &mut Criterion) {
 
     // Create test markdown content
     let inputs: HashMap<String, String> = (0..10)
-        .map(|i| (format!("doc{}.md", i), format!("# Document {}\n\nContent {}", i, i)))
+        .map(|i| {
+            (
+                format!("doc{}.md", i),
+                format!("# Document {}\n\nContent {}", i, i),
+            )
+        })
         .collect();
 
     group.bench_function("sequential", |b| {
@@ -190,7 +212,8 @@ fn bench_parallel_generation(c: &mut Criterion) {
                     "Helvetica",
                     12.0,
                     pdf_generator::PageLayout::portrait(),
-                ).unwrap();
+                )
+                .unwrap();
                 results.insert(filename.clone(), pdf_bytes);
             }
             black_box(results)
@@ -227,7 +250,8 @@ fn bench_streaming_generation(c: &mut Criterion) {
             let mut generator = pdfrs::streaming::StreamingPdfGenerator::new(
                 "/tmp/bench_stream_small.pdf",
                 pdf_generator::PageLayout::portrait(),
-            ).unwrap();
+            )
+            .unwrap();
             for elem in &small_elements {
                 let _ = generator.add_element(elem.clone());
             }
@@ -240,7 +264,8 @@ fn bench_streaming_generation(c: &mut Criterion) {
             let mut generator = pdfrs::streaming::StreamingPdfGenerator::new(
                 "/tmp/bench_stream_large.pdf",
                 pdf_generator::PageLayout::portrait(),
-            ).unwrap();
+            )
+            .unwrap();
             for elem in &large_elements {
                 let _ = generator.add_element(elem.clone());
             }
@@ -256,8 +281,13 @@ fn bench_optimization_profiles(c: &mut Criterion) {
     let mut group = c.benchmark_group("optimization_profiles");
 
     let elements = vec![
-        elements::Element::Heading { text: "Test".to_string(), level: 1 },
-        elements::Element::Paragraph { text: "Content".to_string() },
+        elements::Element::Heading {
+            text: "Test".to_string(),
+            level: 1,
+        },
+        elements::Element::Paragraph {
+            text: "Content".to_string(),
+        },
     ];
 
     for profile in [
@@ -265,7 +295,9 @@ fn bench_optimization_profiles(c: &mut Criterion) {
         optimization::OptimizationProfile::Print,
         optimization::OptimizationProfile::Archive,
         optimization::OptimizationProfile::Ebook,
-    ].iter() {
+    ]
+    .iter()
+    {
         group.bench_with_input(
             BenchmarkId::new("generate", format!("{:?}", profile)),
             profile,
@@ -286,27 +318,37 @@ fn bench_merge_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("merge_operations");
 
     // Create test PDFs first
-    let pdf_paths: Vec<String> = (0..5).map(|i| {
-        let path = format!("/tmp/bench_merge_{}.pdf", i);
-        let elements = vec![
-            elements::Element::Heading { text: format!("PDF {}", i), level: 1 },
-            elements::Element::Paragraph { text: format!("Content {}", i) },
-        ];
-        let _ = pdf_generator::create_pdf_from_elements_with_layout(
-            &path,
-            &elements,
-            "Helvetica",
-            12.0,
-            pdf_generator::PageLayout::portrait(),
-        );
-        path
-    }).collect();
+    let pdf_paths: Vec<String> = (0..5)
+        .map(|i| {
+            let path = format!("/tmp/bench_merge_{}.pdf", i);
+            let elements = vec![
+                elements::Element::Heading {
+                    text: format!("PDF {}", i),
+                    level: 1,
+                },
+                elements::Element::Paragraph {
+                    text: format!("Content {}", i),
+                },
+            ];
+            let _ = pdf_generator::create_pdf_from_elements_with_layout(
+                &path,
+                &elements,
+                "Helvetica",
+                12.0,
+                pdf_generator::PageLayout::portrait(),
+            );
+            path
+        })
+        .collect();
 
     let pdf_paths_str: Vec<&str> = pdf_paths.iter().map(|s| s.as_str()).collect();
 
     group.bench_function("merge_5_pdfs", |b| {
         b.iter(|| {
-            pdf_ops::merge_pdfs(black_box(&pdf_paths_str), black_box("/tmp/bench_merge_output.pdf"))
+            pdf_ops::merge_pdfs(
+                black_box(&pdf_paths_str),
+                black_box("/tmp/bench_merge_output.pdf"),
+            )
         })
     });
 

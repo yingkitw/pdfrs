@@ -15,6 +15,7 @@
 [![docs.rs](https://docs.rs/pdfrs/badge.svg)](https://docs.rs/pdfrs)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](Cargo.toml)
+[![CI](https://github.com/yingkitw/pdfrs/actions/workflows/ci.yml/badge.svg)](https://github.com/yingkitw/pdfrs/actions/workflows/ci.yml)
 
 **See what it can generate:** [**comprehensive.pdf**](comprehensive.pdf)  
 Regenerate anytime with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`.

@@ -12,8 +12,7 @@ use anyhow::Result;
 /// Optimization profile for PDF generation
 ///
 /// Each profile defines trade-offs between file size, quality, and performance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OptimizationProfile {
     /// Web-optimized PDF (smallest file size, moderate quality)
     ///
@@ -126,7 +125,6 @@ impl OptimizationProfile {
     }
 }
 
-
 /// Detailed optimization settings for PDF generation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OptimizationSettings {
@@ -208,8 +206,7 @@ impl OptimizationSettings {
 }
 
 /// Compression level for PDF content streams
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompressionLevel {
     /// No compression (fastest, largest files)
     None,
@@ -261,7 +258,6 @@ impl CompressionLevel {
         CompressionLevel::Maximum
     }
 }
-
 
 /// Optimized PDF generator with profile-based settings
 pub struct OptimizedPdfGenerator {
@@ -370,13 +366,10 @@ impl Default for OptimizedPdfGenerator {
 ///   recompresses them with the target deflate level.
 /// - **Uncompressed stream compression**: Compresses streams that lack a `/Filter`
 ///   entry when the profile requests compression.
-pub fn optimize_pdf_bytes(
-    pdf_data: &[u8],
-    settings: OptimizationSettings,
-) -> Result<Vec<u8>> {
+pub fn optimize_pdf_bytes(pdf_data: &[u8], settings: OptimizationSettings) -> Result<Vec<u8>> {
     use crate::pdf::{PdfDocument, PdfObject, PdfValue};
-    use flate2::write::ZlibEncoder;
     use flate2::Compression;
+    use flate2::write::ZlibEncoder;
     use std::io::Write;
 
     let mut doc = PdfDocument::load_from_bytes(pdf_data)?;
@@ -386,12 +379,10 @@ pub fn optimize_pdf_bytes(
     for obj in doc.objects.values_mut() {
         if let PdfObject::Stream { dictionary, data } = obj {
             // Extract the filter name for content-aware decisions
-            let filter = dictionary
-                .get("Filter")
-                .and_then(|v| match v {
-                    PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
-                    _ => None,
-                });
+            let filter = dictionary.get("Filter").and_then(|v| match v {
+                PdfValue::Object(PdfObject::String(s)) => Some(s.as_str()),
+                _ => None,
+            });
 
             // Check if this is an image XObject
             let is_image = dictionary
@@ -408,9 +399,13 @@ pub fn optimize_pdf_bytes(
             // optimized with codecs designed for images; re-wrapping them in
             // FlateDecode usually increases file size and adds decode overhead.
             let is_already_compressed_image = is_image
-                && filter.map(|f| {
-                    f.contains("DCTDecode") || f.contains("JPXDecode") || f.contains("JBIG2Decode")
-                }).unwrap_or(false);
+                && filter
+                    .map(|f| {
+                        f.contains("DCTDecode")
+                            || f.contains("JPXDecode")
+                            || f.contains("JBIG2Decode")
+                    })
+                    .unwrap_or(false);
 
             if is_already_compressed_image {
                 // Preserve JPEG/JPEG2000/JBIG2 images as-is
@@ -431,7 +426,8 @@ pub fn optimize_pdf_bytes(
 
             // Recompress if target level is not None and we actually want compression
             if target_level > 0 {
-                let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(target_level as u32));
+                let mut encoder =
+                    ZlibEncoder::new(Vec::new(), Compression::new(target_level as u32));
                 encoder.write_all(&raw_data)?;
                 let compressed = encoder.finish()?;
                 *data = compressed;
@@ -533,7 +529,10 @@ mod tests {
             .with_font_size(10.0);
 
         assert_eq!(generator.profile(), OptimizationProfile::Web);
-        assert_eq!(generator.settings().compression_level, CompressionLevel::High);
+        assert_eq!(
+            generator.settings().compression_level,
+            CompressionLevel::High
+        );
         assert_eq!(generator.font, "Courier");
         assert_eq!(generator.font_size, 10.0);
     }
@@ -548,32 +547,65 @@ mod tests {
 
         // Catalog
         let mut catalog = HashMap::new();
-        catalog.insert("Type".to_string(), PdfValue::Object(PdfObject::String("/Catalog".to_string())));
+        catalog.insert(
+            "Type".to_string(),
+            PdfValue::Object(PdfObject::String("/Catalog".to_string())),
+        );
         doc.objects.insert(1, PdfObject::Dictionary(catalog));
         doc.catalog = 1;
 
         // DCTDecode image stream (minimal JPEG markers)
         let mut img_dict = HashMap::new();
-        img_dict.insert("Type".to_string(), PdfValue::Object(PdfObject::String("/XObject".to_string())));
-        img_dict.insert("Subtype".to_string(), PdfValue::Object(PdfObject::String("/Image".to_string())));
-        img_dict.insert("Width".to_string(), PdfValue::Object(PdfObject::Number(1.0)));
-        img_dict.insert("Height".to_string(), PdfValue::Object(PdfObject::Number(1.0)));
-        img_dict.insert("ColorSpace".to_string(), PdfValue::Object(PdfObject::String("/DeviceRGB".to_string())));
-        img_dict.insert("BitsPerComponent".to_string(), PdfValue::Object(PdfObject::Number(8.0)));
-        img_dict.insert("Filter".to_string(), PdfValue::Object(PdfObject::String("/DCTDecode".to_string())));
+        img_dict.insert(
+            "Type".to_string(),
+            PdfValue::Object(PdfObject::String("/XObject".to_string())),
+        );
+        img_dict.insert(
+            "Subtype".to_string(),
+            PdfValue::Object(PdfObject::String("/Image".to_string())),
+        );
+        img_dict.insert(
+            "Width".to_string(),
+            PdfValue::Object(PdfObject::Number(1.0)),
+        );
+        img_dict.insert(
+            "Height".to_string(),
+            PdfValue::Object(PdfObject::Number(1.0)),
+        );
+        img_dict.insert(
+            "ColorSpace".to_string(),
+            PdfValue::Object(PdfObject::String("/DeviceRGB".to_string())),
+        );
+        img_dict.insert(
+            "BitsPerComponent".to_string(),
+            PdfValue::Object(PdfObject::Number(8.0)),
+        );
+        img_dict.insert(
+            "Filter".to_string(),
+            PdfValue::Object(PdfObject::String("/DCTDecode".to_string())),
+        );
 
-        doc.objects.insert(5, PdfObject::Stream {
-            dictionary: img_dict,
-            data: b"\xFF\xD8\xFF\xD9".to_vec(), // Minimal JPEG SOI + EOI
-        });
+        doc.objects.insert(
+            5,
+            PdfObject::Stream {
+                dictionary: img_dict,
+                data: b"\xFF\xD8\xFF\xD9".to_vec(), // Minimal JPEG SOI + EOI
+            },
+        );
 
         // Also add an uncompressed text stream to ensure non-images still get compressed
         let mut text_dict = HashMap::new();
-        text_dict.insert("Length".to_string(), PdfValue::Object(PdfObject::Number(12.0)));
-        doc.objects.insert(10, PdfObject::Stream {
-            dictionary: text_dict,
-            data: b"BT /F1 12 Tf ET".to_vec(),
-        });
+        text_dict.insert(
+            "Length".to_string(),
+            PdfValue::Object(PdfObject::Number(12.0)),
+        );
+        doc.objects.insert(
+            10,
+            PdfObject::Stream {
+                dictionary: text_dict,
+                data: b"BT /F1 12 Tf ET".to_vec(),
+            },
+        );
 
         let pdf_bytes = doc.to_bytes();
 
@@ -583,9 +615,15 @@ mod tests {
 
         // Verify DCTDecode is preserved for the image
         let content = String::from_utf8_lossy(&optimized);
-        assert!(content.contains("/DCTDecode"), "DCTDecode filter should be preserved for image streams");
+        assert!(
+            content.contains("/DCTDecode"),
+            "DCTDecode filter should be preserved for image streams"
+        );
 
         // Verify the text stream got compressed (should now have FlateDecode)
-        assert!(content.contains("/FlateDecode"), "Non-image streams should be FlateDecode-compressed");
+        assert!(
+            content.contains("/FlateDecode"),
+            "Non-image streams should be FlateDecode-compressed"
+        );
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::elements::{Element, TextSegment};
 
-use super::math_layout::{parse_display_math, pieces_to_plain_text, MathPiece};
+use super::math_layout::{MathPiece, parse_display_math, pieces_to_plain_text};
 use super::render_math_text;
 
 // --- Page orientation and layout ---
@@ -56,8 +56,7 @@ pub(super) fn document_requires_unicode(elements: &[Element]) -> bool {
         | Element::TaskListItem { text, .. }
         | Element::BlockQuote { text, .. }
         | Element::InlineCode { code: text }
-        | Element::StyledText { text, .. }
-        => text_requires_unicode(text),
+        | Element::StyledText { text, .. } => text_requires_unicode(text),
         // Math often starts as ASCII LaTeX and may render to unicode symbols.
         // Enable unicode path only when rendered output actually needs it.
         Element::MathBlock { expression } | Element::MathInline { expression } => {
@@ -70,12 +69,8 @@ pub(super) fn document_requires_unicode(elements: &[Element]) -> bool {
         Element::Footnote { label, text } => {
             text_requires_unicode(label) || text_requires_unicode(text)
         }
-        Element::Link { text, url } => {
-            text_requires_unicode(text) || text_requires_unicode(url)
-        }
-        Element::Image { alt, path } => {
-            text_requires_unicode(alt) || text_requires_unicode(path)
-        }
+        Element::Link { text, url } => text_requires_unicode(text) || text_requires_unicode(url),
+        Element::Image { alt, path } => text_requires_unicode(alt) || text_requires_unicode(path),
         Element::Chart { title, points, .. } => {
             title.as_ref().is_some_and(|t| text_requires_unicode(t))
                 || points.iter().any(|(l, _)| text_requires_unicode(l))
@@ -87,15 +82,17 @@ pub(super) fn document_requires_unicode(elements: &[Element]) -> bool {
             | TextSegment::Italic(t)
             | TextSegment::BoldItalic(t)
             | TextSegment::Code(t)
-            | TextSegment::Strikethrough(t)
-            => text_requires_unicode(t),
+            | TextSegment::Strikethrough(t) => text_requires_unicode(t),
             TextSegment::MathInline(expr) => text_requires_unicode(&render_math_text(expr)),
             TextSegment::Link { text, url } => {
                 text_requires_unicode(text) || text_requires_unicode(url)
             }
             TextSegment::Citation { key } => text_requires_unicode(key),
         }),
-        Element::HorizontalRule | Element::EmptyLine | Element::PageBreak | Element::Columns { .. }
+        Element::HorizontalRule
+        | Element::EmptyLine
+        | Element::PageBreak
+        | Element::Columns { .. }
         | Element::PageNumberMode { .. }
         | Element::RunningHeaderMode { .. }
         | Element::Toc
@@ -116,8 +113,9 @@ pub(super) fn collect_unicode_chars(elements: &[Element]) -> std::collections::B
             | Element::TaskListItem { text, .. }
             | Element::BlockQuote { text, .. }
             | Element::InlineCode { code: text }
-            | Element::StyledText { text, .. }
-            => { chars.extend(text.chars()); }
+            | Element::StyledText { text, .. } => {
+                chars.extend(text.chars());
+            }
             Element::MathBlock { expression } | Element::MathInline { expression } => {
                 chars.extend(render_math_text(expression).chars());
                 let pieces = parse_display_math(expression);
@@ -145,7 +143,9 @@ pub(super) fn collect_unicode_chars(elements: &[Element]) -> std::collections::B
                     }
                 }
             }
-            Element::CodeBlock { code, .. } => { chars.extend(code.chars()); }
+            Element::CodeBlock { code, .. } => {
+                chars.extend(code.chars());
+            }
             Element::DefinitionItem { term, definition } => {
                 chars.extend(term.chars());
                 chars.extend(definition.chars());
@@ -183,8 +183,9 @@ pub(super) fn collect_unicode_chars(elements: &[Element]) -> std::collections::B
                         | TextSegment::Italic(t)
                         | TextSegment::BoldItalic(t)
                         | TextSegment::Code(t)
-                        | TextSegment::Strikethrough(t)
-                        => { chars.extend(t.chars()); }
+                        | TextSegment::Strikethrough(t) => {
+                            chars.extend(t.chars());
+                        }
                         TextSegment::MathInline(expr) => {
                             chars.extend(render_math_text(expr).chars());
                         }
@@ -198,7 +199,10 @@ pub(super) fn collect_unicode_chars(elements: &[Element]) -> std::collections::B
                     }
                 }
             }
-            Element::HorizontalRule | Element::EmptyLine | Element::PageBreak | Element::Columns { .. }
+            Element::HorizontalRule
+            | Element::EmptyLine
+            | Element::PageBreak
+            | Element::Columns { .. }
             | Element::PageNumberMode { .. }
             | Element::RunningHeaderMode { .. }
             | Element::Toc
@@ -455,11 +459,37 @@ pub struct Color {
 }
 
 impl Color {
-    pub fn black() -> Self { Color { r: 0.0, g: 0.0, b: 0.0 } }
-    pub fn red() -> Self { Color { r: 1.0, g: 0.0, b: 0.0 } }
-    pub fn blue() -> Self { Color { r: 0.0, g: 0.0, b: 1.0 } }
-    pub fn gray() -> Self { Color { r: 0.5, g: 0.5, b: 0.5 } }
-    pub fn rgb(r: f32, g: f32, b: f32) -> Self { Color { r, g, b } }
+    pub fn black() -> Self {
+        Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+        }
+    }
+    pub fn red() -> Self {
+        Color {
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
+        }
+    }
+    pub fn blue() -> Self {
+        Color {
+            r: 0.0,
+            g: 0.0,
+            b: 1.0,
+        }
+    }
+    pub fn gray() -> Self {
+        Color {
+            r: 0.5,
+            g: 0.5,
+            b: 0.5,
+        }
+    }
+    pub fn rgb(r: f32, g: f32, b: f32) -> Self {
+        Color { r, g, b }
+    }
 }
 
 /// Text alignment for line rendering

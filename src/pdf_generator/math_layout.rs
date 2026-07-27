@@ -87,7 +87,9 @@ pub(super) fn parse_display_math(expr: &str) -> Vec<MathPiece> {
             let tok_end = rest
                 .char_indices()
                 .skip(1)
-                .find(|(_, c)| c.is_whitespace() || *c == '\\' || *c == '{' || *c == '^' || *c == '_')
+                .find(|(_, c)| {
+                    c.is_whitespace() || *c == '\\' || *c == '{' || *c == '^' || *c == '_'
+                })
                 .map(|(idx, _)| idx)
                 .unwrap_or(rest.len())
                 .max(1);
@@ -189,12 +191,18 @@ fn parse_limits(s: &str) -> (String, String, usize) {
                 continue;
             }
         }
-        if let Some(caps) = Regex::new(r"^_([A-Za-z0-9+\-*/=]+)").unwrap().captures(rest) {
+        if let Some(caps) = Regex::new(r"^_([A-Za-z0-9+\-*/=]+)")
+            .unwrap()
+            .captures(rest)
+        {
             lower = caps[1].to_string();
             idx += caps.get(0).unwrap().end();
             continue;
         }
-        if let Some(caps) = Regex::new(r"^\^([A-Za-z0-9+\-*/=]+)").unwrap().captures(rest) {
+        if let Some(caps) = Regex::new(r"^\^([A-Za-z0-9+\-*/=]+)")
+            .unwrap()
+            .captures(rest)
+        {
             upper = caps[1].to_string();
             idx += caps.get(0).unwrap().end();
             continue;
@@ -329,7 +337,9 @@ mod tests {
     fn parses_integral_fraction_sum() {
         let pieces = parse_display_math(r"\int_{0}^{1} x^{2}\, dx = \frac{1}{3}");
         assert!(
-            pieces.iter().any(|p| matches!(p, MathPiece::Operator { symbol: '∫', .. })),
+            pieces
+                .iter()
+                .any(|p| matches!(p, MathPiece::Operator { symbol: '∫', .. })),
             "{:?}",
             pieces
         );
@@ -366,9 +376,7 @@ mod tests {
 
     #[test]
     fn flattens_bmatrix_environment() {
-        let pieces = parse_display_math(
-            "\\begin{bmatrix}\na & b \\\\\nc & d\n\\end{bmatrix}",
-        );
+        let pieces = parse_display_math("\\begin{bmatrix}\na & b \\\\\nc & d\n\\end{bmatrix}");
         let plain = pieces_to_plain_text(&pieces);
         assert!(plain.contains('[') && plain.contains(']'), "{}", plain);
         assert!(plain.contains('a') && plain.contains('d'), "{}", plain);

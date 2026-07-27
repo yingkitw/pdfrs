@@ -22,11 +22,7 @@ pub enum Locale {
 impl Locale {
     /// Parse a BCP-47-ish tag (`en`, `es`, `de`, `fr`, `zh`, `he`, `ar`, or longer forms like `en-US`).
     pub fn parse(s: &str) -> Option<Self> {
-        let primary = s
-            .split(['-', '_'])
-            .next()
-            .unwrap_or(s)
-            .to_ascii_lowercase();
+        let primary = s.split(['-', '_']).next().unwrap_or(s).to_ascii_lowercase();
         match primary.as_str() {
             "en" => Some(Self::En),
             "es" => Some(Self::Es),

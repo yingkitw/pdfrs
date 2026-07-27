@@ -1,6 +1,6 @@
 //! PDF annotation types: text, link, highlight, and 3D (U3D).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::fs;
 
 /// A text annotation to be placed on a PDF page
@@ -161,10 +161,7 @@ pub fn create_pdf_with_3d_annotation_bytes(
     let actual_page_id = generator.add_object(page_dict);
     assert_eq!(actual_page_id, page_id);
 
-    let pages_dict = format!(
-        "<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n",
-        page_id
-    );
+    let pages_dict = format!("<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n", page_id);
     let actual_pages_id = generator.add_object(pages_dict);
     assert_eq!(actual_pages_id, pages_id);
     generator.add_object(format!(
@@ -202,8 +199,12 @@ pub fn create_pdf_with_all_annotations(
     for annot in annotations {
         let annot_dict = format!(
             "<< /Type /Annot\n/Subtype /Text\n/Rect [{} {} {} {}]\n/Contents ({})\n/T ({})\n/Open false\n>>\n",
-            annot.x, annot.y, annot.x + annot.width, annot.y + annot.height,
-            super::escape_pdf_meta(&annot.content), super::escape_pdf_meta(&annot.title),
+            annot.x,
+            annot.y,
+            annot.x + annot.width,
+            annot.y + annot.height,
+            super::escape_pdf_meta(&annot.content),
+            super::escape_pdf_meta(&annot.title),
         );
         annot_ids.push(generator.add_object(annot_dict));
     }
@@ -211,7 +212,10 @@ pub fn create_pdf_with_all_annotations(
     for link in links {
         let link_dict = format!(
             "<< /Type /Annot\n/Subtype /Link\n/Rect [{} {} {} {}]\n/Border [0 0 0]\n/A << /Type /Action\n/S /URI\n/URI ({}) >>\n>>\n",
-            link.x, link.y, link.x + link.width, link.y + link.height,
+            link.x,
+            link.y,
+            link.x + link.width,
+            link.y + link.height,
             super::escape_pdf_meta(&link.url),
         );
         annot_ids.push(generator.add_object(link_dict));
@@ -220,10 +224,21 @@ pub fn create_pdf_with_all_annotations(
     for hl in highlights {
         let hl_dict = format!(
             "<< /Type /Annot\n/Subtype /Highlight\n/Rect [{} {} {} {}]\n/C [{} {} {}]\n/QuadPoints [{} {} {} {} {} {} {} {}]\n>>\n",
-            hl.x, hl.y, hl.x + hl.width, hl.y + hl.height,
-            hl.color_r, hl.color_g, hl.color_b,
-            hl.x, hl.y + hl.height, hl.x + hl.width, hl.y + hl.height,
-            hl.x, hl.y, hl.x + hl.width, hl.y,
+            hl.x,
+            hl.y,
+            hl.x + hl.width,
+            hl.y + hl.height,
+            hl.color_r,
+            hl.color_g,
+            hl.color_b,
+            hl.x,
+            hl.y + hl.height,
+            hl.x + hl.width,
+            hl.y + hl.height,
+            hl.x,
+            hl.y,
+            hl.x + hl.width,
+            hl.y,
         );
         annot_ids.push(generator.add_object(hl_dict));
     }
@@ -250,21 +265,32 @@ pub fn create_pdf_with_all_annotations(
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
-        generator.add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
+        generator
+            .add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
     }
 
     let kids: Vec<String> = page_ids.iter().map(|id| format!("{} 0 R", id)).collect();
-    let pages_dict = format!("<< /Type /Pages\n/Kids [{}]\n/Count {}\n>>\n", kids.join(" "), page_ids.len());
+    let pages_dict = format!(
+        "<< /Type /Pages\n/Kids [{}]\n/Count {}\n>>\n",
+        kids.join(" "),
+        page_ids.len()
+    );
     let actual_pages_id = generator.add_object(pages_dict);
     assert_eq!(actual_pages_id, pages_obj_id);
-    generator.add_object(format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", actual_pages_id));
+    generator.add_object(format!(
+        "<< /Type /Catalog\n/Pages {} 0 R\n>>\n",
+        actual_pages_id
+    ));
 
     let pdf_data = generator.generate();
     let mut file = std::fs::File::create(output_file)?;
     std::io::Write::write_all(&mut file, &pdf_data)?;
     println!(
         "[annotate] Created {} with {} text, {} link, {} highlight annotations",
-        output_file, annotations.len(), links.len(), highlights.len()
+        output_file,
+        annotations.len(),
+        links.len(),
+        highlights.len()
     );
     Ok(())
 }
@@ -374,10 +400,7 @@ pub fn create_pdf_with_annotations(
     let actual_pages_id = generator.add_object(pages_dict);
     assert_eq!(actual_pages_id, pages_obj_id);
 
-    let catalog_dict = format!(
-        "<< /Type /Catalog\n/Pages {} 0 R\n>>\n",
-        actual_pages_id
-    );
+    let catalog_dict = format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", actual_pages_id);
     generator.add_object(catalog_dict);
 
     let pdf_data = generator.generate();

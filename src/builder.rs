@@ -95,7 +95,9 @@ impl PdfBuilder {
         registry: &crate::plugin::PluginRegistry,
     ) -> Self {
         self.elements
-            .extend(crate::plugin::parse_markdown_with_plugins(markdown, registry));
+            .extend(crate::plugin::parse_markdown_with_plugins(
+                markdown, registry,
+            ));
         self
     }
 

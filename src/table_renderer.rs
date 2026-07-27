@@ -89,7 +89,7 @@ impl TableRow {
     /// Create a row from strings with default left alignment
     pub fn from_strings(cells: &[&str]) -> Self {
         Self {
-            cells: cells.iter().map(|s| TableCell::left(s)).collect()
+            cells: cells.iter().map(|s| TableCell::left(s)).collect(),
         }
     }
 }
@@ -182,7 +182,8 @@ impl TableRenderer for DefaultTableRenderer {
         for row in rows {
             for (col_idx, cell) in row.cells.iter().enumerate() {
                 if col_idx < num_cols {
-                    let cell_width = cell.content.len() as f32 * approx_char_width + style.cell_padding * 2.0;
+                    let cell_width =
+                        cell.content.len() as f32 * approx_char_width + style.cell_padding * 2.0;
                     col_widths[col_idx] = col_widths[col_idx].max(cell_width);
                 }
             }
@@ -202,8 +203,13 @@ impl TableRenderer for DefaultTableRenderer {
         for (row_idx, row) in rows.iter().enumerate() {
             let mut max_lines = 1;
             for (col_idx, cell) in row.cells.iter().enumerate() {
-                if col_idx >= num_cols { break; }
-                let max_chars = ((col_widths[col_idx] - style.cell_padding * 2.0) / approx_char_width).floor().max(1.0) as usize;
+                if col_idx >= num_cols {
+                    break;
+                }
+                let max_chars = ((col_widths[col_idx] - style.cell_padding * 2.0)
+                    / approx_char_width)
+                    .floor()
+                    .max(1.0) as usize;
                 let wrapped = self.wrap_text(&cell.content, max_chars);
                 max_lines = max_lines.max(wrapped.line_count);
             }
@@ -319,17 +325,27 @@ impl PdfTableHelper {
     }
 
     /// Convert string rows to TableCell rows with alignments
-    pub fn convert_rows(&self, rows: &[Vec<String>], alignments: Option<&[TableAlignment]>) -> Vec<TableRow> {
-        rows.iter().map(|row| {
-            let cells: Vec<TableCell> = row.iter().enumerate().map(|(col_idx, cell)| {
-                let alignment = alignments
-                    .and_then(|a| a.get(col_idx))
-                    .copied()
-                    .unwrap_or(TableAlignment::Left);
-                TableCell::new(cell.clone(), alignment)
-            }).collect();
-            TableRow { cells }
-        }).collect()
+    pub fn convert_rows(
+        &self,
+        rows: &[Vec<String>],
+        alignments: Option<&[TableAlignment]>,
+    ) -> Vec<TableRow> {
+        rows.iter()
+            .map(|row| {
+                let cells: Vec<TableCell> = row
+                    .iter()
+                    .enumerate()
+                    .map(|(col_idx, cell)| {
+                        let alignment = alignments
+                            .and_then(|a| a.get(col_idx))
+                            .copied()
+                            .unwrap_or(TableAlignment::Left);
+                        TableCell::new(cell.clone(), alignment)
+                    })
+                    .collect();
+                TableRow { cells }
+            })
+            .collect()
     }
 
     /// Escape special PDF string characters (public static helper)

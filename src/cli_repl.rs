@@ -153,18 +153,17 @@ pub fn run_repl() {
                     "archive" => optimization::OptimizationProfile::archive(),
                     "ebook" => optimization::OptimizationProfile::ebook(),
                     _ => optimization::OptimizationProfile::web(),
-                }.settings();
+                }
+                .settings();
                 let bytes = d.to_bytes();
                 match optimization::optimize_pdf_bytes(&bytes, settings) {
-                    Ok(optimized) => {
-                        match pdf::PdfDocument::load_from_bytes(&optimized) {
-                            Ok(reloaded) => {
-                                println!("Optimized ({} -> {} bytes)", bytes.len(), optimized.len());
-                                *d = reloaded;
-                            }
-                            Err(e) => println!("Error reloading optimized PDF: {}", e),
+                    Ok(optimized) => match pdf::PdfDocument::load_from_bytes(&optimized) {
+                        Ok(reloaded) => {
+                            println!("Optimized ({} -> {} bytes)", bytes.len(), optimized.len());
+                            *d = reloaded;
                         }
-                    }
+                        Err(e) => println!("Error reloading optimized PDF: {}", e),
+                    },
                     Err(e) => println!("Error optimizing PDF: {}", e),
                 }
             }
@@ -215,7 +214,10 @@ pub fn run_repl() {
                 println!("Has embedded files: {}", content.contains("/EmbeddedFiles"));
             }
             _ => {
-                println!("Unknown command '{}'. Type 'help' for available commands.", cmd);
+                println!(
+                    "Unknown command '{}'. Type 'help' for available commands.",
+                    cmd
+                );
             }
         }
     }

@@ -1,8 +1,8 @@
 //! Interactive form fields: creation, detection, and filling.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
 use std::fs;
-use serde::{Serialize, Deserialize};
 
 /// Form field types.
 ///
@@ -92,10 +92,7 @@ pub fn create_pdf_with_form_fields(
 
     // Create AcroForm dictionary
     let kids_refs: Vec<String> = field_ids.iter().map(|id| format!("{} 0 R", id)).collect();
-    let acroform_dict = format!(
-        "<< /Fields [{}]\n>>\n",
-        kids_refs.join(" ")
-    );
+    let acroform_dict = format!("<< /Fields [{}]\n>>\n", kids_refs.join(" "));
     let acroform_id = generator.add_object(acroform_dict);
 
     let field_offset = field_ids.len() as u32;
@@ -129,11 +126,16 @@ pub fn create_pdf_with_form_fields(
         );
         let page_id = generator.add_object(page_dict);
         page_ids.push(page_id);
-        generator.add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
+        generator
+            .add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
     }
 
     let kids: Vec<String> = page_ids.iter().map(|id| format!("{} 0 R", id)).collect();
-    let pages_dict = format!("<< /Type /Pages\n/Kids [{}]\n/Count {}\n>>\n", kids.join(" "), page_ids.len());
+    let pages_dict = format!(
+        "<< /Type /Pages\n/Kids [{}]\n/Count {}\n>>\n",
+        kids.join(" "),
+        page_ids.len()
+    );
     let actual_pages_id = generator.add_object(pages_dict);
 
     let catalog_dict = format!(
@@ -195,7 +197,11 @@ fn create_form_field_dict(field: &FormField) -> String {
         }
         FormFieldType::Radio => {
             if !field.options.is_empty() {
-                let opts: Vec<String> = field.options.iter().map(|o| format!("({})", super::escape_pdf_meta(o))).collect();
+                let opts: Vec<String> = field
+                    .options
+                    .iter()
+                    .map(|o| format!("({})", super::escape_pdf_meta(o)))
+                    .collect();
                 dict.push_str(&format!("/Opt [{}]\n", opts.join(" ")));
             }
             dict.push_str(&format!(
@@ -205,7 +211,11 @@ fn create_form_field_dict(field: &FormField) -> String {
         }
         FormFieldType::Dropdown => {
             if !field.options.is_empty() {
-                let opts: Vec<String> = field.options.iter().map(|o| format!("({})", super::escape_pdf_meta(o))).collect();
+                let opts: Vec<String> = field
+                    .options
+                    .iter()
+                    .map(|o| format!("({})", super::escape_pdf_meta(o)))
+                    .collect();
                 dict.push_str(&format!("/Opt [{}]\n", opts.join(" ")));
             }
             dict.push_str(&format!(
@@ -313,9 +323,9 @@ pub fn detect_form_fields(input_file: &str) -> Result<Vec<DetectedFormField>> {
         // Extract /V (value)
         let value = super::extract_pdf_dict_value(dict_text, "/V").map(|v| {
             if v.starts_with('(') && v.ends_with(')') {
-                v[1..v.len()-1].to_string()
+                v[1..v.len() - 1].to_string()
             } else if v.starts_with('<') && v.ends_with('>') {
-                crate::pdf::decode_pdf_hex_string(&v[1..v.len()-1])
+                crate::pdf::decode_pdf_hex_string(&v[1..v.len() - 1])
             } else {
                 v.to_string()
             }
@@ -324,7 +334,8 @@ pub fn detect_form_fields(input_file: &str) -> Result<Vec<DetectedFormField>> {
         // Extract /Opt (options list)
         let options = if let Some(opt_raw) = super::extract_pdf_dict_value(dict_text, "/Opt") {
             // /Opt can be [(Option1) (Option2)] or an array reference
-            opt_re.captures_iter(&opt_raw)
+            opt_re
+                .captures_iter(&opt_raw)
                 .map(|c| c[1].to_string())
                 .collect()
         } else {
@@ -445,7 +456,11 @@ pub fn fill_form_fields(
     }
 
     fs::write(output_file, &updated_bytes)?;
-    println!("[fill] Updated {} field(s) in {}", field_values.len(), output_file);
+    println!(
+        "[fill] Updated {} field(s) in {}",
+        field_values.len(),
+        output_file
+    );
     Ok(())
 }
 
@@ -532,7 +547,11 @@ mod tests {
             width: 100.0,
             height: 20.0,
             default_value: Some("USA".to_string()),
-            options: vec!["USA".to_string(), "Canada".to_string(), "Mexico".to_string()],
+            options: vec![
+                "USA".to_string(),
+                "Canada".to_string(),
+                "Mexico".to_string(),
+            ],
             required: false,
         };
         let dict = create_form_field_dict(&field);

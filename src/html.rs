@@ -55,7 +55,8 @@ enum Node {
 
 /// HTML void elements that never have closing tags.
 const VOID_ELEMENTS: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
+    "wbr",
 ];
 
 /// Parse an HTML string into a vector of [`Element`]s.
@@ -87,11 +88,7 @@ pub fn html_to_pdf(
 }
 
 /// Convert HTML to PDF bytes in memory.
-pub fn html_to_pdf_bytes(
-    html: &str,
-    font: &str,
-    base_font_size: f32,
-) -> anyhow::Result<Vec<u8>> {
+pub fn html_to_pdf_bytes(html: &str, font: &str, base_font_size: f32) -> anyhow::Result<Vec<u8>> {
     let elements = parse_html(html);
     let layout = crate::pdf_generator::PageLayout::portrait();
     crate::pdf_generator::generate_pdf_bytes_internal(
@@ -157,7 +154,11 @@ fn tokenize(html: &str) -> Vec<Node> {
                         // Unmatched — push children to parent
                         if let Some(parent) = stack.last_mut() {
                             if let Node::Element { children, .. } = parent {
-                                if let Node::Element { children: child_children, .. } = &top {
+                                if let Node::Element {
+                                    children: child_children,
+                                    ..
+                                } = &top
+                                {
                                     children.extend(child_children.clone());
                                 } else {
                                     children.push(top);
@@ -394,7 +395,11 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                 _ => {}
             }
         }
-        Node::Element { tag, attrs, children } => {
+        Node::Element {
+            tag,
+            attrs,
+            children,
+        } => {
             match tag.as_str() {
                 "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                     let level = tag[1..].parse::<u8>().unwrap_or(1);
@@ -442,7 +447,9 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                     {
                         if child_tag == "code" {
                             let lang = get_attr(child_attrs, "class")
-                                .and_then(|c| c.split_whitespace().find(|s| s.starts_with("language-")))
+                                .and_then(|c| {
+                                    c.split_whitespace().find(|s| s.starts_with("language-"))
+                                })
                                 .map(|s| s.trim_start_matches("language-").to_string())
                                 .unwrap_or_default();
                             (lang, collect_text(children))
@@ -466,7 +473,12 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                 }
                 "ul" => {
                     for child in children {
-                        if let Node::Element { tag: ctag, children: li_children, .. } = child {
+                        if let Node::Element {
+                            tag: ctag,
+                            children: li_children,
+                            ..
+                        } = child
+                        {
                             if ctag == "li" {
                                 let text = collect_text(li_children);
                                 out.push(Element::UnorderedListItem {
@@ -480,7 +492,12 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                 "ol" => {
                     let mut num = 1u32;
                     for child in children {
-                        if let Node::Element { tag: ctag, children: li_children, .. } = child {
+                        if let Node::Element {
+                            tag: ctag,
+                            children: li_children,
+                            ..
+                        } = child
+                        {
                             if ctag == "li" {
                                 let text = collect_text(li_children);
                                 out.push(Element::OrderedListItem {
@@ -575,7 +592,12 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
             match tag.as_str() {
                 "thead" | "tbody" | "tfoot" => {
                     for row in children {
-                        if let Node::Element { tag: rt, children: rc, .. } = row {
+                        if let Node::Element {
+                            tag: rt,
+                            children: rc,
+                            ..
+                        } = row
+                        {
                             if rt == "tr" {
                                 rows.push(rc);
                             }
@@ -593,7 +615,13 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
         let mut is_header = false;
 
         for cell in row_children.iter() {
-            if let Node::Element { tag, children, attrs, .. } = cell {
+            if let Node::Element {
+                tag,
+                children,
+                attrs,
+                ..
+            } = cell
+            {
                 if tag == "th" || tag == "td" {
                     if tag == "th" {
                         is_header = true;
@@ -604,9 +632,13 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
                     // Collect alignment from style attribute on first row.
                     if row_idx == 0 {
                         if let Some(style) = get_attr(attrs, "style") {
-                            let align = if style.contains("text-align: center") || style.contains("text-align:center") {
+                            let align = if style.contains("text-align: center")
+                                || style.contains("text-align:center")
+                            {
                                 Some(TableAlignment::Center)
-                            } else if style.contains("text-align: right") || style.contains("text-align:right") {
+                            } else if style.contains("text-align: right")
+                                || style.contains("text-align:right")
+                            {
                                 Some(TableAlignment::Right)
                             } else {
                                 None
@@ -732,7 +764,11 @@ fn collect_segments_inner(node: &Node, out: &mut Vec<TextSegment>, bold: bool, i
                 out.push(TextSegment::Plain("\n".to_string()));
             }
         }
-        Node::Element { tag, attrs, children } => {
+        Node::Element {
+            tag,
+            attrs,
+            children,
+        } => {
             match tag.as_str() {
                 "strong" | "b" => {
                     for child in children {
@@ -752,10 +788,7 @@ fn collect_segments_inner(node: &Node, out: &mut Vec<TextSegment>, bold: bool, i
                     let href = get_attr(attrs, "href").unwrap_or("").to_string();
                     let text = collect_text(children);
                     if !href.is_empty() {
-                        out.push(TextSegment::Link {
-                            text,
-                            url: href,
-                        });
+                        out.push(TextSegment::Link { text, url: href });
                     } else {
                         out.push(TextSegment::Plain(text));
                     }
@@ -773,7 +806,9 @@ fn collect_segments_inner(node: &Node, out: &mut Vec<TextSegment>, bold: bool, i
                         .map(|s| s.contains("font-weight: bold") || s.contains("font-weight:bold"))
                         .unwrap_or(false);
                     let style_italic = get_attr(attrs, "style")
-                        .map(|s| s.contains("font-style: italic") || s.contains("font-style:italic"))
+                        .map(|s| {
+                            s.contains("font-style: italic") || s.contains("font-style:italic")
+                        })
                         .unwrap_or(false);
                     let new_bold = bold || style_bold;
                     let new_italic = italic || style_italic;
@@ -828,7 +863,11 @@ mod tests {
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t == "world")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Bold(t) if t == "world"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -840,7 +879,11 @@ mod tests {
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t == "world")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Italic(t) if t == "world"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -852,7 +895,11 @@ mod tests {
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "both")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "both"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -864,7 +911,11 @@ mod tests {
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Code(t) if t == "println!")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Code(t) if t == "println!"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -895,15 +946,21 @@ mod tests {
     fn test_parse_ordered_list() {
         let elements = parse_html("<ol><li>First</li><li>Second</li></ol>");
         assert_eq!(elements.len(), 2);
-        assert!(matches!(&elements[0], Element::OrderedListItem { number: 1, text, .. } if text == "First"));
-        assert!(matches!(&elements[1], Element::OrderedListItem { number: 2, text, .. } if text == "Second"));
+        assert!(
+            matches!(&elements[0], Element::OrderedListItem { number: 1, text, .. } if text == "First")
+        );
+        assert!(
+            matches!(&elements[1], Element::OrderedListItem { number: 2, text, .. } if text == "Second")
+        );
     }
 
     #[test]
     fn test_parse_blockquote() {
         let elements = parse_html("<blockquote>To be or not to be</blockquote>");
         assert_eq!(elements.len(), 1);
-        assert!(matches!(&elements[0], Element::BlockQuote { text, .. } if text == "To be or not to be"));
+        assert!(
+            matches!(&elements[0], Element::BlockQuote { text, .. } if text == "To be or not to be")
+        );
     }
 
     #[test]
@@ -917,14 +974,18 @@ mod tests {
     fn test_parse_img() {
         let elements = parse_html("<img src=\"photo.jpg\" alt=\"Photo\">");
         assert_eq!(elements.len(), 1);
-        assert!(matches!(&elements[0], Element::Image { alt, path } if alt == "Photo" && path == "photo.jpg"));
+        assert!(
+            matches!(&elements[0], Element::Image { alt, path } if alt == "Photo" && path == "photo.jpg")
+        );
     }
 
     #[test]
     fn test_parse_link() {
         let elements = parse_html("<a href=\"https://example.com\">Example</a>");
         assert_eq!(elements.len(), 1);
-        assert!(matches!(&elements[0], Element::Link { text, url } if text == "Example" && url == "https://example.com"));
+        assert!(
+            matches!(&elements[0], Element::Link { text, url } if text == "Example" && url == "https://example.com")
+        );
     }
 
     #[test]
@@ -948,7 +1009,13 @@ mod tests {
         let elements = parse_html(html);
         // Should produce: header row, separator row, data row
         assert!(elements.len() >= 2);
-        assert!(elements.iter().any(|e| matches!(e, Element::TableRow { is_separator: true, .. })));
+        assert!(elements.iter().any(|e| matches!(
+            e,
+            Element::TableRow {
+                is_separator: true,
+                ..
+            }
+        )));
         assert!(elements.iter().any(|e| matches!(e, Element::TableRow { cells, is_separator: false, .. } if cells.contains(&"Alice".to_string()))));
     }
 
@@ -966,7 +1033,11 @@ mod tests {
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Strikethrough(t) if t == "deleted")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Strikethrough(t) if t == "deleted"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -984,12 +1055,13 @@ mod tests {
         let elements = parse_html("<p>Line one<br/>Line two</p>");
         assert_eq!(elements.len(), 1);
         let combined = match &elements[0] {
-            Element::RichParagraph { segments } => {
-                segments.iter().map(|s| match s {
+            Element::RichParagraph { segments } => segments
+                .iter()
+                .map(|s| match s {
                     TextSegment::Plain(t) => t.clone(),
                     _ => String::new(),
-                }).collect::<String>()
-            }
+                })
+                .collect::<String>(),
             Element::Paragraph { text } => text.clone(),
             _ => panic!("expected Paragraph or RichParagraph"),
         };
@@ -1017,9 +1089,21 @@ mod tests {
         </html>"#;
         let elements = parse_html(html);
         assert!(elements.len() >= 7);
-        assert!(elements.iter().any(|e| matches!(e, Element::Heading { level: 1, text } if text == "Document Title")));
-        assert!(elements.iter().any(|e| matches!(e, Element::CodeBlock { language, .. } if language == "python")));
-        assert!(elements.iter().any(|e| matches!(e, Element::HorizontalRule)));
+        assert!(
+            elements.iter().any(
+                |e| matches!(e, Element::Heading { level: 1, text } if text == "Document Title")
+            )
+        );
+        assert!(
+            elements
+                .iter()
+                .any(|e| matches!(e, Element::CodeBlock { language, .. } if language == "python"))
+        );
+        assert!(
+            elements
+                .iter()
+                .any(|e| matches!(e, Element::HorizontalRule))
+        );
     }
 
     #[test]

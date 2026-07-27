@@ -28,11 +28,15 @@ pub fn extract_tables_from_pdf(input_file: &str) -> Result<Vec<String>> {
     let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
     let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
     let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
-    let tm_re = regex::Regex::new(r"[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm").unwrap();
+    let tm_re = regex::Regex::new(
+        r"[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm",
+    )
+    .unwrap();
 
     for obj in doc.objects.values() {
         if let PdfObject::Stream { data, .. } = obj {
-            let processed_data = crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.to_vec());
+            let processed_data =
+                crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.to_vec());
             let content = String::from_utf8_lossy(&processed_data);
 
             let mut current_x: f32 = 0.0;
@@ -43,15 +47,17 @@ pub fn extract_tables_from_pdf(input_file: &str) -> Result<Vec<String>> {
 
                 // Track positioning
                 if let Some(caps) = td_re.captures(line)
-                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
-                        current_x = x;
-                        current_y = y;
-                    }
+                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>())
+                {
+                    current_x = x;
+                    current_y = y;
+                }
                 if let Some(caps) = tm_re.captures(line)
-                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>()) {
-                        current_x = x;
-                        current_y = y;
-                    }
+                    && let (Ok(x), Ok(y)) = (caps[1].parse::<f32>(), caps[2].parse::<f32>())
+                {
+                    current_x = x;
+                    current_y = y;
+                }
 
                 // Extract text fragments with current position
                 for caps in tj_re.captures_iter(line) {

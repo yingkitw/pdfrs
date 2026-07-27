@@ -525,6 +525,21 @@ benches/
 └── pdf_benchmarks.rs
 ```
 
+### CI/CD Infrastructure
+
+```
+.github/workflows/
+├── ci.yml              # fmt, clippy, multi-OS test matrix, WASM build, minimal build, bench compile
+├── audit.yml           # cargo-audit (on push/PR + weekly schedule)
+└── release.yml         # tag-triggered crates.io publish + GitHub Release
+rust-toolchain.toml     # pins stable Rust + rustfmt + clippy
+```
+
+- **CI** runs on every push/PR to `main`/`master`
+- **Test matrix**: ubuntu-latest, macos-latest, windows-latest
+- **WASM**: `cargo build --lib --no-default-features --features wasm --target wasm32-unknown-unknown`
+- **Release**: push a `v*.*.*` tag to trigger crates.io publish + GitHub Release
+
 ### Test Strategies
 
 - **Unit Tests**: Individual module functionality (`cargo test --lib`)

@@ -136,7 +136,14 @@ fn walk_content_stream(src: &str, collector: &mut SpanCollector) {
             }
             "Tm" => {
                 if operands.len() == 6 {
-                    let n = [operands[0], operands[1], operands[2], operands[3], operands[4], operands[5]];
+                    let n = [
+                        operands[0],
+                        operands[1],
+                        operands[2],
+                        operands[3],
+                        operands[4],
+                        operands[5],
+                    ];
                     collector.text_matrix = n;
                     collector.text_line_matrix = n;
                 }
@@ -146,7 +153,10 @@ fn walk_content_stream(src: &str, collector: &mut SpanCollector) {
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = collector.text_line_matrix;
                     collector.text_line_matrix = [
-                        m[0], m[1], m[2], m[3],
+                        m[0],
+                        m[1],
+                        m[2],
+                        m[3],
                         m[0] * tx + m[2] * ty + m[4],
                         m[1] * tx + m[3] * ty + m[5],
                     ];
@@ -231,7 +241,10 @@ fn extract_decoded_string(
     } else if prev.starts_with('<') {
         let trimmed = prev.trim();
         let inner = trimmed.trim_start_matches('<').trim_end_matches('>');
-        Some(crate::pdf::decode_pdf_hex_string_with_map(inner, Some(tounicode)))
+        Some(crate::pdf::decode_pdf_hex_string_with_map(
+            inner,
+            Some(tounicode),
+        ))
     } else {
         None
     }
@@ -415,13 +428,8 @@ fn group_into_lines<'a>(spans: &[&'a TextSpan]) -> Vec<Line<'a>> {
 
 fn finalize_line(spans: Vec<&TextSpan>) -> Line<'_> {
     let mut sorted = spans;
-    sorted.sort_by(|a, b| {
-        a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let max_font_size = sorted
-        .iter()
-        .map(|s| s.font_size)
-        .fold(f32::MIN, f32::max);
+    sorted.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+    let max_font_size = sorted.iter().map(|s| s.font_size).fold(f32::MIN, f32::max);
     let mut text = String::new();
     for (idx, s) in sorted.iter().enumerate() {
         if !text.is_empty() {
@@ -479,7 +487,7 @@ fn numbered_list_prefix(text: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::elements;
-    use crate::pdf_generator::{generate_pdf_bytes, PageLayout};
+    use crate::pdf_generator::{PageLayout, generate_pdf_bytes};
 
     fn make_pdf(markdown: &str) -> Vec<u8> {
         generate_pdf_bytes(
@@ -503,7 +511,8 @@ mod tests {
         let pdf = make_pdf("# Big Heading\n\nBody text here.");
         let md = pdf_to_markdown_bytes(&pdf).unwrap();
         assert!(
-            md.lines().any(|l| l.starts_with('#') && l.contains("Big Heading")),
+            md.lines()
+                .any(|l| l.starts_with('#') && l.contains("Big Heading")),
             "got: {}",
             md
         );
@@ -541,10 +550,7 @@ mod tests {
             pages_id, content_id, content_id
         );
         let page_id = generator.add_object(page_dict);
-        let pages_dict = format!(
-            "<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n",
-            page_id
-        );
+        let pages_dict = format!("<< /Type /Pages\n/Kids [{} 0 R]\n/Count 1\n>>\n", page_id);
         let actual_pages_id = generator.add_object(pages_dict);
         let catalog = format!("<< /Type /Catalog\n/Pages {} 0 R\n>>\n", actual_pages_id);
         generator.add_object(catalog);

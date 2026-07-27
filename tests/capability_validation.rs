@@ -11,13 +11,9 @@ use pdfrs::optimization::{
     optimize_pdf_bytes,
 };
 use pdfrs::pdf::{self, validate_pdf_bytes};
-use pdfrs::pdf_generator::{
-    generate_tagged_pdf_bytes, AccessibilityOptions, PageLayout,
-};
-use pdfrs::pdf_ops::{
-    create_pdf_with_3d_annotation_bytes, pdf_contains_3d_u3d, ThreeDAnnotation,
-};
-use pdfrs::plugin::{parse_markdown_with_plugins, PluginRegistry};
+use pdfrs::pdf_generator::{AccessibilityOptions, PageLayout, generate_tagged_pdf_bytes};
+use pdfrs::pdf_ops::{ThreeDAnnotation, create_pdf_with_3d_annotation_bytes, pdf_contains_3d_u3d};
+use pdfrs::plugin::{PluginRegistry, parse_markdown_with_plugins};
 use pdfrs::rtl;
 use pdfrs::vector::{self, demo_canvas};
 use std::path::Path;
@@ -200,7 +196,11 @@ fn test_capability_showcase_end_to_end() {
     assert!(pdfrs::incremental::is_incremental_pdf(&incr));
     assert_eq!(&incr[..pdf.len()], &pdf[..]);
     assert!(validate_pdf_bytes(&incr).valid);
-    std::fs::write(format!("{}/capability_showcase_incremental.pdf", out_dir()), &incr).ok();
+    std::fs::write(
+        format!("{}/capability_showcase_incremental.pdf", out_dir()),
+        &incr,
+    )
+    .ok();
 
     // Tagged / accessibility path — use Latin-only subset to avoid full-font embed
     let tagged_elements: Vec<Element> = elements
@@ -226,13 +226,21 @@ fn test_capability_showcase_end_to_end() {
             .with_title("Capability Showcase".into()),
     )
     .unwrap();
-    assert!(tagged.len() < 500_000, "tagged sample too large: {}", tagged.len());
+    assert!(
+        tagged.len() < 500_000,
+        "tagged sample too large: {}",
+        tagged.len()
+    );
     let ua = pdf::validate_pdf_ua_bytes(&tagged);
     assert!(
         ua.compliant || ua.has_mark_info,
         "tagged PDF missing MarkInfo: {ua:?}"
     );
-    std::fs::write(format!("{}/capability_showcase_tagged.pdf", out_dir()), &tagged).ok();
+    std::fs::write(
+        format!("{}/capability_showcase_tagged.pdf", out_dir()),
+        &tagged,
+    )
+    .ok();
 }
 
 #[test]
@@ -246,7 +254,8 @@ fn test_capability_side_channels_vector_svg_3d() {
     let vbytes = std::fs::read(&vector_path).unwrap();
     assert!(validate_pdf_bytes(&vbytes).valid);
 
-    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"><path d="M40 160 L100 40 L160 160 Z"/></svg>"#;
+    let svg =
+        r#"<svg xmlns="http://www.w3.org/2000/svg"><path d="M40 160 L100 40 L160 160 Z"/></svg>"#;
     let svg_file = format!("{dir}/capability_triangle.svg");
     std::fs::write(&svg_file, svg).unwrap();
     let svg_pdf = format!("{dir}/capability_svg.pdf");
@@ -309,7 +318,10 @@ fn test_capability_cli_md_to_pdf_with_plugins() {
     assert!(is_linearized(&bytes), "web profile should linearize");
 
     let raw = String::from_utf8_lossy(&bytes);
-    assert!(raw.contains("/Outlines"), "CLI PDF should include bookmarks");
+    assert!(
+        raw.contains("/Outlines"),
+        "CLI PDF should include bookmarks"
+    );
 
     // Re-linearize is idempotent enough to stay valid
     let lin_out = format!("{}/capability_cli_linearized.pdf", out_dir());
@@ -318,7 +330,11 @@ fn test_capability_cli_md_to_pdf_with_plugins() {
         .current_dir(base)
         .output()
         .expect("linearize-pdf");
-    assert!(lin.status.success(), "{}", String::from_utf8_lossy(&lin.stderr));
+    assert!(
+        lin.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lin.stderr)
+    );
     let lin_bytes = std::fs::read(&lin_out).unwrap();
     assert!(is_linearized(&lin_bytes));
     assert!(validate_pdf_bytes(&lin_bytes).valid);

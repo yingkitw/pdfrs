@@ -1,6 +1,6 @@
 //! PDF portfolio (collection) creation.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::fs;
 
@@ -37,14 +37,14 @@ pub fn create_portfolio_pdf(
     // Create a catalog object so embed_file can update it
     let catalog_dict = HashMap::new();
     let catalog_id = 1;
-    doc.objects.insert(catalog_id, PdfObject::Dictionary(catalog_dict));
+    doc.objects
+        .insert(catalog_id, PdfObject::Dictionary(catalog_dict));
     doc.catalog = catalog_id;
 
     // Embed each file
     let mut file_specs: Vec<(String, u32)> = Vec::new(); // (filename, file_spec_object_id)
     for (path, _desc) in files {
-        let data = std::fs::read(path)
-            .map_err(|e| anyhow!("Cannot read {}: {}", path, e))?;
+        let data = std::fs::read(path).map_err(|e| anyhow!("Cannot read {}: {}", path, e))?;
         let filename = std::path::Path::new(path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -55,31 +55,53 @@ pub fn create_portfolio_pdf(
 
     // Build the /Collection dictionary with a simple schema
     let mut collection_dict = HashMap::new();
-    collection_dict.insert("Type".to_string(), PdfValue::Object(PdfObject::String("/Collection".to_string())));
-    collection_dict.insert("View".to_string(), PdfValue::Object(PdfObject::String("/D".to_string()))); // Detailed list view
+    collection_dict.insert(
+        "Type".to_string(),
+        PdfValue::Object(PdfObject::String("/Collection".to_string())),
+    );
+    collection_dict.insert(
+        "View".to_string(),
+        PdfValue::Object(PdfObject::String("/D".to_string())),
+    ); // Detailed list view
 
     // Schema — two columns: Filename and Description
     let mut schema_entries = Vec::new();
     schema_entries.push("/Name << /Type /F /O << /D [ (Name) ] >> >>".to_string());
     schema_entries.push("/Description << /Type /Desc /O << /D [ (Description) ] >> >>".to_string());
     let schema = format!("<< {} >>", schema_entries.join(" "));
-    collection_dict.insert("Schema".to_string(), PdfValue::Object(PdfObject::String(schema)));
+    collection_dict.insert(
+        "Schema".to_string(),
+        PdfValue::Object(PdfObject::String(schema)),
+    );
 
     // Sort entries for the portfolio
     let sort = "<< /S /Name /A true >>".to_string();
-    collection_dict.insert("Sort".to_string(), PdfValue::Object(PdfObject::String(sort)));
+    collection_dict.insert(
+        "Sort".to_string(),
+        PdfValue::Object(PdfObject::String(sort)),
+    );
 
     // Add collection object
     let next_id = doc.objects.keys().copied().max().unwrap_or(0) + 1;
     let collection_id = next_id;
-    doc.objects.insert(collection_id, PdfObject::Dictionary(collection_dict));
+    doc.objects
+        .insert(collection_id, PdfObject::Dictionary(collection_dict));
 
     // Wire /Collection into catalog
     if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get_mut(&doc.catalog) {
-        catalog_dict.insert("Collection".to_string(), PdfValue::Object(PdfObject::String(format!("{} 0 R", collection_id))));
+        catalog_dict.insert(
+            "Collection".to_string(),
+            PdfValue::Object(PdfObject::String(format!("{} 0 R", collection_id))),
+        );
         // Title if provided
         if let Some(t) = title {
-            catalog_dict.insert("Title".to_string(), PdfValue::Object(PdfObject::String(format!("({})", super::escape_pdf_meta(t)))));
+            catalog_dict.insert(
+                "Title".to_string(),
+                PdfValue::Object(PdfObject::String(format!(
+                    "({})",
+                    super::escape_pdf_meta(t)
+                ))),
+            );
         }
     }
 
@@ -106,11 +128,7 @@ mod tests {
             (file2.to_string_lossy().to_string(), "CSV data".to_string()),
         ];
 
-        create_portfolio_pdf(
-            &output.to_string_lossy(),
-            &files,
-            Some("Test Portfolio"),
-        ).unwrap();
+        create_portfolio_pdf(&output.to_string_lossy(), &files, Some("Test Portfolio")).unwrap();
 
         assert!(output.exists(), "Portfolio PDF should be created");
 
@@ -118,14 +136,23 @@ mod tests {
         let content = String::from_utf8_lossy(&bytes);
 
         // Should contain Collection dictionary
-        assert!(content.contains("/Collection"), "Should contain /Collection");
+        assert!(
+            content.contains("/Collection"),
+            "Should contain /Collection"
+        );
 
         // Should contain embedded files
-        assert!(content.contains("/EmbeddedFile"), "Should contain /EmbeddedFile");
+        assert!(
+            content.contains("/EmbeddedFile"),
+            "Should contain /EmbeddedFile"
+        );
         assert!(content.contains("/Filespec"), "Should contain /Filespec");
 
         // Should contain the title
-        assert!(content.contains("Test Portfolio"), "Should contain portfolio title");
+        assert!(
+            content.contains("Test Portfolio"),
+            "Should contain portfolio title"
+        );
 
         // Should be a valid PDF
         assert!(content.starts_with("%PDF-"), "Should be a valid PDF");
