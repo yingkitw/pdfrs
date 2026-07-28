@@ -14,18 +14,13 @@ pub enum PageOrientation {
 }
 
 /// PDF specification version used when generating output.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum PdfVersion {
     /// PDF 1.4 (widest compatibility)
+    #[default]
     V1_4,
     /// PDF 2.0 (UTF-8 strings, larger object numbers, modern feature set)
     V2_0,
-}
-
-impl Default for PdfVersion {
-    fn default() -> Self {
-        PdfVersion::V1_4
-    }
 }
 
 impl PdfVersion {

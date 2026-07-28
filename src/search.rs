@@ -224,10 +224,7 @@ fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
     Ok(out)
 }
 
-pub(crate) fn object_dict<'a>(
-    doc: &'a PdfDocument,
-    id: u32,
-) -> Option<&'a HashMap<String, PdfValue>> {
+pub(crate) fn object_dict(doc: &PdfDocument, id: u32) -> Option<&HashMap<String, PdfValue>> {
     doc.objects.get(&id).and_then(|o| match o {
         PdfObject::Dictionary(d) => Some(d),
         PdfObject::Stream { dictionary, .. } => Some(dictionary),
@@ -816,7 +813,7 @@ fn find_subslice(haystack: &str, needle: &str) -> Option<usize> {
         return None;
     }
     for i in 0..=(hchars.len() - nchars.len()) {
-        if &hchars[i..i + nchars.len()] == &nchars[..] {
+        if hchars[i..i + nchars.len()] == nchars[..] {
             return Some(i);
         }
     }
@@ -843,7 +840,7 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
     let mut font_size = 12.0f32;
     while i < tokens.len() {
         let t = &tokens[i];
-        if let Some(n) = t.parse::<f32>().ok() {
+        if let Ok(n) = t.parse::<f32>() {
             operands.push(n);
             i += 1;
             continue;

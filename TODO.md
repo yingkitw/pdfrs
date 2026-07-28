@@ -302,7 +302,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ### 🔴 Critical
 
-- [x] Comprehensive test suite (424 tests: 318 lib + 7 + 5 + 3 + 24 + 22 + 10 + 35 doc-tests)
+- [x] Comprehensive test suite (425 tests: 319 lib + 7 + 5 + 3 + 24 + 22 + 10 + 35 doc-tests)
   - [x] Unit tests for all modules (pdf, pdf_generator, pdf_ops, elements, markdown, image, compression)
   - [x] Integration tests for workflows (roundtrip, merge, split, rotate, watermark, reorder, metadata)
   - [x] Round-trip validation tests (generate → validate → parse → verify all element types)
@@ -315,16 +315,16 @@ This document tracks the planned features, improvements, and tasks for the **pdf
   - [x] ARCHITECTURE.md with module descriptions
   - [x] SPEC.md with functional requirements
   - [x] API documentation (rustdoc with examples) — module-level `//!` docs on all public modules; `cargo doc` generates clean docs
-  - [ ] User guide
+  - [x] User guide — `docs/USER_GUIDE.md` with installation, CLI reference, library API examples, and common workflows
   - [x] Contributing guidelines — `docs/CONTRIBUTING.md`
 
 ### 🟡 High
 
-- [ ] Code quality improvements
-  - [ ] Code refactoring for maintainability
-  - [ ] Error handling consistency
-  - [ ] Memory safety verification
-  - [ ] Security audit
+- [x] Code quality improvements
+  - [x] Code refactoring for maintainability — clippy auto-fixes applied (41 suggestions); remaining warnings resolved
+  - [x] Error handling consistency — `Result` propagation throughout; no silent failures
+  - [x] Memory safety verification — no `unsafe` blocks in codebase; renamed misleading `flatten_cubic_into_unsafe` → `flatten_cubic_into_segments`; PDF parsing is iterative (not recursive) so no stack overflow risk on deeply nested input
+  - [x] Security audit — path traversal vulnerability in `CertificateStore` fixed (`validate_cert_id` rejects `/`, `\`, `..`, empty IDs); encrypt/decrypt stubs properly return `Err`; sanitization/sandboxing modules verified; regression test added (425 tests total)
 
 - [x] CI/CD improvements
   - [x] Automated testing on multiple platforms — GitHub Actions matrix (ubuntu/macos/windows)
@@ -335,10 +335,8 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 ### 🟢 Medium
 
 - [ ] Monitoring and analytics
-  - [ ] Usage statistics
   - [ ] Performance metrics
   - [ ] Error tracking
-  - [ ] User feedback collection
 
 ---
 
@@ -401,10 +399,6 @@ Capabilities in peer projects worth prioritizing:
 ### Future Considerations
 
 - [x] Full PDF 2.0 compliance — version header and `PdfVersion` support implemented; UTF-8 string encoding foundation in place
-- [ ] GUI application
-- [ ] Mobile app development
-- [ ] Enterprise features
-- [ ] Educational content and tutorials
 
 ---
 

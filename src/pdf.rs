@@ -767,10 +767,10 @@ impl PdfDocument {
             match obj {
                 PdfObject::Dictionary(dict) => Self::strip_js_from_dict(dict),
                 PdfObject::Stream { dictionary, .. } => Self::strip_js_from_dict(dictionary),
-                PdfObject::String(content) => {
-                    if content.to_ascii_lowercase().contains("javascript:") {
-                        *content = Self::neutralize_javascript_uris(content);
-                    }
+                PdfObject::String(content)
+                    if content.to_ascii_lowercase().contains("javascript:") =>
+                {
+                    *content = Self::neutralize_javascript_uris(content);
                 }
                 _ => {}
             }
@@ -816,10 +816,10 @@ impl PdfDocument {
                         }
                     }
                 }
-                PdfValue::Object(PdfObject::String(s)) => {
-                    if s.to_ascii_lowercase().contains("javascript:") {
-                        *s = Self::neutralize_javascript_uris(s);
-                    }
+                PdfValue::Object(PdfObject::String(s))
+                    if s.to_ascii_lowercase().contains("javascript:") =>
+                {
+                    *s = Self::neutralize_javascript_uris(s);
                 }
                 _ => {}
             }
@@ -1139,7 +1139,7 @@ fn parse_objects(content: &str, doc: &mut PdfDocument) -> Result<()> {
             {
                 let mut obj_content = String::new();
 
-                while let Some(inner) = lines.next() {
+                for inner in lines.by_ref() {
                     if inner.trim().starts_with("endobj") {
                         break;
                     }
@@ -1165,7 +1165,7 @@ fn parse_object_content(content: &str) -> Result<PdfObject> {
     {
         let dict_part = content[..stream_pos].trim();
         let data_start = stream_pos + "\nstream\n".len();
-        let data = content[data_start..endstream_pos].as_bytes().to_vec();
+        let data = content.as_bytes()[data_start..endstream_pos].to_vec();
 
         let dict = parse_dict_entries(dict_part);
 

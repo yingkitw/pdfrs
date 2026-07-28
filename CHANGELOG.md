@@ -24,6 +24,18 @@ All notable changes to **pdfrs** are documented here. The format follows
   (feature-gated behind `parallel`). Split into conditional import with
   sequential `pdf_ops::merge_pdfs` fallback when `parallel` feature is off.
 - **Formatting**: `cargo fmt` applied to fix `cargo fmt --check` failures.
+- **Clippy**: resolved all 57 clippy warnings (41 auto-fixed, 16 manual).
+  Key fixes: regex-in-loop → `OnceLock` cached regexes; collapsed nested
+  matches; `vec![]` → array literal; `as_bytes` after slice; unused variable
+  prefixed with `_`; `#[allow(clippy::type_complexity)]` and
+  `#[allow(clippy::too_many_arguments)]` on public API functions where
+  refactoring would harm readability. CI now enforces `clippy -- -D warnings`.
+- **Security: path traversal in `CertificateStore`**: `import`, `get`, and
+  `remove` methods used the `id` parameter directly in file paths without
+  sanitization. Added `validate_cert_id()` that rejects empty IDs and IDs
+  containing `/`, `\`, or `..`. Regression test covers all attack vectors.
+- **Misleading function name**: `flatten_cubic_into_unsafe` in `raster.rs`
+  contained no `unsafe` code; renamed to `flatten_cubic_into_segments`.
 
 ### Changed
 

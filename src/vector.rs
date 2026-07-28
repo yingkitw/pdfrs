@@ -96,6 +96,7 @@ impl VectorCanvas {
         &self.shapes
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, shape: VectorShape) -> Self {
         self.shapes.push(shape);
         self
@@ -117,6 +118,7 @@ impl VectorCanvas {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn rect(
         self,
         x: f32,
@@ -138,6 +140,7 @@ impl VectorCanvas {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn ellipse(
         self,
         cx: f32,
@@ -799,10 +802,11 @@ fn render_polyline(el: &SvgElement, ctx: &mut RenderCtx, closed: bool) {
         .filter(|c| c.len() == 2)
         .map(|c| ctx.current().apply(c[0], c[1]))
         .collect();
-    if closed && pts.first() != pts.last() {
-        if let Some(&(x0, y0)) = pts.first() {
-            pts.push((x0, y0));
-        }
+    if closed
+        && pts.first() != pts.last()
+        && let Some(&(x0, y0)) = pts.first()
+    {
+        pts.push((x0, y0));
     }
     ctx.canvas.push_shape(VectorShape::Polygon {
         points: pts,
@@ -1082,24 +1086,23 @@ impl<'a> SvgXmlParser<'a> {
 
     fn skip_prolog(&mut self) {
         self.skip_ws();
-        if self.src[self.pos..].starts_with("<?xml") {
-            if let Some(end) = self.src[self.pos..].find("?>") {
-                self.pos += end + 2;
-            }
+        if self.src[self.pos..].starts_with("<?xml")
+            && let Some(end) = self.src[self.pos..].find("?>")
+        {
+            self.pos += end + 2;
         }
-        if self.src[self.pos..].starts_with("<!--") {
-            if let Some(end) = self.src[self.pos..].find("-->") {
-                self.pos += end + 3;
-            }
+        if self.src[self.pos..].starts_with("<!--")
+            && let Some(end) = self.src[self.pos..].find("-->")
+        {
+            self.pos += end + 3;
         }
         // Skip DOCTYPE if present.
         if self.src[self.pos..]
             .to_ascii_uppercase()
             .starts_with("<!doctype")
+            && let Some(end) = self.src[self.pos..].find('>')
         {
-            if let Some(end) = self.src[self.pos..].find('>') {
-                self.pos += end + 1;
-            }
+            self.pos += end + 1;
         }
     }
 

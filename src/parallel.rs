@@ -9,11 +9,6 @@ use anyhow::Result;
 use rayon::prelude::*;
 use std::path::Path;
 
-/// Parallel PDF operations using Rayon for concurrent processing
-///
-/// This module provides high-performance parallel implementations
-/// of common PDF operations.
-
 /// Merge multiple PDF files in parallel
 ///
 /// This loads all input PDFs concurrently, then merges their pages.

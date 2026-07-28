@@ -65,9 +65,10 @@ pub fn create_portfolio_pdf(
     ); // Detailed list view
 
     // Schema — two columns: Filename and Description
-    let mut schema_entries = Vec::new();
-    schema_entries.push("/Name << /Type /F /O << /D [ (Name) ] >> >>".to_string());
-    schema_entries.push("/Description << /Type /Desc /O << /D [ (Description) ] >> >>".to_string());
+    let schema_entries = [
+        "/Name << /Type /F /O << /D [ (Name) ] >> >>".to_string(),
+        "/Description << /Type /Desc /O << /D [ (Description) ] >> >>".to_string(),
+    ];
     let schema = format!("<< {} >>", schema_entries.join(" "));
     collection_dict.insert(
         "Schema".to_string(),

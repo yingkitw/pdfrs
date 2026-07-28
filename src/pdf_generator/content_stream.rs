@@ -170,7 +170,7 @@ impl ContentStreamBuilder {
         self.current
             .extend_from_slice(format!("/{} {} Tf\n", FONT_HELVETICA, size).as_bytes());
         self.current
-            .extend_from_slice(format!("0.35 0.35 0.35 rg\n").as_bytes());
+            .extend_from_slice("0.35 0.35 0.35 rg\n".to_string().as_bytes());
         self.current
             .extend_from_slice(format!("1 0 0 1 {} {} Tm\n", x, y).as_bytes());
         self.current.extend_from_slice(
@@ -300,10 +300,11 @@ impl ContentStreamBuilder {
 
     /// Width of code text using the same font path as `set_monospace_font`.
     fn code_text_width(&self, text: &str, font_size: f32) -> f32 {
-        if self.unicode_font_encoder.is_some() && !use_base14_normalization() {
-            if let Some(enc) = &self.unicode_font_encoder {
-                return enc.estimate_width(text, font_size);
-            }
+        if self.unicode_font_encoder.is_some()
+            && !use_base14_normalization()
+            && let Some(enc) = &self.unicode_font_encoder
+        {
+            return enc.estimate_width(text, font_size);
         }
         estimated_text_width(text, font_size, true)
     }
@@ -972,10 +973,11 @@ impl ContentStreamBuilder {
         self.set_color(Color::rgb(0.08, 0.1, 0.28));
 
         let measure = |builder: &Self, text: &str, size: f32| -> f32 {
-            if builder.unicode_font_encoder.is_some() && !use_base14_normalization() {
-                if let Some(enc) = &builder.unicode_font_encoder {
-                    return enc.estimate_width(text, size);
-                }
+            if builder.unicode_font_encoder.is_some()
+                && !use_base14_normalization()
+                && let Some(enc) = &builder.unicode_font_encoder
+            {
+                return enc.estimate_width(text, size);
             }
             estimated_text_width(text, size, false)
         };
@@ -1304,6 +1306,7 @@ impl ContentStreamBuilder {
         self.y -= line_height(self.base_font_size);
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn finish(mut self) -> (Vec<Vec<u8>>, Vec<OutlineDest>, Vec<(String, ImageInfo)>) {
         self.end_text_block();
         if self.show_page_numbers {

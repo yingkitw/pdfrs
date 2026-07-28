@@ -232,14 +232,11 @@ impl GeneratorPlugin for CalloutPlugin {
             return None;
         };
         // Match "[NOTE] body" / "[WARNING] body" produced by the parser pass
-        let (label, rest) = match CALLOUT_KINDS.iter().find_map(|k| {
+        let (label, rest) = CALLOUT_KINDS.iter().find_map(|k| {
             let label = CalloutPlugin::label_for(k);
             let prefix = format!("[{}]", label);
             text.strip_prefix(&prefix).map(|r| (label, r.trim()))
-        }) {
-            Some(v) => v,
-            None => return None,
-        };
+        })?;
 
         let mut out = vec![Element::Paragraph {
             text: format!("▶ {}", label),

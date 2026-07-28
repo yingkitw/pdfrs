@@ -294,6 +294,7 @@ pub(crate) fn generate_pdf_bytes_internal(
 
 /// Same as [`generate_pdf_bytes_internal`] with an optional base directory for
 /// resolving relative markdown image paths.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_pdf_bytes_internal_with_base(
     elements: &[Element],
     font: &str,
@@ -352,7 +353,7 @@ pub(crate) fn generate_pdf_bytes_internal_with_base(
         (Some((bytes, encoder)), Some(chars)) => Some((bytes.as_slice(), encoder, chars)),
         _ => None,
     };
-    Ok(assemble_pdf_bytes(
+    assemble_pdf_bytes(
         &page_streams,
         font,
         &layout,
@@ -361,7 +362,7 @@ pub(crate) fn generate_pdf_bytes_internal_with_base(
         accessibility,
         &outlines,
         &images,
-    )?)
+    )
 }
 
 /// Generate PDF bytes from elements (library API — no filesystem access needed)
@@ -525,7 +526,7 @@ pub fn render_page_range(
         (Some((bytes, encoder)), Some(chars)) => Some((bytes.as_slice(), encoder, chars)),
         _ => None,
     };
-    Ok(assemble_pdf_bytes(
+    assemble_pdf_bytes(
         selected,
         font,
         &layout,
@@ -534,10 +535,11 @@ pub fn render_page_range(
         None,
         &filtered,
         &images,
-    )?)
+    )
 }
 
 /// Assemble final PDF bytes from per-page content streams
+#[allow(clippy::too_many_arguments)]
 fn assemble_pdf_bytes(
     page_streams: &[Vec<u8>],
     _font: &str,

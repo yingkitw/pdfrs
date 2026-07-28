@@ -475,6 +475,7 @@ pub fn parse_markdown(markdown: &str) -> Vec<Element> {
 ///
 /// The hook runs for each line outside code/math fences. Returning
 /// `Some((elements, consumed))` appends those elements and skips `consumed` lines.
+#[allow(clippy::type_complexity)]
 pub fn parse_markdown_with_hook(
     markdown: &str,
     hook: Option<&dyn Fn(&[&str], usize) -> Option<(Vec<Element>, usize)>>,
@@ -488,6 +489,7 @@ pub fn parse_markdown_with_hook(
     let lines: Vec<&str> = markdown.lines().collect();
     let img_re = regex::Regex::new(r"^!\[([^\]]*)\]\(([^\)]+)\)$").unwrap();
     let link_re = regex::Regex::new(r"^\[([^\]]+)\]\(([^\)]+)\)$").unwrap();
+    let footnote_ref_re = regex::Regex::new(r"\[\^([^\]]+)\]").unwrap();
     let mut i = 0;
 
     while i < lines.len() {
@@ -656,25 +658,26 @@ pub fn parse_markdown_with_hook(
         }
 
         // Image: ![alt](path)
-        if trimmed.starts_with("![") {
-            if let Some(caps) = img_re.captures(trimmed) {
-                let alt = caps[1].to_string();
-                let path = caps[2].to_string();
-                elements.push(Element::Image { alt, path });
-                i += 1;
-                continue;
-            }
+        if trimmed.starts_with("![")
+            && let Some(caps) = img_re.captures(trimmed)
+        {
+            let alt = caps[1].to_string();
+            let path = caps[2].to_string();
+            elements.push(Element::Image { alt, path });
+            i += 1;
+            continue;
         }
 
         // Standalone link line: [text](url) — only if the entire line is a link
-        if trimmed.starts_with('[') && !trimmed.starts_with("[^") {
-            if let Some(caps) = link_re.captures(trimmed) {
-                let text = caps[1].to_string();
-                let url = caps[2].to_string();
-                elements.push(Element::Link { text, url });
-                i += 1;
-                continue;
-            }
+        if trimmed.starts_with('[')
+            && !trimmed.starts_with("[^")
+            && let Some(caps) = link_re.captures(trimmed)
+        {
+            let text = caps[1].to_string();
+            let url = caps[2].to_string();
+            elements.push(Element::Link { text, url });
+            i += 1;
+            continue;
         }
 
         // Blockquote
@@ -819,7 +822,6 @@ pub fn parse_markdown_with_hook(
         }
 
         // Regular paragraph — also strip footnote references [^N] -> (N)
-        let footnote_ref_re = regex::Regex::new(r"\[\^([^\]]+)\]").unwrap();
         let trimmed_with_refs = footnote_ref_re.replace_all(trimmed, "($1)").to_string();
 
         // Check for inline formatting and use RichParagraph if present

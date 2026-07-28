@@ -139,17 +139,17 @@ fn tokenize(html: &str) -> Vec<Node> {
 
                     // Pop stack until we find matching open tag
                     while let Some(top) = stack.pop() {
-                        if let Node::Element { tag: t, .. } = &top {
-                            if t == &tag {
-                                if let Some(parent) = stack.last_mut() {
-                                    if let Node::Element { children, .. } = parent {
-                                        children.push(top);
-                                    }
-                                } else {
-                                    root_children.push(top);
+                        if let Node::Element { tag: t, .. } = &top
+                            && t == &tag
+                        {
+                            if let Some(parent) = stack.last_mut() {
+                                if let Node::Element { children, .. } = parent {
+                                    children.push(top);
                                 }
-                                break;
+                            } else {
+                                root_children.push(top);
                             }
+                            break;
                         }
                         // Unmatched — push children to parent
                         if let Some(parent) = stack.last_mut() {
@@ -366,7 +366,7 @@ fn get_attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
 // ---------------------------------------------------------------------------
 
 /// Convert a parsed HTML node into Element(s), appending to `out`.
-fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter: u32) {
+fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter: u32) {
     match node {
         Node::Text(text) => {
             let trimmed = text.trim();
@@ -411,13 +411,13 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                 }
                 "p" => {
                     let segments = collect_rich_segments(children);
-                    if segments.len() == 1 {
-                        if let TextSegment::Plain(text) = &segments[0] {
-                            out.push(Element::Paragraph {
-                                text: text.trim().to_string(),
-                            });
-                            return;
-                        }
+                    if segments.len() == 1
+                        && let TextSegment::Plain(text) = &segments[0]
+                    {
+                        out.push(Element::Paragraph {
+                            text: text.trim().to_string(),
+                        });
+                        return;
                     }
                     if !segments.is_empty() {
                         out.push(Element::RichParagraph { segments });
@@ -478,14 +478,13 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                             children: li_children,
                             ..
                         } = child
+                            && ctag == "li"
                         {
-                            if ctag == "li" {
-                                let text = collect_text(li_children);
-                                out.push(Element::UnorderedListItem {
-                                    text: text.trim().to_string(),
-                                    depth: list_depth,
-                                });
-                            }
+                            let text = collect_text(li_children);
+                            out.push(Element::UnorderedListItem {
+                                text: text.trim().to_string(),
+                                depth: list_depth,
+                            });
                         }
                     }
                 }
@@ -497,16 +496,15 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                             children: li_children,
                             ..
                         } = child
+                            && ctag == "li"
                         {
-                            if ctag == "li" {
-                                let text = collect_text(li_children);
-                                out.push(Element::OrderedListItem {
-                                    number: num,
-                                    text: text.trim().to_string(),
-                                    depth: list_depth,
-                                });
-                                num += 1;
-                            }
+                            let text = collect_text(li_children);
+                            out.push(Element::OrderedListItem {
+                                number: num,
+                                text: text.trim().to_string(),
+                                depth: list_depth,
+                            });
+                            num += 1;
                         }
                     }
                 }
@@ -558,7 +556,7 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                 "div" | "section" | "article" | "main" | "header" | "footer" | "nav" | "aside" => {
                     // Container elements — recurse into children.
                     for child in children {
-                        convert_node(child, out, list_depth, ol_counter);
+                        convert_node(child, out, list_depth, _ol_counter);
                     }
                 }
                 "span" => {
@@ -571,7 +569,7 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, ol_counter:
                 _ => {
                     // Unknown element — recurse into children.
                     for child in children {
-                        convert_node(child, out, list_depth, ol_counter);
+                        convert_node(child, out, list_depth, _ol_counter);
                     }
                 }
             }
@@ -597,10 +595,9 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
                             children: rc,
                             ..
                         } = row
+                            && rt == "tr"
                         {
-                            if rt == "tr" {
-                                rows.push(rc);
-                            }
+                            rows.push(rc);
                         }
                     }
                 }
@@ -621,35 +618,34 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
                 attrs,
                 ..
             } = cell
+                && (tag == "th" || tag == "td")
             {
-                if tag == "th" || tag == "td" {
-                    if tag == "th" {
-                        is_header = true;
-                    }
-                    let text = collect_text(children);
-                    cells.push(text.trim().to_string());
+                if tag == "th" {
+                    is_header = true;
+                }
+                let text = collect_text(children);
+                cells.push(text.trim().to_string());
 
-                    // Collect alignment from style attribute on first row.
-                    if row_idx == 0 {
-                        if let Some(style) = get_attr(attrs, "style") {
-                            let align = if style.contains("text-align: center")
-                                || style.contains("text-align:center")
-                            {
-                                Some(TableAlignment::Center)
-                            } else if style.contains("text-align: right")
-                                || style.contains("text-align:right")
-                            {
-                                Some(TableAlignment::Right)
-                            } else {
-                                None
-                            };
-                            if let Some(a) = align {
-                                while alignments.len() < cells.len() {
-                                    alignments.push(TableAlignment::Left);
-                                }
-                                alignments[cells.len() - 1] = a;
-                            }
+                // Collect alignment from style attribute on first row.
+                if row_idx == 0
+                    && let Some(style) = get_attr(attrs, "style")
+                {
+                    let align = if style.contains("text-align: center")
+                        || style.contains("text-align:center")
+                    {
+                        Some(TableAlignment::Center)
+                    } else if style.contains("text-align: right")
+                        || style.contains("text-align:right")
+                    {
+                        Some(TableAlignment::Right)
+                    } else {
+                        None
+                    };
+                    if let Some(a) = align {
+                        while alignments.len() < cells.len() {
+                            alignments.push(TableAlignment::Left);
                         }
+                        alignments[cells.len() - 1] = a;
                     }
                 }
             }

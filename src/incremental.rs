@@ -221,9 +221,8 @@ pub fn incremental_add_text_annotation(
         Some(catalog_id),
         None,
     )
-    .map(|bytes| {
+    .inspect(|_bytes| {
         let _ = root;
-        bytes
     })
 }
 

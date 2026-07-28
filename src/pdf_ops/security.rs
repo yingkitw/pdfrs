@@ -383,13 +383,12 @@ pub fn extract_certificates_from_pdf_bytes(
 
     for caps in obj_re.captures_iter(&text) {
         let dict_content = &caps[2];
-        if dict_content.contains("/Type /Sig") || dict_content.contains("/Type/Sig") {
-            if let Some(hex) = super::extract_pdf_dict_value(dict_content, "/Cert") {
-                if let Ok(cert) = der_hex_to_certificate(&hex, index) {
-                    certs.push(cert);
-                    index += 1;
-                }
-            }
+        if (dict_content.contains("/Type /Sig") || dict_content.contains("/Type/Sig"))
+            && let Some(hex) = super::extract_pdf_dict_value(dict_content, "/Cert")
+            && let Ok(cert) = der_hex_to_certificate(&hex, index)
+        {
+            certs.push(cert);
+            index += 1;
         }
     }
 

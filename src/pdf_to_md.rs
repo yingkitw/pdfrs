@@ -114,7 +114,7 @@ fn walk_content_stream(src: &str, collector: &mut SpanCollector) {
     let mut operands: Vec<f32> = Vec::new();
     while i < tokens.len() {
         let t = &tokens[i];
-        if let Some(n) = t.parse::<f32>().ok() {
+        if let Ok(n) = t.parse::<f32>() {
             operands.push(n);
             i += 1;
             continue;

@@ -129,10 +129,10 @@ fn page_media_box(pdf_bytes: &[u8], doc: &PdfDocument, page_id: u32) -> Result<(
     // Scan the raw PDF for the first /MediaBox inside the page object body.
     // The bundled dict parser truncates bracket arrays at the first whitespace,
     // so we go straight to the source text.
-    if let Some(values) = raw_mediabox(pdf_bytes, page_id) {
-        if values.len() >= 4 {
-            return Ok((values[2] - values[0], values[3] - values[1]));
-        }
+    if let Some(values) = raw_mediabox(pdf_bytes, page_id)
+        && values.len() >= 4
+    {
+        return Ok((values[2] - values[0], values[3] - values[1]));
     }
 
     // Fallback to the parsed dict (in case the PDF was already structured).
@@ -212,7 +212,7 @@ fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
     Ok(out)
 }
 
-fn object_dict<'a>(doc: &'a PdfDocument, id: u32) -> Option<&'a HashMap<String, PdfValue>> {
+fn object_dict(doc: &PdfDocument, id: u32) -> Option<&HashMap<String, PdfValue>> {
     doc.objects.get(&id).and_then(|o| match o {
         PdfObject::Dictionary(d) => Some(d),
         PdfObject::Stream { dictionary, .. } => Some(dictionary),
@@ -312,10 +312,10 @@ fn collect_font_metrics(doc: &PdfDocument) -> HashMap<String, FontMetrics> {
         if !seen.insert(id) {
             continue;
         }
-        if let Some(dict) = object_dict(doc, id) {
-            if let Some(resources) = dict.get("Resources") {
-                walk_resources(doc, resources, &mut out);
-            }
+        if let Some(dict) = object_dict(doc, id)
+            && let Some(resources) = dict.get("Resources")
+        {
+            walk_resources(doc, resources, &mut out);
         }
     }
     out
@@ -347,16 +347,16 @@ fn walk_resources(doc: &PdfDocument, val: &PdfValue, out: &mut HashMap<String, F
             out.insert(name.clone(), metrics);
         }
     }
-    if let Some(ext_g) = dict.get("ExtGState") {
-        if let Some(g_dict) = match ext_g {
+    if let Some(ext_g) = dict.get("ExtGState")
+        && let Some(g_dict) = match ext_g {
             PdfValue::Object(PdfObject::Dictionary(d)) => Some(d),
             PdfValue::Reference(id, _) => object_dict(doc, *id),
             _ => None,
-        } {
-            for v in g_dict.values() {
-                if let Some(id) = as_ref_id(v) {
-                    walk_resources(doc, &PdfValue::Reference(id, 0), out);
-                }
+        }
+    {
+        for v in g_dict.values() {
+            if let Some(id) = as_ref_id(v) {
+                walk_resources(doc, &PdfValue::Reference(id, 0), out);
             }
         }
     }
@@ -365,21 +365,13 @@ fn walk_resources(doc: &PdfDocument, val: &PdfValue, out: &mut HashMap<String, F
 fn font_metrics_for(doc: &PdfDocument, font: &HashMap<String, PdfValue>) -> FontMetrics {
     // BaseFont name (e.g. /Helvetica-Bold)
     let base_font = match font.get("BaseFont") {
-        Some(v) => match v {
-            PdfValue::Object(PdfObject::Name(n)) => Some(n.clone()),
-            _ => None,
-        },
-        None => None,
+        Some(PdfValue::Object(PdfObject::Name(n))) => Some(n.clone()),
+        _ => None,
     };
-    let is_base14 = base_font
-        .as_deref()
-        .map(|n| is_base14_font(n))
-        .unwrap_or(false);
+    let is_base14 = base_font.as_deref().map(is_base14_font).unwrap_or(false);
 
-    if is_base14 {
-        if let Some(name) = base_font {
-            return base14_font_metrics(&name);
-        }
+    if is_base14 && let Some(name) = base_font {
+        return base14_font_metrics(&name);
     }
 
     // Try FirstChar/LastChar/Widths array for simple Type1 fonts
@@ -588,7 +580,7 @@ impl Surface {
                     cur = (*x, *y);
                 }
                 PathSegment::Curve(x1, y1, x2, y2, x3, y3) => {
-                    flatten_cubic_into_unsafe(
+                    flatten_cubic_into_segments(
                         &mut segments,
                         cur,
                         (*x1, *y1),
@@ -745,7 +737,7 @@ fn flatten_cubic_into(
 }
 
 // Tessellate cubic Bezier into segments/points via midpoint subdivision.
-fn flatten_cubic_into_unsafe(
+fn flatten_cubic_into_segments(
     out: &mut Vec<(f32, f32, f32, f32)>,
     p0: (f32, f32),
     p1: (f32, f32),

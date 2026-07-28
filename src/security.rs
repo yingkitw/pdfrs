@@ -465,6 +465,7 @@ impl CertificateStore {
         pem_path: &str,
         subject: Option<&str>,
     ) -> Result<SigningCertificate> {
+        validate_cert_id(id)?;
         let cert = load_certificate_pem(id, pem_path)?;
         let cert = if let Some(subject) = subject {
             SigningCertificate {
@@ -500,12 +501,14 @@ impl CertificateStore {
 
     /// Load a certificate from the store by id.
     pub fn get(&self, id: &str) -> Result<SigningCertificate> {
+        validate_cert_id(id)?;
         let path = self.directory.join(format!("{id}.pem"));
         load_certificate_pem(id, path.to_str().unwrap())
     }
 
     /// Remove a certificate from the store.
     pub fn remove(&self, id: &str) -> Result<bool> {
+        validate_cert_id(id)?;
         let path = self.directory.join(format!("{id}.pem"));
         if path.exists() {
             std::fs::remove_file(path)?;
@@ -514,6 +517,19 @@ impl CertificateStore {
             Ok(false)
         }
     }
+}
+
+/// Validate that a certificate store ID is safe (no path traversal, no empty).
+fn validate_cert_id(id: &str) -> Result<()> {
+    if id.is_empty() {
+        return Err(anyhow!("Certificate ID cannot be empty"));
+    }
+    if id.contains('/') || id.contains('\\') || id.contains("..") {
+        return Err(anyhow!(
+            "Certificate ID contains invalid characters (path separators or traversal sequences)"
+        ));
+    }
+    Ok(())
 }
 
 /// Load a PEM-encoded X.509 certificate from disk.
@@ -616,7 +632,7 @@ fn parse_subject_from_der(der: &[u8]) -> Option<String> {
         if let Some(idx) = lossy.find(marker) {
             let slice = &lossy[idx..];
             let end = slice
-                .find(|c: char| c == '\0' || c == '\x01' || c == '\x02')
+                .find(['\0', '\x01', '\x02'])
                 .unwrap_or(slice.len().min(64));
             let candidate = slice[..end].trim_matches(|c: char| !c.is_ascii_graphic() && c != '=');
             if !candidate.is_empty() {
@@ -815,5 +831,24 @@ mod tests {
         let hex = certificate_pem_to_der_hex(&pem).unwrap();
         assert!(hex.len() > 100);
         assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_cert_id_path_traversal_rejected() {
+        let dir = std::env::temp_dir().join(format!("pdfrs-trav-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = CertificateStore::open(&dir).unwrap();
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test_cert.pem");
+
+        assert!(store.import("../escape", fixture, None).is_err());
+        assert!(store.import("../../etc/evil", fixture, None).is_err());
+        assert!(store.import("foo/bar", fixture, None).is_err());
+        assert!(store.import("foo\\bar", fixture, None).is_err());
+        assert!(store.import("", fixture, None).is_err());
+
+        assert!(store.get("../escape").is_err());
+        assert!(store.remove("../escape").is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

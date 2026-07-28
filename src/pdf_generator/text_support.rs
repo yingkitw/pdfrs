@@ -157,34 +157,30 @@ fn replace_frac_commands(s: &str) -> String {
     while let Some(pos) = rest.find("\\frac") {
         out.push_str(&rest[..pos]);
         let after_cmd = &rest[pos + 5..];
-        if let Some((num, nlen)) = parse_brace_group(after_cmd) {
-            if let Some((den, dlen)) = parse_brace_group(&after_cmd[nlen..]) {
-                let num = num.trim();
-                let den = den.trim();
-                let simple = |t: &str| {
-                    !t.is_empty()
-                        && t.chars().all(|c| {
-                            c.is_ascii_alphanumeric()
-                                || c == '+'
-                                || c == '-'
-                                || c == '('
-                                || c == ')'
-                        })
-                };
-                if simple(num) && simple(den) {
-                    out.push_str(num);
-                    out.push('⁄');
-                    out.push_str(den);
-                } else {
-                    out.push('(');
-                    out.push_str(num);
-                    out.push_str(")/(");
-                    out.push_str(den);
-                    out.push(')');
-                }
-                rest = &after_cmd[nlen + dlen..];
-                continue;
+        if let Some((num, nlen)) = parse_brace_group(after_cmd)
+            && let Some((den, dlen)) = parse_brace_group(&after_cmd[nlen..])
+        {
+            let num = num.trim();
+            let den = den.trim();
+            let simple = |t: &str| {
+                !t.is_empty()
+                    && t.chars().all(|c| {
+                        c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '(' || c == ')'
+                    })
+            };
+            if simple(num) && simple(den) {
+                out.push_str(num);
+                out.push('⁄');
+                out.push_str(den);
+            } else {
+                out.push('(');
+                out.push_str(num);
+                out.push_str(")/(");
+                out.push_str(den);
+                out.push(')');
             }
+            rest = &after_cmd[nlen + dlen..];
+            continue;
         }
         // Unparseable: keep the command literal and advance past it.
         out.push_str("\\frac");
@@ -202,11 +198,11 @@ fn replace_sqrt_commands(s: &str) -> String {
         out.push_str(&rest[..pos]);
         let mut after = &rest[pos + 5..];
         let mut index: Option<String> = None;
-        if after.starts_with('[') {
-            if let Some(end) = after.find(']') {
-                index = Some(after[1..end].to_string());
-                after = &after[end + 1..];
-            }
+        if after.starts_with('[')
+            && let Some(end) = after.find(']')
+        {
+            index = Some(after[1..end].to_string());
+            after = &after[end + 1..];
         }
         if let Some((body, len)) = parse_brace_group(after) {
             match index {

@@ -608,6 +608,7 @@ fn build_watermark_stream(
 ///     0.8,    // opacity
 /// ).expect("Failed to overlay image");
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn overlay_image_on_pdf(
     input_file: &str,
     output_file: &str,

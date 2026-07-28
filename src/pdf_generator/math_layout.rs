@@ -7,6 +7,11 @@ use regex::Regex;
 
 use super::text_support::{flatten_math_environments, parse_brace_group, render_math_text};
 
+use std::sync::OnceLock;
+
+static LIMITS_LOWER_RE: OnceLock<Regex> = OnceLock::new();
+static LIMITS_UPPER_RE: OnceLock<Regex> = OnceLock::new();
+
 /// A laid-out piece of display mathematics.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum MathPiece {
@@ -174,35 +179,31 @@ fn parse_limits(s: &str) -> (String, String, usize) {
     let mut idx = 0;
     let mut lower = String::new();
     let mut upper = String::new();
+    let lower_re = LIMITS_LOWER_RE.get_or_init(|| Regex::new(r"^_([A-Za-z0-9+\-*/=]+)").unwrap());
+    let upper_re = LIMITS_UPPER_RE.get_or_init(|| Regex::new(r"^\^([A-Za-z0-9+\-*/=]+)").unwrap());
 
     for _ in 0..2 {
         let rest = &s[idx..];
-        if rest.starts_with("_{") {
-            if let Some((content, len)) = parse_brace_group(&rest[1..]) {
-                lower = content;
-                idx += 1 + len;
-                continue;
-            }
-        }
-        if rest.starts_with("^{") {
-            if let Some((content, len)) = parse_brace_group(&rest[1..]) {
-                upper = content;
-                idx += 1 + len;
-                continue;
-            }
-        }
-        if let Some(caps) = Regex::new(r"^_([A-Za-z0-9+\-*/=]+)")
-            .unwrap()
-            .captures(rest)
+        if rest.starts_with("_{")
+            && let Some((content, len)) = parse_brace_group(&rest[1..])
         {
+            lower = content;
+            idx += 1 + len;
+            continue;
+        }
+        if rest.starts_with("^{")
+            && let Some((content, len)) = parse_brace_group(&rest[1..])
+        {
+            upper = content;
+            idx += 1 + len;
+            continue;
+        }
+        if let Some(caps) = lower_re.captures(rest) {
             lower = caps[1].to_string();
             idx += caps.get(0).unwrap().end();
             continue;
         }
-        if let Some(caps) = Regex::new(r"^\^([A-Za-z0-9+\-*/=]+)")
-            .unwrap()
-            .captures(rest)
-        {
+        if let Some(caps) = upper_re.captures(rest) {
             upper = caps[1].to_string();
             idx += caps.get(0).unwrap().end();
             continue;
