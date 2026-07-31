@@ -173,6 +173,9 @@ pub mod vector;
 #[cfg(feature = "async")]
 pub mod async_api;
 
+#[cfg(feature = "api")]
+pub mod api;
+
 #[cfg(feature = "wasm")]
 pub mod wasm;
 

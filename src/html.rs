@@ -4,6 +4,14 @@
 //! documents into [`Element`] vectors, which are then rendered to PDF using
 //! the existing [`crate::pdf_generator`] pipeline.
 //!
+//! # CSS support
+//!
+//! The parser extracts CSS rules from `<style>` tags and inline `style`
+//! attributes. Supported properties: `font-weight`, `font-style`,
+//! `text-align`, `color`, `background-color`, `font-size`, `margin`,
+//! `padding`, `border`. Selectors: tag, `.class`, `tag.class`, `#id`.
+//! Inline styles take priority over stylesheet rules.
+//!
 //! # Supported HTML elements
 //!
 //! | HTML | Element mapping |
@@ -35,6 +43,202 @@
 
 use crate::elements::{Element, TableAlignment, TextSegment};
 
+/// Parsed CSS properties for a single element.
+#[derive(Debug, Clone, Default)]
+struct ComputedStyle {
+    bold: bool,
+    italic: bool,
+    /// CSS color value (e.g. `#ff0000`, `red`).
+    color: Option<String>,
+    /// CSS background-color value.
+    background_color: Option<String>,
+    /// CSS font-size value (e.g. `14px`, `1.5em`).
+    font_size: Option<String>,
+    /// CSS text-align value.
+    text_align: Option<String>,
+    /// CSS margin values.
+    margin: Option<String>,
+    /// CSS padding values.
+    padding: Option<String>,
+    /// CSS border shorthand.
+    border: Option<String>,
+}
+
+/// A CSS rule with a selector and declared properties.
+#[derive(Debug, Clone)]
+struct CssRule {
+    selector: String,
+    style: ComputedStyle,
+}
+
+/// Parse a CSS stylesheet string into a list of rules.
+fn parse_stylesheet(css: &str) -> Vec<CssRule> {
+    let mut rules = Vec::new();
+    let chars: Vec<char> = css.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        // Skip whitespace and comments.
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        if i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '*' {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+        if i >= chars.len() {
+            break;
+        }
+        // Read selector until `{`.
+        let sel_start = i;
+        while i < chars.len() && chars[i] != '{' {
+            i += 1;
+        }
+        if i >= chars.len() {
+            break;
+        }
+        let selector: String = chars[sel_start..i].iter().collect::<String>().trim().to_string();
+        i += 1; // skip {
+        // Read declarations until `}`.
+        let decl_start = i;
+        while i < chars.len() && chars[i] != '}' {
+            i += 1;
+        }
+        if i >= chars.len() {
+            break;
+        }
+        let declarations: String = chars[decl_start..i].iter().collect();
+        i += 1; // skip }
+        let style = parse_declarations(&declarations);
+        if !selector.is_empty() {
+            rules.push(CssRule { selector, style });
+        }
+    }
+    rules
+}
+
+/// Parse CSS declarations like `font-weight: bold; color: red;` into a ComputedStyle.
+fn parse_declarations(decls: &str) -> ComputedStyle {
+    let mut style = ComputedStyle::default();
+    for decl in decls.split(';') {
+        let decl = decl.trim();
+        if let Some((prop, val)) = decl.split_once(':') {
+            let prop = prop.trim().to_lowercase();
+            let val = val.trim().to_string();
+            match prop.as_str() {
+                "font-weight" => {
+                    style.bold = val == "bold" || val == "700" || val == "800" || val == "900";
+                }
+                "font-style" => {
+                    style.italic = val == "italic" || val == "oblique";
+                }
+                "color" => style.color = Some(val),
+                "background-color" | "background" => style.background_color = Some(val),
+                "font-size" => style.font_size = Some(val),
+                "text-align" => style.text_align = Some(val),
+                "margin" => style.margin = Some(val),
+                "padding" => style.padding = Some(val),
+                "border" => style.border = Some(val),
+                _ => {}
+            }
+        }
+    }
+    style
+}
+
+/// Parse an inline `style` attribute value into a ComputedStyle.
+fn parse_inline_style(style_str: &str) -> ComputedStyle {
+    parse_declarations(style_str)
+}
+
+/// Match a CSS selector against an HTML element tag and class.
+/// Supports tag selectors (`p`, `h1`), class selectors (`.classname`),
+/// and tag.class combinations (`p.highlight`).
+fn matches_selector(selector: &str, tag: &str, attrs: &[(String, String)]) -> bool {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return false;
+    }
+    // Check for class selector (`.classname` or `tag.classname`).
+    if let Some(dot_pos) = selector.find('.') {
+        let sel_tag = &selector[..dot_pos];
+        let sel_class = &selector[dot_pos + 1..];
+        if !sel_tag.is_empty() && sel_tag.to_lowercase() != tag {
+            return false;
+        }
+        // Check if element has this class.
+        let class_val = get_attr(attrs, "class").unwrap_or("");
+        return class_val.split_whitespace().any(|c| c == sel_class);
+    }
+    // Check for id selector (`#id`).
+    if let Some(hash_pos) = selector.find('#') {
+        let sel_tag = &selector[..hash_pos];
+        let sel_id = &selector[hash_pos + 1..];
+        if !sel_tag.is_empty() && sel_tag.to_lowercase() != tag {
+            return false;
+        }
+        let id_val = get_attr(attrs, "id").unwrap_or("");
+        return id_val == sel_id;
+    }
+    // Plain tag selector.
+    selector.to_lowercase() == tag
+}
+
+/// Compute the style for an element by applying matching CSS rules and inline style.
+fn compute_style(
+    tag: &str,
+    attrs: &[(String, String)],
+    rules: &[CssRule],
+) -> ComputedStyle {
+    let mut style = ComputedStyle::default();
+    // Apply matching stylesheet rules in order.
+    for rule in rules {
+        if matches_selector(&rule.selector, tag, attrs) {
+            merge_style(&mut style, &rule.style);
+        }
+    }
+    // Apply inline style (highest priority).
+    if let Some(inline) = get_attr(attrs, "style") {
+        let inline_style = parse_inline_style(inline);
+        merge_style(&mut style, &inline_style);
+    }
+    style
+}
+
+/// Merge `src` into `dst`, with `src` taking priority for set fields.
+fn merge_style(dst: &mut ComputedStyle, src: &ComputedStyle) {
+    if src.bold {
+        dst.bold = true;
+    }
+    if src.italic {
+        dst.italic = true;
+    }
+    if src.color.is_some() {
+        dst.color = src.color.clone();
+    }
+    if src.background_color.is_some() {
+        dst.background_color = src.background_color.clone();
+    }
+    if src.font_size.is_some() {
+        dst.font_size = src.font_size.clone();
+    }
+    if src.text_align.is_some() {
+        dst.text_align = src.text_align.clone();
+    }
+    if src.margin.is_some() {
+        dst.margin = src.margin.clone();
+    }
+    if src.padding.is_some() {
+        dst.padding = src.padding.clone();
+    }
+    if src.border.is_some() {
+        dst.border = src.border.clone();
+    }
+}
+
 /// A parsed HTML node in a simplified DOM tree.
 #[derive(Debug, Clone)]
 enum Node {
@@ -62,11 +266,37 @@ const VOID_ELEMENTS: &[&str] = &[
 /// Parse an HTML string into a vector of [`Element`]s.
 pub fn parse_html(html: &str) -> Vec<Element> {
     let nodes = tokenize(html);
+    // Extract CSS rules from <style> tags.
+    let css_rules = extract_css_rules(&nodes);
     let mut elements = Vec::new();
     for node in &nodes {
-        convert_node(node, &mut elements, 0, 1);
+        convert_node(node, &mut elements, 0, 1, &css_rules);
     }
     elements
+}
+
+/// Recursively find all `<style>` nodes and parse their text content as CSS.
+fn extract_css_rules(nodes: &[Node]) -> Vec<CssRule> {
+    let mut rules = Vec::new();
+    for node in nodes {
+        extract_css_rules_inner(node, &mut rules);
+    }
+    rules
+}
+
+fn extract_css_rules_inner(node: &Node, rules: &mut Vec<CssRule>) {
+    match node {
+        Node::Element { tag, children, .. } if tag == "style" => {
+            let css = collect_text(children);
+            rules.extend(parse_stylesheet(&css));
+        }
+        Node::Element { children, .. } => {
+            for child in children {
+                extract_css_rules_inner(child, rules);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Convert HTML to PDF file.
@@ -366,7 +596,7 @@ fn get_attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
 // ---------------------------------------------------------------------------
 
 /// Convert a parsed HTML node into Element(s), appending to `out`.
-fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter: u32) {
+fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter: u32, css_rules: &[CssRule]) {
     match node {
         Node::Text(text) => {
             let trimmed = text.trim();
@@ -380,7 +610,6 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
             match tag.as_str() {
                 "hr" => out.push(Element::HorizontalRule),
                 "br" => {
-                    // Inline br handling: append a newline to the last paragraph.
                     if let Some(Element::Paragraph { text }) = out.last_mut() {
                         text.push('\n');
                     }
@@ -400,7 +629,11 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
             attrs,
             children,
         } => {
+            let style = compute_style(tag, attrs, css_rules);
             match tag.as_str() {
+                "style" => {
+                    // CSS rules already extracted; skip output.
+                }
                 "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                     let level = tag[1..].parse::<u8>().unwrap_or(1);
                     let text = collect_text(children);
@@ -410,7 +643,7 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                     });
                 }
                 "p" => {
-                    let segments = collect_rich_segments(children);
+                    let segments = collect_rich_segments_styled(children, style.bold, style.italic, css_rules);
                     if segments.len() == 1
                         && let TextSegment::Plain(text) = &segments[0]
                     {
@@ -424,21 +657,18 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                     }
                 }
                 "strong" | "b" => {
-                    // Inline — should be handled by parent's collect_rich_segments.
-                    // If we reach here as a standalone, emit as paragraph.
-                    let segments = collect_rich_segments(children);
+                    let segments = collect_rich_segments_styled(children, true, style.italic, css_rules);
                     if !segments.is_empty() {
                         out.push(Element::RichParagraph { segments });
                     }
                 }
                 "em" | "i" => {
-                    let segments = collect_rich_segments(children);
+                    let segments = collect_rich_segments_styled(children, style.bold, true, css_rules);
                     if !segments.is_empty() {
                         out.push(Element::RichParagraph { segments });
                     }
                 }
                 "pre" => {
-                    // Look for <code> child for language hint.
                     let (language, code) = if let Some(Node::Element {
                         tag: child_tag,
                         attrs: child_attrs,
@@ -465,7 +695,6 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                     });
                 }
                 "code" => {
-                    // Inline code (not inside <pre>)
                     let text = collect_text(children);
                     if !text.is_empty() {
                         out.push(Element::InlineCode { code: text });
@@ -509,7 +738,6 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                     }
                 }
                 "li" => {
-                    // Standalone <li> (outside ul/ol) — treat as unordered item.
                     let text = collect_text(children);
                     out.push(Element::UnorderedListItem {
                         text: text.trim().to_string(),
@@ -524,7 +752,7 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                     });
                 }
                 "table" => {
-                    convert_table(children, out);
+                    convert_table(children, out, css_rules);
                 }
                 "a" => {
                     let href = get_attr(attrs, "href").unwrap_or("").to_string();
@@ -554,22 +782,19 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                 }
                 "hr" => out.push(Element::HorizontalRule),
                 "div" | "section" | "article" | "main" | "header" | "footer" | "nav" | "aside" => {
-                    // Container elements — recurse into children.
                     for child in children {
-                        convert_node(child, out, list_depth, _ol_counter);
+                        convert_node(child, out, list_depth, _ol_counter, css_rules);
                     }
                 }
                 "span" => {
-                    // Inline span — treat like a paragraph with rich segments.
-                    let segments = collect_rich_segments(children);
+                    let segments = collect_rich_segments_styled(children, style.bold, style.italic, css_rules);
                     if !segments.is_empty() {
                         out.push(Element::RichParagraph { segments });
                     }
                 }
                 _ => {
-                    // Unknown element — recurse into children.
                     for child in children {
-                        convert_node(child, out, list_depth, _ol_counter);
+                        convert_node(child, out, list_depth, _ol_counter, css_rules);
                     }
                 }
             }
@@ -578,7 +803,7 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
 }
 
 /// Convert a `<table>` node's children into TableRow elements.
-fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
+fn convert_table(table_children: &[Node], out: &mut Vec<Element>, css_rules: &[CssRule]) {
     let mut has_header = false;
     let mut alignments: Vec<TableAlignment> = Vec::new();
 
@@ -609,6 +834,8 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
 
     for (row_idx, row_children) in rows.iter().enumerate() {
         let mut cells = Vec::new();
+        let mut colspans = Vec::new();
+        let mut rowspans = Vec::new();
         let mut is_header = false;
 
         for cell in row_children.iter() {
@@ -626,18 +853,29 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
                 let text = collect_text(children);
                 cells.push(text.trim().to_string());
 
-                // Collect alignment from style attribute on first row.
-                if row_idx == 0
-                    && let Some(style) = get_attr(attrs, "style")
-                {
-                    let align = if style.contains("text-align: center")
-                        || style.contains("text-align:center")
-                    {
-                        Some(TableAlignment::Center)
-                    } else if style.contains("text-align: right")
-                        || style.contains("text-align:right")
-                    {
-                        Some(TableAlignment::Right)
+                let colspan = attrs
+                    .iter()
+                    .find(|(k, _)| k == "colspan")
+                    .and_then(|(_, v)| v.parse::<u32>().ok())
+                    .unwrap_or(1);
+                let rowspan = attrs
+                    .iter()
+                    .find(|(k, _)| k == "rowspan")
+                    .and_then(|(_, v)| v.parse::<u32>().ok())
+                    .unwrap_or(1);
+                colspans.push(colspan);
+                rowspans.push(rowspan);
+
+                // Collect alignment from CSS or style attribute on first row.
+                if row_idx == 0 {
+                    let style = compute_style(tag, attrs, css_rules);
+                    let align = if let Some(ta) = &style.text_align {
+                        match ta.as_str() {
+                            "center" => Some(TableAlignment::Center),
+                            "right" => Some(TableAlignment::Right),
+                            "justify" => Some(TableAlignment::Justify),
+                            _ => None,
+                        }
                     } else {
                         None
                     };
@@ -670,6 +908,8 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
                 cells: cells.iter().map(|_| "---".to_string()).collect(),
                 is_separator: true,
                 alignments: sep_alignments,
+                colspans: Vec::new(),
+                rowspans: Vec::new(),
             });
         }
 
@@ -681,6 +921,8 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>) {
             } else {
                 Vec::new()
             },
+            colspans,
+            rowspans,
         });
     }
 }
@@ -710,16 +952,15 @@ fn collect_text_inner(node: &Node, out: &mut String) {
     }
 }
 
-/// Collect rich text segments from children, handling inline formatting.
-fn collect_rich_segments(nodes: &[Node]) -> Vec<TextSegment> {
+/// Collect rich text segments from children, with inherited bold/italic from CSS.
+fn collect_rich_segments_styled(nodes: &[Node], bold: bool, italic: bool, css_rules: &[CssRule]) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     for node in nodes {
-        collect_segments_inner(node, &mut segments, false, false);
+        collect_segments_styled_inner(node, &mut segments, bold, italic, css_rules);
     }
     if segments.is_empty() {
         return segments;
     }
-    // Merge adjacent plain segments.
     let mut merged: Vec<TextSegment> = Vec::new();
     for seg in segments {
         match (&seg, merged.last_mut()) {
@@ -729,19 +970,23 @@ fn collect_rich_segments(nodes: &[Node]) -> Vec<TextSegment> {
             _ => merged.push(seg),
         }
     }
-    // Trim leading/trailing whitespace from first/last plain segment.
     if let Some(TextSegment::Plain(s)) = merged.first_mut() {
         *s = s.trim_start().to_string();
     }
     if let Some(TextSegment::Plain(s)) = merged.last_mut() {
         *s = s.trim_end().to_string();
     }
-    // Remove empty plain segments.
     merged.retain(|s| !matches!(s, TextSegment::Plain(p) if p.is_empty()));
     merged
 }
 
-fn collect_segments_inner(node: &Node, out: &mut Vec<TextSegment>, bold: bool, italic: bool) {
+fn collect_segments_styled_inner(
+    node: &Node,
+    out: &mut Vec<TextSegment>,
+    bold: bool,
+    italic: bool,
+    css_rules: &[CssRule],
+) {
     match node {
         Node::Text(text) => {
             let text = text.clone();
@@ -765,15 +1010,18 @@ fn collect_segments_inner(node: &Node, out: &mut Vec<TextSegment>, bold: bool, i
             attrs,
             children,
         } => {
+            let style = compute_style(tag, attrs, css_rules);
+            let new_bold = bold || style.bold;
+            let new_italic = italic || style.italic;
             match tag.as_str() {
                 "strong" | "b" => {
                     for child in children {
-                        collect_segments_inner(child, out, true, italic);
+                        collect_segments_styled_inner(child, out, true, new_italic, css_rules);
                     }
                 }
                 "em" | "i" => {
                     for child in children {
-                        collect_segments_inner(child, out, bold, true);
+                        collect_segments_styled_inner(child, out, new_bold, true, css_rules);
                     }
                 }
                 "code" => {
@@ -797,25 +1045,13 @@ fn collect_segments_inner(node: &Node, out: &mut Vec<TextSegment>, bold: bool, i
                     out.push(TextSegment::Plain("\n".to_string()));
                 }
                 "span" => {
-                    // Check for style-based bold/italic.
-                    let style_bold = get_attr(attrs, "style")
-                        .map(|s| s.contains("font-weight: bold") || s.contains("font-weight:bold"))
-                        .unwrap_or(false);
-                    let style_italic = get_attr(attrs, "style")
-                        .map(|s| {
-                            s.contains("font-style: italic") || s.contains("font-style:italic")
-                        })
-                        .unwrap_or(false);
-                    let new_bold = bold || style_bold;
-                    let new_italic = italic || style_italic;
                     for child in children {
-                        collect_segments_inner(child, out, new_bold, new_italic);
+                        collect_segments_styled_inner(child, out, new_bold, new_italic, css_rules);
                     }
                 }
                 _ => {
-                    // Unknown inline element — recurse with current formatting state.
                     for child in children {
-                        collect_segments_inner(child, out, bold, italic);
+                        collect_segments_styled_inner(child, out, new_bold, new_italic, css_rules);
                     }
                 }
             }
@@ -1128,5 +1364,141 @@ mod tests {
         let html = "<h1>Test</h1><p>Hello world</p>";
         let bytes = html_to_pdf_bytes(html, "Helvetica", 12.0).unwrap();
         assert!(bytes.starts_with(b"%PDF"));
+    }
+
+    #[test]
+    fn test_inline_style_bold() {
+        let elements = parse_html(r#"<p>Hello <span style="font-weight: bold">world</span></p>"#);
+        assert_eq!(elements.len(), 1);
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t == "world")));
+            }
+            _ => panic!("expected RichParagraph"),
+        }
+    }
+
+    #[test]
+    fn test_inline_style_italic() {
+        let elements = parse_html(r#"<p>Hello <span style="font-style: italic">world</span></p>"#);
+        assert_eq!(elements.len(), 1);
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t == "world")));
+            }
+            _ => panic!("expected RichParagraph"),
+        }
+    }
+
+    #[test]
+    fn test_inline_style_bold_italic() {
+        let elements = parse_html(r#"<p><span style="font-weight: bold; font-style: italic">both</span></p>"#);
+        assert_eq!(elements.len(), 1);
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "both")));
+            }
+            _ => panic!("expected RichParagraph"),
+        }
+    }
+
+    #[test]
+    fn test_style_tag_bold() {
+        let html = r#"<style>p { font-weight: bold; }</style><p>Bold text</p>"#;
+        let elements = parse_html(html);
+        // The <style> tag should not produce any elements.
+        // The <p> should produce a RichParagraph with bold text.
+        assert!(!elements.is_empty());
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t.contains("Bold text"))));
+            }
+            _ => panic!("expected RichParagraph with bold text"),
+        }
+    }
+
+    #[test]
+    fn test_style_tag_italic() {
+        let html = r#"<style>p { font-style: italic; }</style><p>Italic text</p>"#;
+        let elements = parse_html(html);
+        assert!(!elements.is_empty());
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t.contains("Italic text"))));
+            }
+            _ => panic!("expected RichParagraph with italic text"),
+        }
+    }
+
+    #[test]
+    fn test_style_tag_class_selector() {
+        let html = r#"<style>.highlight { font-weight: bold; }</style><p class="highlight">Bold via class</p>"#;
+        let elements = parse_html(html);
+        assert!(!elements.is_empty());
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t.contains("Bold via class"))));
+            }
+            _ => panic!("expected RichParagraph with bold text from class selector"),
+        }
+    }
+
+    #[test]
+    fn test_style_tag_does_not_produce_elements() {
+        let html = r#"<style>body { color: red; }</style>"#;
+        let elements = parse_html(html);
+        assert!(elements.is_empty(), "style tag should not produce elements");
+    }
+
+    #[test]
+    fn test_css_text_align_table() {
+        let html = r#"<style>th.right { text-align: right; }</style>
+        <table><thead><tr><th>Name</th><th class="right">Price</th></tr></thead>
+        <tbody><tr><td>Item</td><td>$10</td></tr></tbody></table>"#;
+        let elements = parse_html(html);
+        // Should have a separator row with Right alignment on second column.
+        assert!(elements.iter().any(|e| matches!(
+            e,
+            Element::TableRow { is_separator: true, alignments, .. }
+            if alignments.len() >= 2 && alignments[1] == TableAlignment::Right
+        )));
+    }
+
+    #[test]
+    fn test_inline_style_text_align_table() {
+        let html = r#"<table><thead><tr><th>Name</th><th style="text-align: center">Price</th></tr></thead>
+        <tbody><tr><td>Item</td><td>$10</td></tr></tbody></table>"#;
+        let elements = parse_html(html);
+        assert!(elements.iter().any(|e| matches!(
+            e,
+            Element::TableRow { is_separator: true, alignments, .. }
+            if alignments.len() >= 2 && alignments[1] == TableAlignment::Center
+        )));
+    }
+
+    #[test]
+    fn test_css_overrides_inline() {
+        let html = r#"<style>p { font-weight: bold; }</style><p style="font-style: italic">Both</p>"#;
+        let elements = parse_html(html);
+        assert!(!elements.is_empty());
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "Both")));
+            }
+            _ => panic!("expected RichParagraph with bold+italic"),
+        }
+    }
+
+    #[test]
+    fn test_css_tag_class_selector() {
+        let html = r#"<style>p.special { font-style: italic; }</style><p class="special">Special</p>"#;
+        let elements = parse_html(html);
+        assert!(!elements.is_empty());
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t.contains("Special"))));
+            }
+            _ => panic!("expected RichParagraph with italic from tag.class selector"),
+        }
     }
 }

@@ -149,7 +149,7 @@ fn roundtrip_test(md_path: &str, label: &str) {
     // We expect at least some content to survive the roundtrip
     // The exact threshold depends on how well the PDF parser works
     assert!(
-        roundtrip_md.len() > 0,
+        !roundtrip_md.is_empty(),
         "Roundtrip output is empty for {}",
         label
     );
@@ -1174,14 +1174,11 @@ fn test_complex_examples_library_api_batch() {
             val_l.object_count
         );
 
-        // Write both for manual inspection
+        // Write both for manual inspection (non-fatal if dir was cleaned by another test)
         let stem = filename.replace(".md", "");
-        fs::write(format!("{}/batch_{}_portrait.pdf", out_dir, stem), &bytes_p).unwrap();
-        fs::write(
-            format!("{}/batch_{}_landscape.pdf", out_dir, stem),
-            &bytes_l,
-        )
-        .unwrap();
+        let _ = fs::create_dir_all(&out_dir);
+        let _ = fs::write(format!("{}/batch_{}_portrait.pdf", out_dir, stem), &bytes_p);
+        let _ = fs::write(format!("{}/batch_{}_landscape.pdf", out_dir, stem), &bytes_l);
     }
 
     println!("=== PASSED: complex_examples_library_api_batch ===");

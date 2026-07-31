@@ -84,6 +84,156 @@ pub fn merge_pdfs(input_files: &[&str], output_file: &str) -> Result<()> {
     Ok(())
 }
 
+/// Merge multiple PDFs from raw byte slices (no filesystem access).
+///
+/// Each entry in `pdf_bytes` is a complete PDF file. Returns the merged PDF bytes.
+pub fn merge_pdfs_from_bytes(pdf_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
+    if pdf_bytes.is_empty() {
+        return Err(anyhow!("No input PDFs provided for merge"));
+    }
+    let mut all_page_streams: Vec<Vec<u8>> = Vec::new();
+    for (i, bytes) in pdf_bytes.iter().enumerate() {
+        let doc = crate::pdf::PdfDocument::load_from_bytes(bytes)?;
+        let streams = extract_page_streams(&doc);
+        if streams.is_empty() {
+            eprintln!("[merge] Warning: no page streams found in PDF #{i}");
+        }
+        all_page_streams.extend(streams);
+    }
+    if all_page_streams.is_empty() {
+        return Err(anyhow!("No page content found in any input PDF"));
+    }
+    let layout = crate::pdf_generator::PageLayout::portrait();
+    assemble_merged_pdf_bytes(&all_page_streams, "Helvetica", &layout)
+}
+
+/// Split a PDF from raw bytes into individual page PDFs (one byte vec per page).
+pub fn split_pdf_from_bytes(pdf_bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let doc = crate::pdf::PdfDocument::load_from_bytes(pdf_bytes)?;
+    let all_streams = extract_page_streams(&doc);
+    if all_streams.is_empty() {
+        return Err(anyhow!("No pages found in input PDF"));
+    }
+    let layout = crate::pdf_generator::PageLayout::portrait();
+    let mut results = Vec::with_capacity(all_streams.len());
+    for stream in &all_streams {
+        let pdf = assemble_merged_pdf_bytes(std::slice::from_ref(stream), "Helvetica", &layout)?;
+        results.push(pdf);
+    }
+    Ok(results)
+}
+
+/// Assemble a merged PDF from raw page content streams, returning bytes.
+fn assemble_merged_pdf_bytes(
+    page_streams: &[Vec<u8>],
+    font: &str,
+    layout: &crate::pdf_generator::PageLayout,
+) -> Result<Vec<u8>> {
+    // Build the PDF in memory using the same structure as assemble_merged_pdf
+    // but writing to a Vec instead of a file.
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
+
+    let mut offsets: Vec<(u32, u64)> = Vec::new();
+    let mut next_id = 1u32;
+
+    // Font object
+    let font_id = next_id;
+    offsets.push((font_id, pdf.len() as u64));
+    pdf.extend_from_slice(
+        format!(
+            "{} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /{} >>\nendobj\n",
+            font_id, font
+        )
+        .as_bytes(),
+    );
+    next_id += 1;
+
+    // Pages object
+    let pages_id = next_id;
+    let pages_offset = pdf.len() as u64;
+    next_id += 1;
+
+    // Page objects
+    let mut page_ids = Vec::new();
+    for stream in page_streams {
+        let content_id = next_id;
+        offsets.push((content_id, pdf.len() as u64));
+        pdf.extend_from_slice(
+            format!(
+                "{} 0 obj\n<< /Length {} >>\nstream\n",
+                content_id,
+                stream.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(stream);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        next_id += 1;
+
+        let page_id = next_id;
+        offsets.push((page_id, pdf.len() as u64));
+        pdf.extend_from_slice(
+            format!(
+                "{} 0 obj\n<< /Type /Page /Parent {} 0 R /MediaBox [0 0 {} {}] /Contents {} 0 R /Resources << /Font << /F1 {} 0 R >> >> >>\nendobj\n",
+                page_id,
+                pages_id,
+                layout.width,
+                layout.height,
+                content_id,
+                font_id
+            )
+            .as_bytes(),
+        );
+        page_ids.push(page_id);
+        next_id += 1;
+    }
+
+    // Write pages object
+    offsets.push((pages_id, pages_offset));
+    let kids: Vec<String> = page_ids.iter().map(|id| format!("{id} 0 R")).collect();
+    pdf.extend_from_slice(
+        format!(
+            "{} 0 obj\n<< /Type /Pages /Kids [{}] /Count {} >>\nendobj\n",
+            pages_id,
+            kids.join(" "),
+            page_ids.len()
+        )
+        .as_bytes(),
+    );
+
+    // Catalog
+    let catalog_id = next_id;
+    offsets.push((catalog_id, pdf.len() as u64));
+    pdf.extend_from_slice(
+        format!(
+            "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
+            catalog_id, pages_id
+        )
+        .as_bytes(),
+    );
+
+    // xref
+    let xref_offset = pdf.len() as u64;
+    pdf.extend_from_slice(b"xref\n");
+    pdf.extend_from_slice(format!("0 {}\n", next_id).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for (_, offset) in &offsets {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+
+    // Trailer
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root {} 0 R >>\nstartxref\n{}\n%%EOF\n",
+            next_id, catalog_id, xref_offset
+        )
+        .as_bytes(),
+    );
+
+    Ok(pdf)
+}
+
 /// Merge multiple already-loaded PdfDocument instances into a single output PDF.
 ///
 /// This is a helper function for parallel PDF operations where documents
@@ -1191,7 +1341,7 @@ mod proptest_tests {
             let escaped = escape_pdf_meta(&s);
             // After escaping, certain patterns should be consistent
             // Escaped parens should be present
-            for (_, c) in s.chars().enumerate() {
+            for c in s.chars() {
                 match c {
                     '(' | ')' => {
                         // Should be escaped

@@ -66,7 +66,54 @@ The viewer uses [pdf.js](https://mozilla.github.io/pdf.js/) from CDN for renderi
 
 ### `render_markdown_to_pdf(md: string) => Uint8Array`
 
-Converts a Markdown string to a PDF byte array.
+Converts a Markdown string to a PDF byte array (synchronous).
+
+### `render_markdown_to_pdf_async(md: string) => Promise<Uint8Array>`
+
+Async version that yields to the JS event loop. Use in workers for
+cooperative scheduling.
+
+### `version() => string`
+
+Returns the crate version (useful for cache invalidation).
+
+## Web Worker Offloading
+
+For large documents, offload PDF generation to a Web Worker to keep the
+UI responsive:
+
+```javascript
+import { PdfWorkerClient } from './worker-client.js';
+
+const client = new PdfWorkerClient('./worker.js');
+await client.init('./pkg/pdfrs.js');
+
+const pdfBytes = await client.render('# Big document...');
+// pdfBytes is a Uint8Array (transferred from worker — zero copy)
+
+client.terminate(); // when done
+```
+
+The worker loads the WASM module once and handles multiple `render()`
+calls without re-initializing. PDF bytes are transferred using
+`Transferable` for zero-copy delivery.
+
+## IndexedDB Caching
+
+Cache the compiled WASM binary in IndexedDB for instant page reloads:
+
+```javascript
+import { loadWasmWithCache, clearCache } from './cache.js';
+
+// Load WASM with cache (keyed by version for auto-invalidation)
+const wasmModule = await loadWasmWithCache('pkg/pdfrs_bg.wasm', '0.1.8');
+
+// Clear cache when needed
+await clearCache();
+```
+
+The cache is keyed by the crate version (from `version()`), so updating
+the WASM binary automatically invalidates old entries.
 
 ## Features
 
@@ -74,3 +121,6 @@ Converts a Markdown string to a PDF byte array.
 - Zero external runtime dependencies (Rust side)
 - Canvas-based live preview in browser demo
 - Small WASM binary (~500 KB with optimizations)
+- Web Worker offloading for responsive UI
+- IndexedDB caching for instant reloads
+- Async API for cooperative scheduling in workers

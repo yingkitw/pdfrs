@@ -419,7 +419,13 @@ pub fn optimize_pdf_bytes(pdf_data: &[u8], settings: OptimizationSettings) -> Re
 
             // Get the raw uncompressed data
             let raw_data = if is_flate_compressed {
-                crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.clone())
+                match crate::compression::decompress_deflate(data) {
+                    Ok(decompressed) => decompressed,
+                    Err(_) => {
+                        // Decompression failed — skip this stream to avoid corrupting output
+                        continue;
+                    }
+                }
             } else {
                 data.clone()
             };

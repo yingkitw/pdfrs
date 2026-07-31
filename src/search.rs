@@ -74,6 +74,7 @@ pub fn search_text(pdf_bytes: &[u8], query: &str, case_insensitive: bool) -> Vec
     };
     let pages = collect_pages_from_doc(&doc, Some(pdf_bytes));
     let fonts = collect_font_metrics(&doc);
+    let tounicode = crate::pdf::collect_tounicode_gid_map(&doc);
 
     let needle = if case_insensitive {
         query.to_lowercase()
@@ -98,7 +99,7 @@ pub fn search_text(pdf_bytes: &[u8], query: &str, case_insensitive: bool) -> Vec
             };
             let decompressed = decompress_stream(&raw);
             let text = String::from_utf8_lossy(&decompressed).into_owned();
-            walk_content_stream(&text, &mut collector);
+            walk_content_stream(&text, &mut collector, Some(&tounicode));
         }
         hits.extend(collector.into_hits());
     }
@@ -195,7 +196,7 @@ pub(crate) fn raw_kids_for_object(pdf_bytes: &[u8], obj_id: u32) -> Option<Vec<u
     Some(parse_kids_string(inside))
 }
 
-fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
+pub(crate) fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
     let dict = object_dict(doc, page_id)
         .ok_or_else(|| anyhow::anyhow!("page {page_id} not a dictionary"))?;
     let mut out = Vec::new();
@@ -831,7 +832,11 @@ fn make_snippet(buffer: &str, start: usize, end: usize, pad: usize) -> String {
     format!("{prefix}{middle}{suffix}")
 }
 
-fn walk_content_stream(src: &str, collector: &mut HitCollector) {
+fn walk_content_stream(
+    src: &str,
+    collector: &mut HitCollector,
+    tounicode: Option<&HashMap<u16, char>>,
+) {
     let tokens = tokenize(src);
     let mut i = 0;
     let mut operands: Vec<f32> = Vec::new();
@@ -918,7 +923,7 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
                 collector.flush_buffer();
             }
             "Tj" => {
-                if let Some(text) = extract_string(&tokens, i) {
+                if let Some(text) = extract_string_with_map(&tokens, i, tounicode) {
                     let x = text_matrix[4];
                     let y = text_matrix[5];
                     collector.push_text(&text, x, y, font_size);
@@ -927,7 +932,7 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
                 }
             }
             "TJ" => {
-                if let Some(items) = extract_tj_array(&tokens, i) {
+                if let Some(items) = extract_tj_array_with_map(&tokens, i, tounicode) {
                     let mut x = text_matrix[4];
                     let y = text_matrix[5];
                     for item in items {
@@ -946,7 +951,7 @@ fn walk_content_stream(src: &str, collector: &mut HitCollector) {
                 }
             }
             "'" => {
-                if let Some(text) = extract_string(&tokens, i) {
+                if let Some(text) = extract_string_with_map(&tokens, i, tounicode) {
                     let m = text_line_matrix;
                     let new_ey = m[5] - font_size;
                     text_line_matrix = [m[0], m[1], m[2], m[3], m[4], new_ey];
@@ -971,6 +976,14 @@ pub(crate) enum TjItem {
 }
 
 pub(crate) fn extract_tj_array(tokens: &[String], i: usize) -> Option<Vec<TjItem>> {
+    extract_tj_array_with_map(tokens, i, None)
+}
+
+pub(crate) fn extract_tj_array_with_map(
+    tokens: &[String],
+    i: usize,
+    tounicode: Option<&HashMap<u16, char>>,
+) -> Option<Vec<TjItem>> {
     if i == 0 {
         return None;
     }
@@ -1012,7 +1025,7 @@ pub(crate) fn extract_tj_array(tokens: &[String], i: usize) -> Option<Vec<TjItem
             while end < bytes.len() && (bytes[end] as char) != '>' {
                 end += 1;
             }
-            let decoded = decode_hex_string(&prev[start..end]);
+            let decoded = crate::pdf::decode_pdf_hex_string_with_map(&prev[start..end], tounicode);
             out.push(TjItem::Text(decoded));
             k = end + 1;
         } else if c == ']' {
@@ -1063,6 +1076,14 @@ pub(crate) fn extract_font_name(tokens: &[String], i: usize) -> Option<String> {
 }
 
 pub(crate) fn extract_string(tokens: &[String], i: usize) -> Option<String> {
+    extract_string_with_map(tokens, i, None)
+}
+
+pub(crate) fn extract_string_with_map(
+    tokens: &[String],
+    i: usize,
+    tounicode: Option<&HashMap<u16, char>>,
+) -> Option<String> {
     if i == 0 {
         return None;
     }
@@ -1073,7 +1094,7 @@ pub(crate) fn extract_string(tokens: &[String], i: usize) -> Option<String> {
         // Hex string — decode bytes then handle UTF-16BE BOM or glyph IDs.
         let trimmed = prev.trim();
         let inner = trimmed.trim_start_matches('<').trim_end_matches('>');
-        Some(decode_hex_string(inner))
+        Some(crate::pdf::decode_pdf_hex_string_with_map(inner, tounicode))
     } else {
         None
     }
@@ -1147,40 +1168,6 @@ fn parse_pdf_literal_string(raw: &str) -> Option<String> {
         k += 1;
     }
     Some(String::from_utf8_lossy(&out).into_owned())
-}
-
-fn decode_hex_string(raw: &str) -> String {
-    let hex: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
-    let bytes: Vec<u8> = (0..hex.len())
-        .step_by(2)
-        .filter_map(|i| {
-            if i + 1 < hex.len() {
-                u8::from_str_radix(&hex[i..i + 2], 16).ok()
-            } else if i < hex.len() {
-                u8::from_str_radix(&format!("{}0", &hex[i..i + 1]), 16).ok()
-            } else {
-                None
-            }
-        })
-        .collect();
-    // UTF-16BE BOM (FE FF) → decode as UTF-16
-    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        return decode_utf16be(&bytes[2..]);
-    }
-    String::from_utf8_lossy(&bytes).into_owned()
-}
-
-fn decode_utf16be(bytes: &[u8]) -> String {
-    let mut out = String::new();
-    let mut i = 0;
-    while i + 1 < bytes.len() {
-        let cu = u16::from_be_bytes([bytes[i], bytes[i + 1]]);
-        if let Some(c) = char::from_u32(cu as u32) {
-            out.push(c);
-        }
-        i += 2;
-    }
-    out
 }
 
 // ----- Tokenizer ----------------------------------------------------------

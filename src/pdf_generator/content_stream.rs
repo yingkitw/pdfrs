@@ -407,6 +407,8 @@ impl ContentStreamBuilder {
         rows: &[Vec<String>],
         base_font_size: f32,
         alignments: Option<&[crate::elements::TableAlignment]>,
+        colspans: &[Vec<u32>],
+        rowspans: &[Vec<u32>],
     ) {
         if rows.is_empty() {
             return;
@@ -415,8 +417,8 @@ impl ContentStreamBuilder {
         let table_helper = PdfTableHelper::default();
         let style = TableStyle::default();
 
-        // Convert string rows to TableRow with alignments
-        let table_rows = table_helper.convert_rows(rows, alignments);
+        // Convert string rows to TableRow with alignments and spans
+        let table_rows = table_helper.convert_rows(rows, alignments, colspans, rowspans);
 
         // Calculate table dimensions
         let dims = table_helper.renderer().calculate_dimensions(
@@ -574,6 +576,11 @@ impl ContentStreamBuilder {
         self.current.extend_from_slice(b"BT\n");
         self.current.extend_from_slice(b"0 0 0 rg\n");
 
+        // Track cells occupied by rowspan from above so we skip them.
+        // occupied[row][col] = true means a rowspan cell from above covers this position.
+        let mut occupied: Vec<Vec<bool>> =
+            (0..dims.num_rows).map(|_| vec![false; dims.num_cols]).collect();
+
         // Draw cell contents with wrapping and alignment
         let mut row_y = start_y;
         for (row_idx, row) in table_rows.iter().enumerate() {
@@ -584,13 +591,36 @@ impl ContentStreamBuilder {
                 self.set_font(base_font_size);
             }
             let mut col_x = start_x;
-            for (col_idx, cell) in row.cells.iter().enumerate() {
-                if col_idx >= dims.num_cols {
+            let mut col = 0usize;
+            for cell in &row.cells {
+                if col >= dims.num_cols {
                     break;
                 }
-                let cell_width = dims.column_widths[col_idx];
-                let cell_height = dims.row_heights[row_idx];
-                let max_chars = ((cell_width - style.cell_padding * 2.0) / approx_char_width)
+                // Skip cells occupied by a rowspan from above
+                while col < dims.num_cols && occupied[row_idx][col] {
+                    col_x += dims.column_widths[col];
+                    col += 1;
+                }
+                if col >= dims.num_cols {
+                    break;
+                }
+
+                let cs = cell.colspan.max(1) as usize;
+                let rs = cell.rowspan.max(1) as usize;
+                let pad_h = cell.padding_h.unwrap_or(style.cell_padding_h);
+
+                // Cell width = sum of spanned column widths
+                let cell_width: f32 = (col..col + cs)
+                    .take_while(|&i| i < dims.num_cols)
+                    .map(|i| dims.column_widths[i])
+                    .sum();
+                // Cell height = sum of spanned row heights
+                let cell_height: f32 = (row_idx..row_idx + rs)
+                    .take_while(|&i| i < dims.num_rows)
+                    .map(|i| dims.row_heights[i])
+                    .sum();
+
+                let max_chars = ((cell_width - pad_h * 2.0) / approx_char_width)
                     .floor()
                     .max(1.0) as usize;
 
@@ -602,8 +632,39 @@ impl ContentStreamBuilder {
                 let start_y_pos = row_y - (cell_height - text_height) / 2.0 - line_h / 3.0;
 
                 // Render each line with proper alignment
+                let last_line = wrapped.line_count.saturating_sub(1);
                 for (line_idx, line) in wrapped.lines.iter().enumerate() {
                     let line_width = self.estimate_text_width(line, base_font_size);
+
+                    // For Justify alignment, word-space all lines except the last
+                    if cell.alignment == crate::elements::TableAlignment::Justify
+                        && line_idx != last_line
+                    {
+                        // Render word by word with extra spacing
+                        let words: Vec<&str> = line.split_whitespace().collect();
+                        if words.len() > 1 {
+                            let total_word_width: f32 =
+                                words.iter().map(|w| self.estimate_text_width(w, base_font_size)).sum();
+                            let gap = (cell_width - pad_h * 2.0 - total_word_width)
+                                / (words.len() - 1) as f32;
+                            let mut word_x = col_x + pad_h;
+                            let y = start_y_pos - (line_idx as f32 * line_h);
+                            for word in &words {
+                                self.current.extend_from_slice(
+                                    format!("1 0 0 1 {} {} Tm\n", word_x, y).as_bytes(),
+                                );
+                                self.current.extend_from_slice(
+                                    format!(
+                                        "{} Tj\n",
+                                        self.encode_text_for_current_font(word)
+                                    )
+                                    .as_bytes(),
+                                );
+                                word_x += self.estimate_text_width(word, base_font_size) + gap;
+                            }
+                            continue;
+                        }
+                    }
 
                     // Calculate X position using the table helper
                     let x = table_helper.renderer().calculate_text_x(
@@ -611,7 +672,7 @@ impl ContentStreamBuilder {
                         col_x,
                         cell_width,
                         line_width,
-                        style.cell_padding,
+                        pad_h,
                     );
 
                     let y = start_y_pos - (line_idx as f32 * line_h);
@@ -623,7 +684,21 @@ impl ContentStreamBuilder {
                     );
                 }
 
+                // Mark cells occupied by rowspan
+                if rs > 1 {
+                    for r in 1..rs {
+                        for c in 0..cs {
+                            let ri = row_idx + r;
+                            let ci = col + c;
+                            if ri < dims.num_rows && ci < dims.num_cols {
+                                occupied[ri][ci] = true;
+                            }
+                        }
+                    }
+                }
+
                 col_x += cell_width;
+                col += cs;
             }
             row_y -= dims.row_heights[row_idx];
         }
@@ -1393,9 +1468,15 @@ impl ContentStreamBuilder {
         self.emit_empty_line();
     }
 
-    /// Draw a bar / line / pie chart from labeled numeric points.
-    fn emit_chart(&mut self, kind: ChartKind, title: &Option<String>, points: &[(String, f32)]) {
-        if points.is_empty() {
+    /// Draw a bar / line / pie / stacked-bar chart from labeled numeric points.
+    fn emit_chart(
+        &mut self,
+        kind: ChartKind,
+        title: &Option<String>,
+        points: &[(String, f32)],
+        series: &[crate::elements::ChartSeries],
+    ) {
+        if points.is_empty() && series.is_empty() {
             return;
         }
 
@@ -1410,6 +1491,8 @@ impl ContentStreamBuilder {
         };
         let legend_h = if matches!(kind, ChartKind::Pie) {
             (points.len() as f32) * line_height(self.base_font_size * 0.8)
+        } else if !series.is_empty() {
+            (series.len() as f32) * line_height(self.base_font_size * 0.8)
         } else {
             0.0
         };
@@ -1436,6 +1519,9 @@ impl ContentStreamBuilder {
             ChartKind::Bar => self.draw_bar_chart(left, bottom, width, plot_h, points),
             ChartKind::Line => self.draw_line_chart(left, bottom, width, plot_h, points),
             ChartKind::Pie => self.draw_pie_chart(left, bottom, width, plot_h, points),
+            ChartKind::StackedBar => {
+                self.draw_stacked_bar_chart(left, bottom, width, plot_h, points, series)
+            }
         }
 
         self.current.extend_from_slice(b"BT\n");
@@ -1453,6 +1539,15 @@ impl ContentStreamBuilder {
                     &format!("• {} ({})", label, format_chart_value(*value)),
                     label_size,
                 );
+            }
+            self.reset_color();
+        } else if !series.is_empty() {
+            // Legend for multi-series charts
+            let label_size = self.base_font_size * 0.8;
+            for (i, s) in series.iter().enumerate() {
+                let (r, g, b) = crate::chart::CHART_COLORS[i % crate::chart::CHART_COLORS.len()];
+                self.set_color(Color::rgb(r, g, b));
+                self.emit_line(&format!("■ {}", s.name), label_size);
             }
             self.reset_color();
         }
@@ -1617,6 +1712,79 @@ impl ContentStreamBuilder {
             let (r, g, b) = crate::chart::CHART_COLORS[i % crate::chart::CHART_COLORS.len()];
             self.append_pie_slice(cx, cy, radius, angle, angle + sweep, Color::rgb(r, g, b));
             angle += sweep;
+        }
+    }
+
+    fn draw_stacked_bar_chart(
+        &mut self,
+        left: f32,
+        bottom: f32,
+        width: f32,
+        height: f32,
+        points: &[(String, f32)],
+        series: &[crate::elements::ChartSeries],
+    ) {
+        if series.is_empty() || points.is_empty() {
+            // Fall back to simple bar chart if no series data
+            self.draw_bar_chart(left, bottom, width, height, points);
+            return;
+        }
+
+        // Find max stacked total across all categories
+        let max_v = points
+            .iter()
+            .map(|(_, v)| v.abs())
+            .fold(0.0_f32, f32::max)
+            .max(1.0);
+        let axis = Color::rgb(0.35, 0.35, 0.35);
+        let pad_l = 28.0;
+        let pad_b = 22.0;
+        let pad_t = 8.0;
+        let plot_x = left + pad_l;
+        let plot_w = width - pad_l - 4.0;
+        let plot_y0 = bottom + pad_b;
+        let plot_h = height - pad_b - pad_t;
+
+        // Axes
+        self.append_stroke(axis, 0.8);
+        self.append_line(plot_x, plot_y0, plot_x + plot_w, plot_y0);
+        self.append_line(plot_x, plot_y0, plot_x, plot_y0 + plot_h);
+
+        let n = points.len() as f32;
+        let slot = plot_w / n;
+        let bar_w = (slot * 0.62).max(4.0);
+
+        for (cat_i, (label, _)) in points.iter().enumerate() {
+            let x = plot_x + cat_i as f32 * slot + (slot - bar_w) / 2.0;
+            let mut stack_y = plot_y0;
+
+            for (s_i, s) in series.iter().enumerate() {
+                if cat_i >= s.values.len() {
+                    break;
+                }
+                let value = s.values[cat_i];
+                let h = (value.abs() / max_v) * plot_h;
+                let (r, g, b) =
+                    crate::chart::CHART_COLORS[s_i % crate::chart::CHART_COLORS.len()];
+                self.current.extend_from_slice(
+                    format!(
+                        "{} {} {} rg\n{:.2} {:.2} {:.2} {:.2} re f\n",
+                        r, g, b, x, stack_y, bar_w, h
+                    )
+                    .as_bytes(),
+                );
+                stack_y += h;
+            }
+
+            // Label under bar
+            let short = truncate_label(label, 8);
+            self.append_fill_text(
+                &short,
+                x + bar_w / 2.0 - self.estimate_text_width(&short, 7.0) / 2.0,
+                bottom + 6.0,
+                7.0,
+                axis,
+            );
         }
     }
 
@@ -1842,6 +2010,8 @@ pub(crate) fn render_elements_to_builder(
 ) {
     let mut table_rows: Vec<Vec<String>> = Vec::new();
     let mut table_alignments: Option<Vec<crate::elements::TableAlignment>> = None;
+    let mut table_colspans: Vec<Vec<u32>> = Vec::new();
+    let mut table_rowspans: Vec<Vec<u32>> = Vec::new();
 
     for elem in elements {
         // Handle table rows specially - accumulate them
@@ -1849,6 +2019,8 @@ pub(crate) fn render_elements_to_builder(
             cells,
             is_separator,
             alignments,
+            colspans,
+            rowspans,
         } = elem
         {
             if *is_separator {
@@ -1857,15 +2029,25 @@ pub(crate) fn render_elements_to_builder(
             } else {
                 // Only add non-separator rows to the table
                 table_rows.push(cells.clone());
+                table_colspans.push(colspans.clone());
+                table_rowspans.push(rowspans.clone());
             }
             continue;
         }
 
         // Flush any accumulated table before rendering non-table element
         if !table_rows.is_empty() {
-            builder.render_table(&table_rows, base_font_size, table_alignments.as_deref());
+            builder.render_table(
+                &table_rows,
+                base_font_size,
+                table_alignments.as_deref(),
+                &table_colspans,
+                &table_rowspans,
+            );
             table_rows.clear();
             table_alignments = None;
+            table_colspans.clear();
+            table_rowspans.clear();
         }
 
         // Render non-table elements
@@ -1957,7 +2139,7 @@ pub(crate) fn render_elements_to_builder(
                     let rect_x = builder.content_left() - padding;
                     let rect_y = builder.y - text_block_height - padding;
                     let rect_width = builder.content_width() + padding * 2.0;
-                    let rect_height = chunk_height;
+                    let rect_height = chunk_height + line_h;
                     builder.draw_rectangle(rect_x, rect_y, rect_width, rect_height, bg_color);
 
                     let border_color = Color::rgb(0.75, 0.75, 0.75);
@@ -2052,6 +2234,12 @@ pub(crate) fn render_elements_to_builder(
 
                 builder.set_font_with_style(base_font_size, false, false);
                 builder.reset_color();
+                // Code-block drawing leaves the BT open from the last draw_line's
+                // BT re-entry; close it so the next element starts a fresh text
+                // block. Without this, the next heading/paragraph inherits a stale
+                // text matrix and renders as a ghosted double-stamp.
+                builder.end_text_block();
+                builder.current.extend_from_slice(b"BT\n");
                 builder.emit_empty_line();
             }
             Element::DefinitionItem { term, definition } => {
@@ -2080,8 +2268,9 @@ pub(crate) fn render_elements_to_builder(
                 kind,
                 title,
                 points,
+                series,
             } => {
-                builder.emit_chart(*kind, title, points);
+                builder.emit_chart(*kind, title, points, series);
             }
             Element::StyledText { text, bold, italic } => {
                 builder.set_font_with_style(base_font_size, *bold, *italic);
@@ -2165,7 +2354,13 @@ pub(crate) fn render_elements_to_builder(
 
     // Flush any remaining table
     if !table_rows.is_empty() {
-        builder.render_table(&table_rows, base_font_size, table_alignments.as_deref());
+        builder.render_table(
+            &table_rows,
+            base_font_size,
+            table_alignments.as_deref(),
+            &table_colspans,
+            &table_rowspans,
+        );
     }
 }
 

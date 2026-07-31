@@ -93,7 +93,7 @@ fn elements_to_text(elements: &[Element]) -> String {
             Element::TableRow {
                 cells,
                 is_separator,
-                alignments: _,
+                ..
             } => {
                 if *is_separator {
                     let sep: Vec<String> =
@@ -141,12 +141,14 @@ fn elements_to_text(elements: &[Element]) -> String {
                 kind,
                 title,
                 points,
+                series: _,
             } => {
                 text.push_str("[Chart ");
                 text.push_str(match kind {
                     crate::elements::ChartKind::Bar => "bar",
                     crate::elements::ChartKind::Line => "line",
                     crate::elements::ChartKind::Pie => "pie",
+                    crate::elements::ChartKind::StackedBar => "stacked-bar",
                 });
                 if let Some(t) = title {
                     text.push_str(": ");

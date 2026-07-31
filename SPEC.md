@@ -140,8 +140,9 @@
 - **FR22.2**: `RedactionStyle::BlackBox` (default) replaces intersecting text with whitespace-equivalent mask AND appends a solid-black filled rectangle over each region
 - **FR22.3**: `RedactionStyle::Strip` replaces intersecting text without the black overlay
 - **FR22.4**: Stream compression is preserved (FlateDecode-compressed streams are recompressed after rewriting)
-- **FR22.5**: Redaction operates at Tj granularity — when a Tj's bounding box intersects a region, the entire string is masked (partial-string redaction is not supported)
-- **FR22.6**: CLI command `redact-pdf` accepts repeatable `--region page,x,y,w,h` arguments
+- **FR22.5**: Redaction operates at character granularity — only characters whose bounding boxes intersect a redaction region are masked; surrounding text in the same Tj/TJ operator is preserved
+- **FR22.6**: Image XObject removal — `Do` operators referencing image XObjects whose CTM placement intersects a redaction region are removed from the content stream
+- **FR22.7**: CLI command `redact-pdf` accepts repeatable `--region page,x,y,w,h` arguments
 
 #### FR23: Full SVG Document Rendering
 
@@ -167,6 +168,45 @@
 - **FR24.8**: ToUnicode-aware decoding of CID-font glyph-ID hex strings via `pdf::collect_tounicode_gid_map` + `decode_pdf_hex_string_with_map`
 - **FR24.9**: UTF-16BE BOM strings (`FE FF …`) decoded natively
 - **FR24.10**: CLI command `pdf-to-md` upgraded to use the structured converter; falls back to plain `extract_text` on conversion errors
+
+#### FR25: PDF Encryption
+
+- **FR25.1**: `PdfSecurity` supports RC4 40-bit, RC4 128-bit, AES-128-CBC, and AES-256-CBC encryption per PDF 1.7 Standard Security Handler
+- **FR25.2**: Key derivation uses MD5 (RC4/AES-128) or SHA-256 (AES-256) with PDF standard 32-byte password padding
+- **FR25.3**: PKCS#7 padding for AES block cipher; deterministic IV derived from object number
+- **FR25.4**: `pdf_ops::security::protect_pdf` encrypts all stream and string objects, inserts `/Encrypt` dictionary, and patches the trailer
+- **FR25.5**: Per-object encryption keys derived from the file encryption key + object/generation numbers
+
+#### FR26: Multi-Series Stacked Bar Charts
+
+- **FR26.1**: `ChartKind::StackedBar` variant for stacked bar charts with multiple named series
+- **FR26.2**: `ChartSeries` struct with `name` and `values` fields aligned with category labels
+- **FR26.3**: `series:` directive in chart fence declares series names (comma-separated)
+- **FR26.4**: Data lines use `Label, v1, v2, v3` format for multi-series charts
+- **FR26.5**: Legend rendered below chart with colored `■` indicators per series
+- **FR26.6**: `chart-stacked-bar`, `chart-stackedbar`, or `chart-stacked` fence language tags
+
+#### FR27: REST API Wrapper
+
+- **FR27.1**: `api` Cargo feature enables axum-based HTTP server (`src/api.rs`)
+- **FR27.2**: `POST /api/v1/generate` — generate PDF from Markdown (returns `application/pdf`)
+- **FR27.3**: `POST /api/v1/merge` — merge multiple base64-encoded PDFs (returns `application/pdf`)
+- **FR27.4**: `POST /api/v1/split` — split base64-encoded PDF into individual page PDFs (returns JSON array)
+- **FR27.5**: `POST /api/v1/search` — full-text search in base64-encoded PDF (returns JSON with hits)
+- **FR27.6**: `POST /api/v1/redact` — redact regions in base64-encoded PDF (returns `application/pdf`)
+- **FR27.7**: `POST /api/v1/extract` — extract text from base64-encoded PDF (returns JSON)
+- **FR27.8**: `GET /api/v1/health` — health check endpoint
+- **FR27.9**: CORS enabled via `tower-http`
+- **FR27.10**: `api::serve(host, port)` starts the server; `api::router()` returns a standalone `Router`
+
+#### FR28: WASM Polish
+
+- **FR28.1**: `render_markdown_to_pdf(md) -> Uint8Array` — synchronous in-memory PDF generation in WASM
+- **FR28.2**: `version() -> String` — returns crate version for cache key management
+- **FR28.3**: Web Worker offloading — `wasm/worker.js` loads WASM once and handles `render` requests via `postMessage` with zero-copy `Transferable` transfer
+- **FR28.4**: `PdfWorkerClient` (`wasm/worker-client.js`) — Promise-based API for main-thread usage (`init()`, `render()`, `version()`, `terminate()`)
+- **FR28.5**: IndexedDB caching (`wasm/cache.js`) — `loadWasmWithCache(path, versionKey)` caches compiled WASM binary keyed by crate version for auto-invalidation
+- **FR28.6**: `syntect` uses `default-fancy` (pure Rust regex) for WASM compatibility (no C dependencies)
 
 ### Non-Functional Requirements
 

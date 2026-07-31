@@ -1174,8 +1174,12 @@ fn parse_object_content(content: &str) -> Result<PdfObject> {
             data,
         })
     } else if content.contains("stream") && content.contains("endstream") {
-        let stream_idx = content.find("stream").unwrap();
-        let endstream_idx = content.find("endstream").unwrap();
+        let stream_idx = content
+            .find("stream")
+            .ok_or_else(|| anyhow::anyhow!("stream keyword not found"))?;
+        let endstream_idx = content
+            .find("endstream")
+            .ok_or_else(|| anyhow::anyhow!("endstream keyword not found"))?;
         let data_start = stream_idx + "stream".len();
         let data = content[data_start..endstream_idx]
             .trim()
@@ -1731,7 +1735,8 @@ pub(crate) fn decode_pdf_hex_string_with_map(
 
 pub(crate) fn collect_tounicode_gid_map(doc: &PdfDocument) -> HashMap<u16, char> {
     let mut map = HashMap::new();
-    let pair_re = regex::Regex::new(r"<([0-9A-Fa-f]{4})>\s*<([0-9A-Fa-f]+)>").unwrap();
+    static PAIR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let pair_re = PAIR_RE.get_or_init(|| regex::Regex::new(r"<([0-9A-Fa-f]{4})>\s*<([0-9A-Fa-f]+)>").unwrap());
     for obj in doc.objects.values() {
         let PdfObject::Stream { data, .. } = obj else {
             continue;
@@ -1794,7 +1799,10 @@ fn build_unicode_gid_reverse_map() -> Option<HashMap<u16, char>> {
     let face = ttf_parser::Face::parse(&font_bytes, 0).ok()?;
 
     let mut reverse_map = HashMap::new();
-    for cp in 0u32..=0x10FFFF {
+
+    // Scan the BMP (U+0000–U+FFFF) instead of the full Unicode range
+    // (U+0000–U+10FFFF). This covers all common text scripts and is 16× faster.
+    for cp in 0x0001u32..=0xFFFF {
         let Some(ch) = char::from_u32(cp) else {
             continue;
         };
@@ -1802,6 +1810,7 @@ fn build_unicode_gid_reverse_map() -> Option<HashMap<u16, char>> {
             reverse_map.entry(glyph.0).or_insert(ch);
         }
     }
+
     Some(reverse_map)
 }
 
@@ -2279,6 +2288,8 @@ mod tests {
                     crate::elements::TableAlignment::Left,
                     crate::elements::TableAlignment::Left,
                 ],
+                colspans: Vec::new(),
+                rowspans: Vec::new(),
             },
             crate::elements::Element::BlockQuote {
                 text: "Wise words".into(),

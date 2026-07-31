@@ -18,6 +18,28 @@
 //! const pdfBytes = render_markdown_to_pdf("# Hello WASM\n\nIt works!");
 //! // pdfBytes is a Uint8Array
 //! ```
+//!
+//! # Web Worker offloading
+//!
+//! For large documents, use the provided worker to keep the UI responsive:
+//!
+//! ```js
+//! import { PdfWorkerClient } from './worker-client.js';
+//!
+//! const client = new PdfWorkerClient();
+//! await client.init();
+//! const pdfBytes = await client.render('# Big document...');
+//! ```
+//!
+//! # IndexedDB caching
+//!
+//! The `cache.js` module caches the compiled WASM binary in IndexedDB
+//! so subsequent page loads skip the network fetch:
+//!
+//! ```js
+//! import { loadWasmWithCache } from './cache.js';
+//! const wasm = await loadWasmWithCache('pkg/pdfrs_bg.wasm');
+//! ```
 
 use wasm_bindgen::prelude::*;
 
@@ -45,4 +67,10 @@ pub fn render_markdown_to_pdf(md: &str) -> Result<Vec<u8>, JsValue> {
 
     crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout)
         .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Return the version of the pdfrs crate (useful for cache invalidation).
+#[wasm_bindgen]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }

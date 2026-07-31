@@ -6,8 +6,73 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Rasterizer text rendering** (`src/raster.rs`): three bugs conspired to
+  render all text as gray bars. (1) `extract_font_name` read the font *size*
+  token instead of the *name* token before `Tf`, and the `Tf` handler wrongly
+  required two numeric operands (the `/Name` token is not numeric), so font
+  metrics were never resolved. (2) Glyph outlines were positioned with the
+  text-matrix translation applied twice, throwing them off-page. (3) CIDFont
+  `/W` arrays (which live on the descendant CIDFont for Type0 fonts) were
+  never parsed, so every glyph used the default advance and overlapped.
+  Base-14 fonts in the raw-scan path now use the built-in width tables.
+- **Search on CID-keyed PDFs** (`src/search.rs`): `search-pdf` found no
+  matches in documents using Type0/Identity-H fonts because hex string
+  operands were decoded as UTF-8 instead of via the document's `/ToUnicode`
+  CMap. Text extraction now uses `decode_pdf_hex_string_with_map`.
+- **Table width** (`src/table_renderer.rs`): tables narrower than the content
+  area no longer stay cramped; columns expand proportionally to fill the
+  available page width.
+
 ### Added
 
+- **Glyph-outline rasterization** (`src/raster.rs`): native PDF rasterizer now
+  renders actual glyph outlines from embedded TrueType fonts (TTF) instead of
+  schematic gray rectangles. Extracts `/FontFile2` streams from font
+  descriptors, including Type0 fonts via `/DescendantFonts`. Uses `ttf-parser`
+  for glyph outline parsing and fills flattened Bézier curves as polygons.
+  Falls back to gray rectangles for base-14 fonts or fonts without embedded
+  data. Raw PDF byte scanning works around the whitespace-tokenised dict
+  parser's truncation of inline dictionaries.
+- **Basic CSS support** (`src/html.rs`): HTML-to-PDF pipeline now parses
+  `<style>` tags and inline `style` attributes. Supports `font-weight`,
+  `font-style`, `text-align`, `color`, `background-color`, `font-size`,
+  `margin`, `padding`, and `border` properties. Selectors: tag (`p`), class
+  (`.classname`), tag.class (`p.highlight`), and id (`#id`). CSS rules
+  cascade with inline styles taking highest priority.
+- **Real PDF encryption** (`src/security.rs`): RC4 40-bit, RC4 128-bit,
+  AES-128-CBC, and AES-256-CBC encryption and decryption per PDF 1.7
+  Standard Security Handler. MD5/SHA-256 key derivation, PDF standard
+  password padding, PKCS#7 padding for AES. `pdf_ops::security::protect_pdf`
+  now encrypts streams and strings, inserts `/Encrypt` dictionary, and
+  patches the trailer. New crates: `md-5`, `aes`, `cbc`.
+- **Redaction improvements** (`src/redact.rs`): image XObject removal
+  (detects `Do` operators referencing images whose CTM placement
+  intersects redaction regions and removes them) and partial-string
+  redaction (masks only individual characters whose bounding boxes
+  intersect redaction regions, preserving surrounding text). CTM tracking
+  for accurate image placement detection.
+- **Multi-series stacked bar charts** (`src/chart.rs`,
+  `src/elements.rs`, `src/pdf_generator/content_stream.rs`): new
+  `ChartKind::StackedBar` variant and `ChartSeries` struct for named
+  multi-series data. `series:` directive in chart fence declares series
+  names; data lines use `Label, v1, v2, v3` format. Legend with colored
+  series indicators rendered below chart.
+- **REST API wrapper** (`src/api.rs`, behind `api` feature): axum-based
+  HTTP server with endpoints for PDF generation (`/api/v1/generate`),
+  merge (`/api/v1/merge`), split (`/api/v1/split`), search
+  (`/api/v1/search`), redaction (`/api/v1/redact`), text extraction
+  (`/api/v1/extract`), and health check (`/api/v1/health`). CORS enabled.
+  New crates: `axum`, `tower-http`, `base64`. New byte-based helpers:
+  `pdf_ops::merge_pdfs_from_bytes`, `pdf_ops::split_pdf_from_bytes`.
+- **WASM polish**: Web Worker offloading (`wasm/worker.js`,
+  `wasm/worker-client.js`) for off-main-thread PDF generation with
+  zero-copy transfer. IndexedDB caching (`wasm/cache.js`) for the
+  compiled WASM binary, keyed by crate version for auto-invalidation.
+  New `version()` export for cache key management. `syntect` switched
+  to `default-fancy` (pure Rust regex) for WASM compatibility.
+  Updated `example.html` with mode toggle (worker vs main thread).
 - **GitHub Actions CI** (`.github/workflows/ci.yml`): automated testing
   pipeline with rustfmt check, clippy (advisory), multi-OS test matrix
   (ubuntu/macos/windows), WASM build verification, minimal-feature build +

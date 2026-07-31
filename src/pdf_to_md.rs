@@ -13,8 +13,8 @@
 //! println!("{}", md);
 //! ```
 
-use crate::pdf::{PdfDocument, PdfObject, PdfValue};
-use crate::search::{self, FontMetrics};
+use crate::pdf::{PdfDocument, PdfObject};
+use crate::search::{self, FontMetrics, page_content_streams};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -249,35 +249,6 @@ fn extract_decoded_string(
         None
     }
 }
-
-fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
-    let dict = search::object_dict(doc, page_id)
-        .ok_or_else(|| anyhow::anyhow!("page {page_id} not a dictionary"))?;
-    let mut out = Vec::new();
-    if let Some(contents) = dict.get("Contents") {
-        match contents {
-            PdfValue::Reference(id, _) => out.push(*id),
-            PdfValue::Object(PdfObject::Array(items)) => {
-                for item in items {
-                    if let Some(id) = search::as_ref_id(item) {
-                        out.push(id);
-                    }
-                }
-            }
-            PdfValue::Object(PdfObject::String(s)) => {
-                if s.trim().starts_with('[') {
-                    out.extend(search::parse_kids_string(s));
-                } else if let Some(id) = search::as_ref_id(contents) {
-                    out.push(id);
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(out)
-}
-
-// ----- Span → Markdown reconstruction ------------------------------------
 
 /// Group spans into lines (by page + Y proximity) then emit Markdown.
 fn spans_to_markdown(spans: Vec<TextSpan>) -> String {

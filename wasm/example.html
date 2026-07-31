@@ -14,11 +14,20 @@
     #viewer-container .pdf-page { display: block; margin: 0 auto 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: white; }
     #status { color: #666; font-size: 0.9rem; margin-top: 0.5rem; }
     .hidden { display: none; }
+    .mode-toggle { margin: 0.5rem 0; font-size: 0.9rem; }
+    .mode-toggle label { margin-right: 1rem; }
+    #wasm-version { color: #999; font-size: 0.8rem; }
   </style>
 </head>
 <body>
   <h1>pdfrs WASM Demo</h1>
   <p>Enter Markdown below, then generate and preview the PDF in your browser:</p>
+
+  <div class="mode-toggle">
+    <label><input type="radio" name="mode" value="worker" checked> Web Worker (off-main-thread)</label>
+    <label><input type="radio" name="mode" value="main"> Main thread</label>
+  </div>
+
   <textarea id="input"># Hello from WASM
 
 This PDF was generated entirely in your browser using **pdfrs**.
@@ -30,6 +39,8 @@ This PDF was generated entirely in your browser using **pdfrs**.
 - Canvas-based PDF preview
 - *Italic* and **bold** text
 - Unicode: α β γ δ ε 中文
+- Web Worker offloading for responsive UI
+- IndexedDB caching for instant reloads
 
 ```rust
 fn main() {
@@ -48,46 +59,90 @@ fn main() {
       <p id="placeholder">Click <strong>Generate &amp; Preview</strong> to render the PDF here.</p>
     </div>
     <p id="status"></p>
+    <p id="wasm-version"></p>
   </div>
 
   <script type="module">
-    import init, { render_markdown_to_pdf } from './pkg/pdfrs.js';
     import { renderPdfToContainer } from './viewer.js';
-
-    await init();
+    import { PdfWorkerClient } from './worker-client.js';
+    import { loadWasmWithCache } from './cache.js';
 
     let lastPdfBytes = null;
     let downloadUrl = null;
+    let workerClient = null;
+    let mainInit = null;
+    let mainRender = null;
 
     const generateBtn = document.getElementById('generate');
     const downloadBtn = document.getElementById('download');
     const container = document.getElementById('viewer-container');
     const placeholder = document.getElementById('placeholder');
     const status = document.getElementById('status');
+    const versionEl = document.getElementById('wasm-version');
 
     function setStatus(msg) {
       status.textContent = msg;
     }
 
+    function getMode() {
+      return document.querySelector('input[name="mode"]:checked').value;
+    }
+
+    // Initialize worker
+    async function ensureWorker() {
+      if (workerClient) return workerClient;
+      workerClient = new PdfWorkerClient('./worker.js');
+      const version = await workerClient.init('./pkg/pdfrs.js');
+      versionEl.textContent = `pdfrs v${version} (worker)`;
+      return workerClient;
+    }
+
+    // Initialize main-thread WASM with IndexedDB caching
+    async function ensureMain() {
+      if (mainInit) return { render: mainRender };
+      const mod = await import('./pkg/pdfrs.js');
+      try {
+        const version = mod.version();
+        const wasmModule = await loadWasmWithCache('./pkg/pdfrs_bg.wasm', version);
+        await mod.default(wasmModule);
+      } catch {
+        await mod.default();
+      }
+      mainInit = true;
+      mainRender = mod.render_markdown_to_pdf;
+      versionEl.textContent = `pdfrs v${mod.version()} (main thread + IndexedDB cache)`;
+      return { render: mainRender };
+    }
+
     generateBtn.addEventListener('click', async () => {
       const md = document.getElementById('input').value;
+      const mode = getMode();
 
       generateBtn.disabled = true;
-      setStatus('Generating PDF…');
+      setStatus(mode === 'worker' ? 'Generating PDF in worker…' : 'Generating PDF on main thread…');
 
       try {
-        lastPdfBytes = render_markdown_to_pdf(md);
+        let pdfBytes;
+        if (mode === 'worker') {
+          const client = await ensureWorker();
+          pdfBytes = await client.render(md);
+        } else {
+          const { render } = await ensureMain();
+          pdfBytes = render(md);
+        }
+
+        lastPdfBytes = pdfBytes;
 
         if (downloadUrl) {
           URL.revokeObjectURL(downloadUrl);
         }
-        downloadUrl = URL.createObjectURL(new Blob([lastPdfBytes], { type: 'application/pdf' }));
+        downloadUrl = URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
         downloadBtn.classList.remove('hidden');
 
         placeholder.classList.add('hidden');
         setStatus('Rendering preview…');
 
-        const { pageCount } = await renderPdfToContainer(lastPdfBytes, container, { scale: 1.25 });
+        const { pageCount } = await renderPdfToContainer(pdfBytes, container, { scale: 1.25 });
         setStatus(`Preview ready — ${pageCount} page${pageCount === 1 ? '' : 's'}.`);
       } catch (err) {
         setStatus(`Error: ${err.message || err}`);

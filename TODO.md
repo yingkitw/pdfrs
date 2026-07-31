@@ -291,10 +291,10 @@ This document tracks the planned features, improvements, and tasks for the **pdf
   - [x] Browser-based PDF processing — `wasm/example.html` demo generates PDFs client-side with `render_markdown_to_pdf()`
   - [ ] Web interface
 
-- [ ] Cloud integration
+- [x] Cloud integration
+  - [x] REST API wrapper — `src/api.rs` with axum (behind `api` feature); endpoints: generate, merge, split, search, redact, extract, health; CORS enabled; 3 API tests
   - [ ] Cloud storage providers
   - [ ] Batch processing
-  - [ ] REST API wrapper
 
 ---
 
@@ -370,14 +370,18 @@ Capabilities in peer projects worth prioritizing:
 - ~~**Office/HTML round-trip conversion**~~ — shipped: `src/html.rs` (~1,050 LOC); lightweight HTML parser → `Element` pipeline; `html-to-pdf` CLI; `parse_html()`, `html_to_pdf()`, `html_to_pdf_bytes()` API; 25 unit tests
 - ~~**True redaction**~~ — shipped: `src/redact.rs` + `redact-pdf` CLI (content-stream rewrite; `BlackBox` and `Strip` styles)
 - **OCR for scanned PDFs** (Gigapdf) — built-in recognizer without Tesseract
+- ~~**Real PDF encryption**~~ — shipped: RC4 40/128-bit, AES-128/256-CBC in `src/security.rs`; `protect_pdf` encrypts streams + strings with `/Encrypt` dict
+- ~~**Redaction improvements**~~ — shipped: image XObject removal + partial-string redaction in `src/redact.rs`
+- ~~**Multi-series stacked bar charts**~~ — shipped: `ChartKind::StackedBar`, `ChartSeries`, `series:` directive, legend rendering
+- ~~**REST API wrapper**~~ — shipped: `src/api.rs` with axum (generate/merge/split/search/redact/extract/health)
 - ~~**Vector path / SVG drawing**~~ — shipped: `vector` + SVG path `d` import (`draw-svg`); full SVG docs (groups/transforms/text) shipped via `parse_svg_document` + `draw-svg-file` CLI
 - ~~**Document outlines / bookmarks**~~ — shipped: `/Outlines` from headings + `/PageMode /UseOutlines`
 - ~~**Linearized (web-optimized) PDF**~~ — shipped: `linearize` module + `linearize-pdf` CLI; Web/Ebook optimize profiles apply `/Linearized`
 - ~~**Incremental PDF saves**~~ — shipped: `incremental` module (`incremental_set_info`, `incremental_add_text_annotation`, `/Prev` trailer); `incremental-update` CLI
 - ~~**Structured PDF → Markdown**~~ — shipped: `src/pdf_to_md.rs` (headings, lists, code blocks, ToUnicode-aware); `pdf-to-md` CLI upgraded
 - **PRC 3D / rich media** (Acrobat) — beyond U3D: PRC streams, `/RichMedia` annotations
-- **Web Worker offloading** (MantisPDF) — keep UI responsive during large WASM operations
-- **IndexedDB WASM module caching** (PDFNova) — instant reload of WASM binary in browser
+- **Web Worker offloading** (MantisPDF) — ✅ shipped: `wasm/worker.js` + `wasm/worker-client.js` for off-main-thread PDF generation
+- **IndexedDB WASM module caching** (PDFNova) — ✅ shipped: `wasm/cache.js` with version-keyed cache for instant reloads
 - **Multi-language bindings** (PDF Oxide) — Python/JS/Go/C# from same Rust core
 - ~~**Plugin hooks for Element → PDF**~~ — shipped: `ParserPlugin` / `GeneratorPlugin` + `CalloutPlugin`
 
@@ -390,7 +394,9 @@ Capabilities in peer projects worth prioritizing:
 - [x] **Structured PDF → Markdown** — `src/pdf_to_md.rs` (~520 LOC); headings (font-size ratios), bullets, numbered lists, code blocks (Courier detection), horizontal rules; ToUnicode-aware CID font decoding; `pdf-to-md` CLI upgraded with plain-text fallback; 10 unit tests
 - [x] **Integration tests** — `tests/capabilities_v2.rs` (7 end-to-end tests: rasterize→search→redact round trip, SVG document, PDF→MD structure, multi-page rasterize, etc.)
 - [x] **Shared parsing helpers** — `search::collect_pages_from_doc` (with raw-bytes fallback for truncated `/Kids` arrays), `raw_kids_for_object`, made `collect_tounicode_gid_map` / `decode_pdf_hex_string_with_map` `pub(crate)`
-- **Test count**: 283 lib + 7 + 5 + 3 + 24 + 22 + 10 + 36 = **390 passing tests**; `cargo build --no-default-features --features wasm` succeeds
+- [x] **Glyph-outline rasterization from embedded TTF** — `src/raster.rs`: `ttf-parser` glyph outline extraction from `/FontFile2` streams (including Type0 via `/DescendantFonts`); Bézier flattening + polygon fill; raw PDF byte scanning for font metrics; gray-rectangle fallback for base-14 fonts
+- [x] **Basic CSS support in HTML→PDF** — `src/html.rs`: `<style>` tag parsing, inline `style` attribute parsing; selectors (tag, `.class`, `tag.class`, `#id`); properties (`font-weight`, `font-style`, `text-align`, `color`, `background-color`, `font-size`, `margin`, `padding`, `border`); cascading with inline priority
+- **Test count**: 348 lib + 7 + 5 + 3 + 24 + 22 + 10 + 36 = **455 passing tests**; `cargo build --no-default-features --features wasm` succeeds
 
 ---
 

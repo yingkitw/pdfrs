@@ -502,22 +502,154 @@ end-to-end by `tests/capabilities_v2.rs`.
 
 ## K.1 Search, Redact, Rasterize
 
+The three v0.2 ingest/inspection capabilities operate on the same page model
+and can be chained in a single pass — find a region with `search-pdf`,
+redact it with `redact-pdf`, then render a PNG preview with `rasterize-pdf`.
+
 - `search-pdf` returns one `SearchHit` per match with page, snippet, and a
-  PDF user-space `Rect` bounding box
+  PDF user-space `Rect` bounding box so the match can be located without
+  rendering
 - `redact-pdf` rewrites content streams so the redacted text is unrecoverable
   (default `BlackBox` style also paints a solid overlay)
 - `rasterize-pdf` produces a PNG preview in pure Rust — no Ghostscript or
   PDFium linked
 
+### Search hit shape
+
+A `SearchHit` carries enough context to drive a UI overlay or to feed a
+redaction step directly:
+
+| Field      | Type    | Meaning                                          |
+|:-----------|:--------|:-------------------------------------------------|
+| `page`     | `u32`   | Zero-based page index of the match               |
+| `snippet`  | `String`| Surrounding text (±40 chars) for display         |
+| `bbox`     | `Rect`  | PDF user-space rectangle in points (origin BL)   |
+| `term`     | `String`| The exact term that matched                      |
+
+### Redaction styles
+
+`redact-pdf` accepts a `RedactionStyle` that controls the on-page artefact
+left after the underlying text is removed:
+
+- `BlackBox` (default) — paints an opaque black rectangle over the region,
+  in addition to stripping the glyphs from the content stream
+- `Strip` — removes only the content-stream operands; no visible overlay,
+  suitable for redaction-then-replace workflows
+
+### Library API
+
+```rust
+use pdfrs::{search, redact, raster};
+
+let pdf = std::fs::read("input.pdf")?;
+let hits = search::search_text(&pdf, "secret", false);
+if let Some(hit) = hits.first() {
+    let region = redact::RedactionRegion {
+        page: hit.page,
+        x: hit.bbox.x - 2.0,
+        y: hit.bbox.y - 2.0,
+        width: hit.bbox.width + 4.0,
+        height: hit.bbox.height + 4.0,
+    };
+    let redacted = redact::redact_pdf_bytes(&pdf, &[region])?;
+    let preview = raster::rasterize_page(&redacted, hit.page, 144)?;
+    std::fs::write("preview.png", preview.to_png()?)?;
+}
+```
+
 ## K.2 Full SVG Documents
 
-The `draw-svg-file` command renders `<g transform="...">`, basic shapes
-(`<rect>`, `<circle>`, `<line>`, `<polygon>`), and `<text>` to a one-page
-PDF. The Y axis is flipped so SVG's top-left origin maps to PDF's
-bottom-left origin.
+The `draw-svg-file` command renders `<g transform="...">`, shapes
+(`<rect>` with rounded corners via `rx`/`ry`, `<circle>`, `<ellipse>`,
+`<line>`, `<polyline>`, `<polygon>`, `<path>`), and `<text>` to a
+one-page PDF. SVG `viewBox` is honoured so documents scale correctly
+to their declared width/height. Default SVG semantics apply: fill
+defaults to black, stroke defaults to none. The Y axis is flipped so
+SVG's top-left origin maps to PDF's bottom-left origin.
+
+### Supported elements
+
+| Element         | Notes                                                    |
+|:----------------|:---------------------------------------------------------|
+| `<svg>`         | Root; respects `viewBox`, `width`, `height`              |
+| `<g>`           | Group; honours nested `transform` attributes             |
+| `<rect>`        | Supports `rx`/`ry` for rounded corners                   |
+| `<circle>`      | Standard `cx`/`cy`/`r` attributes                        |
+| `<ellipse>`     | Standard `cx`/`cy`/`rx`/`ry` attributes                  |
+| `<line>`        | `x1`/`y1`/`x2`/`y2` plus stroke styling                  |
+| `<polyline>`    | Open polyline through `points`                           |
+| `<polygon>`     | Closed polygon through `points`                          |
+| `<path>`        | `d` attribute with `M`/`L`/`H`/`V`/`C`/`S`/`Q`/`T`/`Z`   |
+| `<text>`        | Rendered with the configured PDF base font               |
+
+### Inline chart demo
+
+The chart fence renders vector graphics through the same SVG pipeline:
+
+```chart bar
+title: Capability adoption (commits per capability)
+Search, 14
+Redact, 9
+Raster, 11
+SVG, 18
+PDF→MD, 7
+```
+
+### Transform composition
+
+SVG transforms compose left-to-right; `translate(10,20) scale(2)` applied
+to point `(5,5)` produces `(20,30)`. The `parse_svg_transform` helper
+returns a 6-element matrix that callers can apply directly to other
+geometry.
 
 ## K.3 Structured PDF → Markdown
 
 `pdf-to-md` now reconstructs Markdown structure (headings, bullets, numbered
 lists, code blocks) from font-size and positioning heuristics, with
-ToUnicode-aware decoding of CID-font glyph IDs.
+ToUnicode-aware decoding of CID-font glyph IDs. It is the inverse of the
+Markdown→PDF pipeline and is exercised end-to-end by
+`tests/capabilities_v2.rs::pdf_to_markdown_preserves_structure`.
+
+### Reconstruction heuristics
+
+The converter walks each page, groups glyphs into lines by baseline, then
+groups lines into paragraphs by leading and indentation. Promoted to
+structural Markdown when:
+
+- **Heading** — font size exceeds the body baseline by ≥ 2 pt
+- **Bullet** — line begins with a leading-glyph marker from the standard
+  PDF bullet glyph set
+- **Numbered list** — line begins with a digit followed by `.` or `)`
+- **Code block** — line uses a monospaced font and is preceded/followed
+  by another monospaced line
+
+### Example round-trip
+
+Input Markdown:
+
+```markdown
+# Title
+
+First paragraph.
+
+- Apple
+- Banana
+
+1. One
+2. Two
+
+Final line.
+```
+
+Reconstructed Markdown preserves the heading, both list types, and the
+trailing prose — every test assertion in
+`pdf_to_markdown_preserves_structure` checks one of those structural
+artefacts.
+
+### Known limitations
+
+- Font-size heuristics assume the document uses a small number of distinct
+  sizes; documents that mix many font sizes on the same page may mis-classify
+  body text as headings
+- `pdf-to-md` cannot recover hyperlinks or images by reference; embedded
+  text and structure only

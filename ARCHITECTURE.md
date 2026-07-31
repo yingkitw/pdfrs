@@ -230,7 +230,7 @@ Markdown Text → elements::parse_markdown() → Vec<Element> → pdf_generator:
 
 ### 7. Charts (`src/chart.rs`)
 
-Vector bar / line / pie charts from fenced Markdown ` ```chart` ` blocks → `Element::Chart`.
+Vector bar / line / pie / **stacked-bar** charts from fenced Markdown ` ```chart` ` blocks → `Element::Chart`. Multi-series stacked bar charts support named series via `series:` directive and `Label, v1, v2, ...` data format. Legend with colored indicators rendered below chart.
 
 ### 8. Thesis layout (`src/thesis.rs`)
 
@@ -317,7 +317,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `src/streaming.rs` — memory-efficient streaming generation
 - `src/optimization.rs` — web/print/archive/ebook profiles
 - `src/vector.rs` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`)
-- `src/security.rs` — permissions; protected encrypt/decrypt returns `Err` until real crypto lands
+- `src/security.rs` — PDF Standard Security Handler with RC4 40/128-bit and AES-128/256-CBC encryption/decryption; MD5/SHA-256 key derivation; PKCS#7 padding for AES; `protect_pdf` encrypts streams + strings with `/Encrypt` dictionary
 
 ### 15b. Rasterization (`src/raster.rs`)
 
@@ -354,7 +354,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `redact_pdf_bytes_with_style(pdf_bytes, regions, RedactionStyle::Strip | BlackBox)`
 - `RedactionRegion { page, x, y, width, height }`
 
-**Behaviour**: walks each page's content stream, computes the bounding box of each `Tj`/`TJ`, and replaces intersecting text with whitespace-equivalent masks. `BlackBox` style additionally appends a solid-black filled rectangle over each region. Stream compression is preserved (FlateDecode streams are recompressed after rewriting).
+**Behaviour**: walks each page's content stream, computes the bounding box of each character in `Tj`/`TJ` operators, and replaces only characters whose bboxes intersect a redaction region with whitespace-equivalent masks (partial-string redaction). `BlackBox` style additionally appends a solid-black filled rectangle over each region. Image XObjects whose CTM placement intersects a redaction region are removed by skipping their `Do` operators. Stream compression is preserved (FlateDecode streams are recompressed after rewriting).
 
 ### 15e. PDF → Markdown (`src/pdf_to_md.rs`)
 
@@ -366,6 +366,49 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `pdf_to_markdown_file(input_pdf, output_md)`
 
 **Heuristics**: body font size detected by character-count-weighted mode; heading levels 1-5 inferred from `line.max_font_size / body_size` ratios; bullets, numbered lists, code blocks (Courier detection), and horizontal rules reconstructed; ToUnicode-aware decoding of CID-font glyph-ID hex strings; spaces inserted between adjacent Tj spans on the same line using a 0.4-em-per-char width estimate.
+
+### 15f. REST API (`src/api.rs`)
+
+**Purpose**: Axum-based HTTP server for cloud/serverless deployment (behind `api` Cargo feature).
+
+**Endpoints**:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/health` | Health check |
+| `POST` | `/api/v1/generate` | Generate PDF from Markdown |
+| `POST` | `/api/v1/merge` | Merge base64-encoded PDFs |
+| `POST` | `/api/v1/split` | Split base64-encoded PDF into pages |
+| `POST` | `/api/v1/search` | Full-text search |
+| `POST` | `/api/v1/redact` | Redact regions |
+| `POST` | `/api/v1/extract` | Extract text |
+
+**Key Functions**:
+
+- `api::serve(host, port)` — start the server
+- `api::router()` — get a standalone `Router` for embedding
+- `api::router_with_state(AppState)` — custom state (e.g. max body size)
+
+**Design**: CORS enabled via `tower-http`; PDFs exchanged as base64 in JSON; binary PDF responses use `application/pdf` content type. Byte-based helpers `merge_pdfs_from_bytes` and `split_pdf_from_bytes` added to `pdf_ops` for filesystem-free operation.
+
+### 15g. WASM Bindings (`src/wasm.rs` + `wasm/`)
+
+**Purpose**: Browser-based PDF generation via WebAssembly with worker offloading and caching.
+
+**Rust API** (`src/wasm.rs`, behind `wasm` feature):
+
+- `render_markdown_to_pdf(md: &str) -> Result<Vec<u8>, JsValue>` — synchronous PDF generation
+- `version() -> String` — crate version for cache invalidation
+
+**JavaScript modules** (`wasm/`):
+
+- `worker.js` — Web Worker that loads WASM once and handles `render` requests via `postMessage` with zero-copy transfer
+- `worker-client.js` — `PdfWorkerClient` class with Promise-based API (`init()`, `render()`, `version()`, `terminate()`)
+- `cache.js` — IndexedDB caching (`loadWasmWithCache()`, `cacheWasm()`, `getCachedWasm()`, `clearCache()`) keyed by crate version
+- `viewer.js` — Canvas-based PDF preview using pdf.js
+- `example.html` — Demo with mode toggle (worker vs main thread + IndexedDB cache)
+
+**Build**: `syntect` uses `default-fancy` (pure Rust regex) for WASM compatibility (no C dependencies).
 
 ### 16. PDF Validation (`src/pdf/validation.rs`)
 

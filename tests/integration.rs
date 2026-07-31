@@ -237,6 +237,8 @@ fn test_extract_tables_from_pdf() {
                 pdfrs::elements::TableAlignment::Center,
                 pdfrs::elements::TableAlignment::Right,
             ],
+            colspans: Vec::new(),
+            rowspans: Vec::new(),
         },
         pdfrs::elements::Element::TableRow {
             cells: vec![
@@ -246,11 +248,15 @@ fn test_extract_tables_from_pdf() {
             ],
             is_separator: false,
             alignments: vec![],
+            colspans: Vec::new(),
+            rowspans: Vec::new(),
         },
         pdfrs::elements::Element::TableRow {
             cells: vec!["Bob".to_string(), "25".to_string(), "London".to_string()],
             is_separator: false,
             alignments: vec![],
+            colspans: Vec::new(),
+            rowspans: Vec::new(),
         },
     ];
 
@@ -360,7 +366,7 @@ fn test_form_field_detect_and_fill() {
 
     std::fs::remove_file(&form_pdf).ok();
     std::fs::remove_file(&filled_pdf).ok();
-    std::fs::remove_file(&format!("{}/tmp_form_base.pdf", out_dir)).ok();
+    std::fs::remove_file(format!("{}/tmp_form_base.pdf", out_dir)).ok();
 }
 
 #[test]

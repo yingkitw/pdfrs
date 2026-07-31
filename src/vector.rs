@@ -79,6 +79,13 @@ pub enum VectorShape {
         fill: Option<Color>,
         line_width: f32,
     },
+    Text {
+        x: f32,
+        y: f32,
+        text: String,
+        size: f32,
+        fill: Color,
+    },
 }
 
 /// Accumulates vector shapes and emits a PDF content stream.
@@ -221,6 +228,12 @@ impl VectorCanvas {
             format!("<< /Length {} >>\n", content_bytes.len()),
             content_bytes,
         );
+
+        // Add a Helvetica font so SVG <text> elements can render.
+        let font_id = generator.add_object(
+            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string(),
+        );
+
         // page will be next_id, pages the one after that
         let pages_id = generator.next_id + 1;
 
@@ -229,9 +242,9 @@ impl VectorCanvas {
              /Parent {} 0 R\n\
              /MediaBox [0 0 {} {}]\n\
              /Contents {} 0 R\n\
-             /Resources << >>\n\
+             /Resources << /Font << /F1 {} 0 R >> >>\n\
              >>\n",
-            pages_id, layout.width, layout.height, content_id
+            pages_id, layout.width, layout.height, content_id, font_id
         );
         let page_id = generator.add_object(page_dict);
 
@@ -514,10 +527,15 @@ pub fn parse_svg_document(svg: &str, layout: PageLayout) -> Result<VectorCanvas>
             // Flip Y so SVG top-left origin maps to PDF bottom-left origin.
             matrix: [1.0, 0.0, 0.0, -1.0, 0.0, layout.height],
         }],
-        fill: SvgPaint::Inherit,
-        stroke: SvgPaint::Inherit,
+        fill: SvgPaint::Color(Color::black()),
+        stroke: SvgPaint::None,
         stroke_width: f32::NAN,
+        defs: HashMap::new(),
     };
+    if let SvgNode::Element(ref root_el) = root_node {
+        collect_defs(root_el, &mut ctx);
+        apply_svg_viewbox(root_el, &mut ctx, layout);
+    }
     render_element(&root_node, &mut ctx);
     Ok(ctx.canvas)
 }
@@ -598,6 +616,7 @@ struct RenderCtx {
     fill: SvgPaint,
     stroke: SvgPaint,
     stroke_width: f32,
+    defs: HashMap<String, SvgElement>,
 }
 
 impl RenderCtx {
@@ -617,10 +636,10 @@ impl RenderCtx {
         }
     }
     fn fill_color(&self) -> Option<Color> {
-        self.fill.resolve(None)
+        self.fill.resolve(Some(Color::black()))
     }
     fn stroke_color(&self) -> Option<Color> {
-        self.stroke.resolve(Some(Color::black()))
+        self.stroke.resolve(None)
     }
     fn line_width(&self) -> f32 {
         if self.stroke_width.is_nan() {
@@ -647,9 +666,12 @@ struct SvgElement {
 fn render_element(node: &SvgNode, ctx: &mut RenderCtx) {
     let SvgNode::Element(el) = node else { return };
     match el.name.as_str() {
-        "svg" | "defs" | "symbol" => {
-            // Container: render children with inherited styles.
+        "svg" => {
+            // Root container: render children with inherited styles.
             with_style_scope(el, ctx, |ctx| render_children(el, ctx));
+        }
+        "defs" | "symbol" => {
+            // Definitions are collected separately; don't render inline.
         }
         "g" => {
             let pushed = maybe_apply_transform(el, ctx);
@@ -658,6 +680,7 @@ fn render_element(node: &SvgNode, ctx: &mut RenderCtx) {
                 ctx.pop_transform();
             }
         }
+        "use" => render_use(el, ctx),
         "rect" => render_rect(el, ctx),
         "circle" => render_circle(el, ctx),
         "ellipse" => render_ellipse(el, ctx),
@@ -713,25 +736,84 @@ fn maybe_apply_transform(el: &SvgElement, ctx: &mut RenderCtx) -> bool {
     true
 }
 
+/// Recursively collect elements with `id` attributes from `<defs>` and
+/// `<symbol>` sections into the defs registry.
+fn collect_defs(el: &SvgElement, ctx: &mut RenderCtx) {
+    for child in &el.children {
+        let SvgNode::Element(child_el) = child else { continue };
+        if child_el.name == "defs" || child_el.name == "symbol" {
+            collect_defs_children(child_el, ctx);
+        } else if child_el.name == "g" {
+            // Groups can also contain id'd elements.
+            collect_defs(child_el, ctx);
+        }
+    }
+}
+
+fn collect_defs_children(el: &SvgElement, ctx: &mut RenderCtx) {
+    for child in &el.children {
+        let SvgNode::Element(child_el) = child else { continue };
+        if let Some(id) = child_el.attrs.get("id") {
+            ctx.defs.insert(id.clone(), child_el.clone());
+        }
+        // Recurse into nested groups.
+        if child_el.name == "g" {
+            collect_defs_children(child_el, ctx);
+        }
+    }
+}
+
+/// Render a `<use href="#id" x="..." y="...">` element by looking up the
+/// referenced definition and rendering its children with a translate.
+fn render_use(el: &SvgElement, ctx: &mut RenderCtx) {
+    let href = el
+        .attrs
+        .get("href")
+        .or_else(|| el.attrs.get("xlink:href"))
+        .map(|s| s.trim_start_matches('#').to_string());
+    let Some(id) = href else { return };
+    let Some(def_el) = ctx.defs.get(&id).cloned() else { return };
+
+    let x = attr_f32(el, "x", 0.0);
+    let y = attr_f32(el, "y", 0.0);
+
+    // Apply translate for the use position, then render the referenced element's children.
+    ctx.push_transform([1.0, 0.0, 0.0, 1.0, x, y]);
+    let pushed_style = false;
+    with_style_scope(el, ctx, |ctx| {
+        for child in &def_el.children {
+            render_element(child, ctx);
+        }
+    });
+    let _ = pushed_style;
+    ctx.pop_transform();
+}
+
 fn render_rect(el: &SvgElement, ctx: &mut RenderCtx) {
     let x = attr_f32(el, "x", 0.0);
     let y = attr_f32(el, "y", 0.0);
     let w = attr_f32(el, "width", 0.0);
     let h = attr_f32(el, "height", 0.0);
+    let rx = attr_f32(el, "rx", 0.0);
+    let ry = attr_f32(el, "ry", rx);
     let stroke = ctx.stroke_color();
     let fill = ctx.fill_color();
     let lw = ctx.line_width();
     let (x1, y1) = ctx.current().apply(x, y);
     let (x2, y2) = ctx.current().apply(x + w, y + h);
-    ctx.canvas.push_shape(VectorShape::Rect {
-        x: x1.min(x2),
-        y: y1.min(y2),
-        width: (x2 - x1).abs(),
-        height: (y2 - y1).abs(),
-        stroke,
-        fill,
-        line_width: lw,
-    });
+    let min_x = x1.min(x2);
+    let min_y = y1.min(y2);
+    let abs_w = (x2 - x1).abs();
+    let abs_h = (y2 - y1).abs();
+    if rx > 0.0 || ry > 0.0 {
+        let r = rx.min(ry).min(abs_w / 2.0).min(abs_h / 2.0);
+        let ops = rounded_rect_path_ops(min_x, min_y, abs_w, abs_h, r);
+        ctx.canvas.push_shape(VectorShape::Path { ops, stroke, fill, line_width: lw });
+    } else {
+        ctx.canvas.push_shape(VectorShape::Rect {
+            x: min_x, y: min_y, width: abs_w, height: abs_h, stroke, fill, line_width: lw,
+        });
+    }
 }
 
 fn render_circle(el: &SvgElement, ctx: &mut RenderCtx) {
@@ -888,22 +970,14 @@ fn render_text(el: &SvgElement, ctx: &mut RenderCtx) {
                 .ok()
         })
         .unwrap_or(12.0);
-    // Approximate text width to size a backing rectangle (for fill/stroke).
-    let width = size * 0.55 * text.chars().count() as f32;
-    let height = size;
-    let stroke = ctx.stroke_color();
-    let fill = ctx.fill_color().or(Some(Color::black()));
-    if let Some(f) = fill {
-        ctx.canvas.push_shape(VectorShape::Rect {
-            x,
-            y: y - height,
-            width,
-            height,
-            stroke,
-            fill: Some(f),
-            line_width: 0.0,
-        });
-    }
+    let fill = ctx.fill_color().unwrap_or(Color::black());
+    ctx.canvas.push_shape(VectorShape::Text {
+        x,
+        y,
+        text,
+        size,
+        fill,
+    });
 }
 
 fn collect_text(el: &SvgElement, out: &mut String) {
@@ -916,6 +990,40 @@ fn collect_text(el: &SvgElement, out: &mut String) {
             _ => {}
         }
     }
+}
+
+fn apply_svg_viewbox(el: &SvgElement, ctx: &mut RenderCtx, layout: PageLayout) {
+    let svg_w = attr_f32(el, "width", layout.width);
+    let svg_h = attr_f32(el, "height", layout.height);
+    if let Some(vb) = el.attrs.get("viewBox") {
+        let nums: Vec<f32> = vb.split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|t| !t.is_empty())
+            .filter_map(|t| t.parse::<f32>().ok()).collect();
+        if nums.len() == 4 {
+            let (vbx, vby, vbw, vbh) = (nums[0], nums[1], nums[2], nums[3]);
+            if vbw > 0.0 && vbh > 0.0 {
+                let sx = svg_w / vbw;
+                let sy = svg_h / vbh;
+                ctx.push_transform([sx, 0.0, 0.0, sy, -vbx * sx, -vby * sy]);
+            }
+        }
+    }
+}
+
+fn rounded_rect_path_ops(x: f32, y: f32, w: f32, h: f32, r: f32) -> Vec<PathOp> {
+    let k = 0.552_284_8_f32 * r;
+    vec![
+        PathOp::MoveTo { x: x + r, y: y + h },
+        PathOp::LineTo { x: x + w - r, y: y + h },
+        PathOp::CurveTo { x1: x + w - r + k, y1: y + h, x2: x + w, y2: y + h - r + k, x3: x + w, y3: y + h - r },
+        PathOp::LineTo { x: x + w, y: y + r },
+        PathOp::CurveTo { x1: x + w, y1: y + r - k, x2: x + w - r + k, y2: y, x3: x + w - r, y3: y },
+        PathOp::LineTo { x: x + r, y },
+        PathOp::CurveTo { x1: x + r - k, y1: y, x2: x, y2: y + r - k, x3: x, y3: y + r },
+        PathOp::LineTo { x, y: y + h - r },
+        PathOp::CurveTo { x1: x, y1: y + h - r + k, x2: x + r - k, y2: y + h, x3: x + r, y3: y + h },
+        PathOp::Close,
+    ]
 }
 
 fn attr_f32(el: &SvgElement, key: &str, default: f32) -> f32 {
@@ -1190,6 +1298,18 @@ impl<'a> SvgXmlParser<'a> {
             }
             if rest.starts_with("<!--") {
                 if let Some(end) = rest.find("-->") {
+                    self.pos += end + 3;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            if rest.starts_with("<![CDATA[") {
+                if let Some(end) = rest.find("]]>") {
+                    let text = &rest[9..end];
+                    if !text.trim().is_empty() {
+                        children.push(SvgNode::Text(text.to_string()));
+                    }
                     self.pos += end + 3;
                     continue;
                 } else {
@@ -1498,6 +1618,23 @@ fn shape_to_ops(shape: &VectorShape) -> String {
             fill,
             line_width,
         } => paint_path(ops, *stroke, *fill, *line_width),
+        VectorShape::Text {
+            x,
+            y,
+            text,
+            size,
+            fill,
+        } => {
+            let escaped = escape_pdf_text(text);
+            format!(
+                "q\nBT\n/F1 {} Tf\n{} rg\n1 0 0 1 {} {} Tm\n({}) Tj\nET\nQ\n",
+                fmt(*size),
+                color_ops(fill),
+                fmt(*x),
+                fmt(*y),
+                escaped
+            )
+        }
     }
 }
 
@@ -1603,6 +1740,12 @@ fn fmt(v: f32) -> String {
 
 fn color_ops(c: &Color) -> String {
     format!("{} {} {}", fmt(c.r), fmt(c.g), fmt(c.b))
+}
+
+fn escape_pdf_text(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
 }
 
 #[cfg(test)]
@@ -1831,5 +1974,113 @@ mod tests {
             </svg>"##;
         let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
         assert!(!canvas.shapes().is_empty());
+    }
+
+    #[test]
+    fn test_svg_default_fill_is_black() {
+        let svg = r##"<svg width="100" height="100"><rect width="50" height="50"/></svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(!canvas.shapes().is_empty());
+        match &canvas.shapes()[0] {
+            VectorShape::Rect { fill, .. } => {
+                assert!(fill.is_some(), "default fill should be black, not none");
+            }
+            _ => panic!("expected Rect"),
+        }
+    }
+
+    #[test]
+    fn test_svg_default_stroke_is_none() {
+        let svg = r##"<svg width="100" height="100"><rect width="50" height="50" fill="red"/></svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        match &canvas.shapes()[0] {
+            VectorShape::Rect { stroke, .. } => {
+                assert!(stroke.is_none(), "default stroke should be none, not black");
+            }
+            _ => panic!("expected Rect"),
+        }
+    }
+
+    #[test]
+    fn test_svg_viewbox_scaling() {
+        let svg = r##"<svg width="400" height="300" viewBox="0 0 200 150"><rect width="100" height="75" fill="blue"/></svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(!canvas.shapes().is_empty());
+    }
+
+    #[test]
+    fn test_svg_rounded_rect() {
+        let svg = r##"<svg width="200" height="200"><rect x="10" y="10" width="80" height="60" rx="10" ry="10" fill="red"/></svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(!canvas.shapes().is_empty());
+        match &canvas.shapes()[0] {
+            VectorShape::Path { ops, .. } => {
+                assert!(ops.len() > 4, "rounded rect should produce a path with curves");
+            }
+            VectorShape::Rect { .. } => panic!("rounded rect should be a Path, not Rect"),
+            _ => panic!("unexpected shape"),
+        }
+    }
+
+    #[test]
+    fn test_svg_text_renders_as_text_shape() {
+        let svg = r##"<svg width="200" height="100"><text x="50" y="50" font-size="14" fill="black">Hello</text></svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        let has_text = canvas.shapes().iter().any(|s| matches!(s, VectorShape::Text { .. }));
+        assert!(has_text, "should have a Text shape, not a Rect");
+    }
+
+    #[test]
+    fn test_svg_text_pdf_contains_text_operators() {
+        let svg = r##"<svg width="200" height="100"><text x="50" y="50" font-size="14" fill="black">Hello</text></svg>"##;
+        let bytes = svg_document_to_pdf_bytes(svg, PageLayout::portrait()).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("BT"), "PDF should contain BT operator for text");
+        assert!(text.contains("Tj"), "PDF should contain Tj operator for text");
+        assert!(text.contains("/F1"), "PDF should reference /F1 font");
+        assert!(text.contains("Helvetica"), "PDF should embed Helvetica font");
+    }
+
+    #[test]
+    fn test_svg_use_element() {
+        let svg = r##"<svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <g id="mybox">
+              <rect width="40" height="40" fill="blue"/>
+            </g>
+          </defs>
+          <use href="#mybox" x="10" y="10"/>
+          <use href="#mybox" x="60" y="60"/>
+        </svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        assert!(
+            canvas.shapes().len() >= 2,
+            "use element should produce shapes, got {}",
+            canvas.shapes().len()
+        );
+    }
+
+    #[test]
+    fn test_svg_cdata_section() {
+        let svg = r##"<svg width="200" height="100">
+          <text x="10" y="50"><![CDATA[CDATA text]]></text>
+        </svg>"##;
+        let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
+        let has_text = canvas.shapes().iter().any(|s| {
+            matches!(s, VectorShape::Text { text, .. } if text.contains("CDATA text"))
+        });
+        assert!(has_text, "should render text from CDATA section");
+    }
+
+    #[test]
+    fn test_svg_document_valid_pdf_with_text() {
+        let svg = r##"<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="10" y="10" width="100" height="60" fill="#336699" stroke="black"/>
+          <text x="20" y="40" font-size="16" fill="white">Label</text>
+          <circle cx="200" cy="100" r="30" fill="red"/>
+        </svg>"##;
+        let bytes = svg_document_to_pdf_bytes(svg, PageLayout::portrait()).unwrap();
+        let validation = validate_pdf_bytes(&bytes);
+        assert!(validation.valid, "{:?}", validation.errors);
     }
 }

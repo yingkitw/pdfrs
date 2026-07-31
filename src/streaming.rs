@@ -270,11 +270,13 @@ impl StreamingPdfGenerator {
                     kind,
                     title,
                     points,
+                    series: _,
                 } => {
                     let kind = match kind {
                         crate::elements::ChartKind::Bar => "bar",
                         crate::elements::ChartKind::Line => "line",
                         crate::elements::ChartKind::Pie => "pie",
+                        crate::elements::ChartKind::StackedBar => "stacked-bar",
                     };
                     let title = title.as_deref().unwrap_or("Chart");
                     self.add_paragraph(&format!(

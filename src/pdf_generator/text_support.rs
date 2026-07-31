@@ -1,4 +1,34 @@
 use regex::{Captures, Regex};
+use std::sync::OnceLock;
+
+macro_rules! math_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static Regex {
+            static RE: OnceLock<Regex> = OnceLock::new();
+            RE.get_or_init(|| Regex::new($pat).unwrap())
+        }
+    };
+}
+
+math_regex!(re_sum, r"\\sum_\{([^}]*)\}\^\{([^}]*)\}");
+math_regex!(re_sum_simple, r"\\sum_([^\s\^_{}]+)\^([^\s\^_{}]+)");
+math_regex!(re_prod, r"\\prod_\{([^}]*)\}\^\{([^}]*)\}");
+math_regex!(re_prod_simple, r"\\prod_([^\s\^_{}]+)\^([^\s\^_{}]+)");
+math_regex!(re_int, r"\\int_\{([^}]*)\}\^\{([^}]*)\}");
+math_regex!(re_int_simple, r"\\int_([^\s\^_{}]+)\^([^\s\^_{}]+)");
+math_regex!(re_lim, r"\\lim_\{([^}]*)\}");
+math_regex!(re_lim_simple, r"\\lim_([^\s\^_{}]+)");
+math_regex!(re_sup, r"\^\{([^}]*)\}");
+math_regex!(re_sup_simple, r"\^([A-Za-z0-9+\-*/=])");
+math_regex!(re_sub, r"_\{([^}]*)\}");
+math_regex!(re_sub_simple, r"_([A-Za-z0-9])");
+math_regex!(re_text, r"\\text\{([^}]*)\}");
+math_regex!(re_mathfmt, r"\\math[a-z]+\{([^}]*)\}");
+math_regex!(re_hat, r"\\hat\{([^}]*)\}");
+math_regex!(re_bar, r"\\bar\{([^}]*)\}");
+math_regex!(re_vec, r"\\vec\{([^}]*)\}");
+math_regex!(re_tilde, r"\\tilde\{([^}]*)\}");
+math_regex!(re_multi_space, r"  +");
 
 /// Returns true for characters in Unicode blocks that are reliably present
 /// in common system fonts (e.g. Arial Unicode.ttf). Characters in the
@@ -436,98 +466,80 @@ pub(crate) fn render_math_text(expr: &str) -> String {
     }
 
     // Handle \sum, \prod, \int with limits
-    let sum_re = Regex::new(r"\\sum_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = sum_re
+    s = re_sum()
         .replace_all(&s, |caps: &Captures| {
             render_operator_with_limits("∑", &caps[1], &caps[2])
         })
         .to_string();
-    let sum_re_simple = Regex::new(r"\\sum_([^\s\^_{}]+)\^([^\s\^_{}]+)").unwrap();
-    s = sum_re_simple
+    s = re_sum_simple()
         .replace_all(&s, |caps: &Captures| {
             render_operator_with_limits("∑", &caps[1], &caps[2])
         })
         .to_string();
     s = s.replace("\\sum", "∑");
 
-    let prod_re = Regex::new(r"\\prod_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = prod_re
+    s = re_prod()
         .replace_all(&s, |caps: &Captures| {
             render_operator_with_limits("∏", &caps[1], &caps[2])
         })
         .to_string();
-    let prod_re_simple = Regex::new(r"\\prod_([^\s\^_{}]+)\^([^\s\^_{}]+)").unwrap();
-    s = prod_re_simple
+    s = re_prod_simple()
         .replace_all(&s, |caps: &Captures| {
             render_operator_with_limits("∏", &caps[1], &caps[2])
         })
         .to_string();
     s = s.replace("\\prod", "∏");
 
-    let int_re = Regex::new(r"\\int_\{([^}]*)\}\^\{([^}]*)\}").unwrap();
-    s = int_re
+    s = re_int()
         .replace_all(&s, |caps: &Captures| {
             render_operator_with_limits("∫", &caps[1], &caps[2])
         })
         .to_string();
-    let int_re_simple = Regex::new(r"\\int_([^\s\^_{}]+)\^([^\s\^_{}]+)").unwrap();
-    s = int_re_simple
+    s = re_int_simple()
         .replace_all(&s, |caps: &Captures| {
             render_operator_with_limits("∫", &caps[1], &caps[2])
         })
         .to_string();
     s = s.replace("\\int", "∫");
 
-    let lim_re = Regex::new(r"\\lim_\{([^}]*)\}").unwrap();
-    s = lim_re.replace_all(&s, "lim($1)").to_string();
-    let lim_re_simple = Regex::new(r"\\lim_([^\s\^_{}]+)").unwrap();
-    s = lim_re_simple.replace_all(&s, "lim($1)").to_string();
+    s = re_lim().replace_all(&s, "lim($1)").to_string();
+    s = re_lim_simple().replace_all(&s, "lim($1)").to_string();
     s = s.replace("\\lim", "lim");
 
     // Handle superscript ^{x} -> ˣ and subscript _{x} -> ₓ (fallback to ASCII markers)
-    let sup_re = Regex::new(r"\^\{([^}]*)\}").unwrap();
-    s = sup_re
+    s = re_sup()
         .replace_all(&s, |caps: &Captures| {
             to_superscript(&caps[1]).unwrap_or_else(|| format!("^({})", &caps[1]))
         })
         .to_string();
-    let sup_simple_re = Regex::new(r"\^([A-Za-z0-9+\-*/=])").unwrap();
-    s = sup_simple_re
+    s = re_sup_simple()
         .replace_all(&s, |caps: &Captures| {
             to_superscript(&caps[1]).unwrap_or_else(|| format!("^({})", &caps[1]))
         })
         .to_string();
 
-    let sub_re = Regex::new(r"_\{([^}]*)\}").unwrap();
-    s = sub_re
+    s = re_sub()
         .replace_all(&s, |caps: &Captures| {
             to_subscript(&caps[1]).unwrap_or_else(|| format!("_({})", &caps[1]))
         })
         .to_string();
-    let sub_simple_re = Regex::new(r"_([A-Za-z0-9])").unwrap();
-    s = sub_simple_re
+    s = re_sub_simple()
         .replace_all(&s, |caps: &Captures| {
             to_subscript(&caps[1]).unwrap_or_else(|| format!("_({})", &caps[1]))
         })
         .to_string();
 
     // Handle \text{...} -> ...
-    let text_re = Regex::new(r"\\text\{([^}]*)\}").unwrap();
-    s = text_re.replace_all(&s, "$1").to_string();
+    s = re_text().replace_all(&s, "$1").to_string();
 
     // Handle \mathbf{...}, \mathrm{...}, \mathit{...} -> content
-    let mathfmt_re = Regex::new(r"\\math[a-z]+\{([^}]*)\}").unwrap();
-    s = mathfmt_re.replace_all(&s, "$1").to_string();
+    s = re_mathfmt().replace_all(&s, "$1").to_string();
 
     // Handle \hat{x}, \bar{x}, \vec{x}, \tilde{x}
-    let hat_re = Regex::new(r"\\hat\{([^}]*)\}").unwrap();
-    s = hat_re.replace_all(&s, "$1\u{0302}").to_string();
-    let bar_re = Regex::new(r"\\bar\{([^}]*)\}").unwrap();
-    s = bar_re.replace_all(&s, "$1\u{0304}").to_string();
-    let vec_re = Regex::new(r"\\vec\{([^}]*)\}").unwrap();
-    s = vec_re.replace_all(&s, "vec($1)").to_string();
-    let tilde_re = Regex::new(r"\\tilde\{([^}]*)\}").unwrap();
-    s = tilde_re.replace_all(&s, "$1\u{0303}").to_string();
+    s = re_hat().replace_all(&s, "$1\u{0302}").to_string();
+    s = re_bar().replace_all(&s, "$1\u{0304}").to_string();
+    s = re_vec().replace_all(&s, "vec($1)").to_string();
+    s = re_tilde().replace_all(&s, "$1\u{0303}").to_string();
 
     // Handle \log, \ln, \sin, \cos, \tan, \exp (longest first for sinh/cosh/tanh)
     for func in &[
@@ -546,8 +558,7 @@ pub(crate) fn render_math_text(expr: &str) -> String {
     s = s.replace(['{', '}'], "");
 
     // Clean up multiple spaces
-    let multi_space = Regex::new(r"  +").unwrap();
-    s = multi_space.replace_all(&s, " ").to_string();
+    s = re_multi_space().replace_all(&s, " ").to_string();
 
     s.trim().to_string()
 }

@@ -36,12 +36,47 @@
 /// Structured document elements parsed from Markdown.
 /// These carry formatting intent so the PDF generator can render
 /// headers at different sizes, indent lists, etc.
+use std::sync::OnceLock;
+
+macro_rules! inline_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: OnceLock<regex::Regex> = OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+inline_regex!(re_strike, r"~~(.*?)~~");
+inline_regex!(re_bold_italic, r"\*\*\*(.*?)\*\*\*");
+inline_regex!(re_bold, r"\*\*(.*?)\*\*");
+inline_regex!(re_bold2, r"__(.*?)__");
+inline_regex!(re_italic, r"\*(.*?)\*");
+inline_regex!(re_italic2, r"_(.*?)_");
+inline_regex!(re_link_strip, r"\[([^\]]+)\]\([^\)]+\)");
+inline_regex!(re_code_strip, r"`([^`]+)`");
+inline_regex!(re_cite, r"\[@([^\]]+)\]");
+inline_regex!(re_link, r"\[([^\]]+)\]\(([^\)]+)\)");
+inline_regex!(re_math, r"\$([^$\n]+)\$");
+inline_regex!(re_strike_parse, r"~~(.+?)~~");
+inline_regex!(re_code_parse, r"`([^`]+)`");
+inline_regex!(re_bi_stars, r"\*\*\*(.+?)\*\*\*");
+inline_regex!(re_bi_under, r"___(.+?)___");
+inline_regex!(re_b_stars, r"\*\*(.+?)\*\*");
+inline_regex!(re_b_under, r"__(.+?)__");
+inline_regex!(re_i_stars, r"\*([^*]+)\*");
+inline_regex!(re_i_under, r"_([^_]+)_");
+
+inline_regex!(re_img, r"^!\[([^\]]*)\]\(([^\)]+)\)$");
+inline_regex!(re_link_line, r"^\[([^\]]+)\]\(([^\)]+)\)$");
+inline_regex!(re_footnote_ref, r"\[\^([^\]]+)\]");
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TableAlignment {
     Left,
     Center,
     Right,
+    Justify,
 }
 
 /// Text segment with inline formatting
@@ -101,6 +136,8 @@ pub enum Element {
         cells: Vec<String>,
         is_separator: bool,
         alignments: Vec<TableAlignment>,
+        colspans: Vec<u32>,
+        rowspans: Vec<u32>,
     },
     BlockQuote {
         text: String,
@@ -140,12 +177,15 @@ pub enum Element {
     Columns {
         count: u8,
     },
-    /// Chart from a fenced ` ```chart …` ` block (bar / line / pie).
+    /// Chart from a fenced ` ```chart …` ` block (bar / line / pie / stacked-bar).
     Chart {
         kind: ChartKind,
         title: Option<String>,
-        /// `(label, value)` pairs
+        /// `(label, value)` pairs — used for single-series charts.
         points: Vec<(String, f32)>,
+        /// Named series for multi-series charts (e.g. stacked bar).
+        /// Each series has a name and values aligned with `points` labels.
+        series: Vec<ChartSeries>,
     },
     /// Page folio style (`<!-- pagenumber:roman|arabic|none -->`).
     PageNumberMode {
@@ -172,6 +212,15 @@ pub enum ChartKind {
     Bar,
     Line,
     Pie,
+    /// Stacked bar chart (multi-series).
+    StackedBar,
+}
+
+/// A named data series for multi-series charts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChartSeries {
+    pub name: String,
+    pub values: Vec<f32>,
 }
 
 /// Page number / folio style for thesis front matter vs body.
@@ -202,36 +251,28 @@ pub fn strip_inline_formatting(text: &str) -> String {
     let mut s = text.to_string();
 
     // Strikethrough ~~text~~
-    let strike_re = regex::Regex::new(r"~~(.*?)~~").unwrap();
-    s = strike_re.replace_all(&s, "$1").to_string();
+    s = re_strike().replace_all(&s, "$1").to_string();
 
     // Bold+italic (***text***)
-    let bold_italic_re = regex::Regex::new(r"\*\*\*(.*?)\*\*\*").unwrap();
-    s = bold_italic_re.replace_all(&s, "$1").to_string();
+    s = re_bold_italic().replace_all(&s, "$1").to_string();
 
     // Bold (**text**)
-    let bold_re = regex::Regex::new(r"\*\*(.*?)\*\*").unwrap();
-    s = bold_re.replace_all(&s, "$1").to_string();
+    s = re_bold().replace_all(&s, "$1").to_string();
 
     // Bold (__text__)
-    let bold_re2 = regex::Regex::new(r"__(.*?)__").unwrap();
-    s = bold_re2.replace_all(&s, "$1").to_string();
+    s = re_bold2().replace_all(&s, "$1").to_string();
 
     // Italic (*text*)
-    let italic_re = regex::Regex::new(r"\*(.*?)\*").unwrap();
-    s = italic_re.replace_all(&s, "$1").to_string();
+    s = re_italic().replace_all(&s, "$1").to_string();
 
     // Italic (_text_)
-    let italic_re2 = regex::Regex::new(r"_(.*?)_").unwrap();
-    s = italic_re2.replace_all(&s, "$1").to_string();
+    s = re_italic2().replace_all(&s, "$1").to_string();
 
     // Links [text](url)
-    let link_re = regex::Regex::new(r"\[([^\]]+)\]\([^\)]+\)").unwrap();
-    s = link_re.replace_all(&s, "$1").to_string();
+    s = re_link_strip().replace_all(&s, "$1").to_string();
 
     // Inline code `code`
-    let code_re = regex::Regex::new(r"`([^`]+)`").unwrap();
-    s = code_re.replace_all(&s, "$1").to_string();
+    s = re_code_strip().replace_all(&s, "$1").to_string();
 
     s
 }
@@ -242,8 +283,7 @@ pub fn parse_inline_formatting(text: &str) -> Vec<TextSegment> {
     let mut remaining = text.to_string();
 
     // Citations [@key] or [@k1; @k2] before links
-    let cite_re = regex::Regex::new(r"\[@([^\]]+)\]").unwrap();
-    while let Some(caps) = cite_re.captures(&remaining) {
+    while let Some(caps) = re_cite().captures(&remaining) {
         let full_match = caps.get(0).unwrap();
         let before = &remaining[..full_match.start()];
         let keys = caps.get(1).unwrap().as_str();
@@ -273,8 +313,7 @@ fn parse_inline_formatting_after_cites(text: &str) -> Vec<TextSegment> {
     let mut remaining = text.to_string();
 
     // Links
-    let link_re = regex::Regex::new(r"\[([^\]]+)\]\(([^\)]+)\)").unwrap();
-    while let Some(caps) = link_re.captures(&remaining) {
+    while let Some(caps) = re_link().captures(&remaining) {
         let full_match = caps.get(0).unwrap();
         let before = &remaining[..full_match.start()];
         let link_text = caps.get(1).unwrap().as_str();
@@ -304,8 +343,7 @@ fn parse_formatting_no_links(text: &str) -> Vec<TextSegment> {
     let mut remaining = text.to_string();
 
     // Inline math (higher priority than bold/italic)
-    let math_re = regex::Regex::new(r"\$([^$\n]+)\$").unwrap();
-    while let Some(caps) = math_re.captures(&remaining) {
+    while let Some(caps) = re_math().captures(&remaining) {
         let full_match = caps.get(0).unwrap();
         let before = &remaining[..full_match.start()];
         let math_expr = caps.get(1).unwrap().as_str();
@@ -331,8 +369,7 @@ fn parse_code_and_bold_italic(text: &str) -> Vec<TextSegment> {
     let mut remaining = text.to_string();
 
     // Strikethrough first so ~~...~~ is not partially eaten by italic rules
-    let strike_re = regex::Regex::new(r"~~(.+?)~~").unwrap();
-    while let Some(caps) = strike_re.captures(&remaining) {
+    while let Some(caps) = re_strike_parse().captures(&remaining) {
         let full_match = caps.get(0).unwrap();
         let before = &remaining[..full_match.start()];
         let content = caps.get(1).unwrap().as_str();
@@ -356,8 +393,7 @@ fn parse_code_and_bold_italic_no_strike(text: &str) -> Vec<TextSegment> {
     let mut remaining = text.to_string();
 
     // Code (high priority)
-    let code_re = regex::Regex::new(r"`([^`]+)`").unwrap();
-    while let Some(caps) = code_re.captures(&remaining) {
+    while let Some(caps) = re_code_parse().captures(&remaining) {
         let full_match = caps.get(0).unwrap();
         let before = &remaining[..full_match.start()];
         let code = caps.get(1).unwrap().as_str();
@@ -384,14 +420,8 @@ fn parse_bold_italic(text: &str) -> Vec<TextSegment> {
     }
 
     // Bold+italic: ***text*** or ___text___ (explicit patterns)
-    let bi_stars_re = regex::Regex::new(r"\*\*\*(.+?)\*\*\*").unwrap();
-    let bi_under_re = regex::Regex::new(r"___(.+?)___").unwrap();
     // Bold: **text** or __text__
-    let b_stars_re = regex::Regex::new(r"\*\*(.+?)\*\*").unwrap();
-    let b_under_re = regex::Regex::new(r"__(.+?)__").unwrap();
     // Italic: *text* or _text_
-    let i_stars_re = regex::Regex::new(r"\*([^*]+)\*").unwrap();
-    let i_under_re = regex::Regex::new(r"_([^_]+)_").unwrap();
 
     #[derive(Clone, Copy)]
     enum Kind {
@@ -416,22 +446,22 @@ fn parse_bold_italic(text: &str) -> Vec<TextSegment> {
             }
         };
 
-    if let Some(caps) = bi_stars_re.captures(text) {
+    if let Some(caps) = re_bi_stars().captures(text) {
         consider(&mut best, caps, Kind::BoldItalic);
     }
-    if let Some(caps) = bi_under_re.captures(text) {
+    if let Some(caps) = re_bi_under().captures(text) {
         consider(&mut best, caps, Kind::BoldItalic);
     }
-    if let Some(caps) = b_stars_re.captures(text) {
+    if let Some(caps) = re_b_stars().captures(text) {
         consider(&mut best, caps, Kind::Bold);
     }
-    if let Some(caps) = b_under_re.captures(text) {
+    if let Some(caps) = re_b_under().captures(text) {
         consider(&mut best, caps, Kind::Bold);
     }
-    if let Some(caps) = i_stars_re.captures(text) {
+    if let Some(caps) = re_i_stars().captures(text) {
         consider(&mut best, caps, Kind::Italic);
     }
-    if let Some(caps) = i_under_re.captures(text) {
+    if let Some(caps) = re_i_under().captures(text) {
         consider(&mut best, caps, Kind::Italic);
     }
 
@@ -487,9 +517,9 @@ pub fn parse_markdown_with_hook(
     let mut in_math_block = false;
     let mut math_buf = String::new();
     let lines: Vec<&str> = markdown.lines().collect();
-    let img_re = regex::Regex::new(r"^!\[([^\]]*)\]\(([^\)]+)\)$").unwrap();
-    let link_re = regex::Regex::new(r"^\[([^\]]+)\]\(([^\)]+)\)$").unwrap();
-    let footnote_ref_re = regex::Regex::new(r"\[\^([^\]]+)\]").unwrap();
+    let img_re = re_img();
+    let link_re = re_link_line();
+    let footnote_ref_re = re_footnote_ref();
     let mut i = 0;
 
     while i < lines.len() {
@@ -721,6 +751,8 @@ pub fn parse_markdown_with_hook(
                     cells,
                     is_separator: true,
                     alignments,
+                    colspans: Vec::new(),
+                    rowspans: Vec::new(),
                 });
             } else {
                 let cells: Vec<String> = cells
@@ -732,6 +764,8 @@ pub fn parse_markdown_with_hook(
                     cells,
                     is_separator: false,
                     alignments,
+                    colspans: Vec::new(),
+                    rowspans: Vec::new(),
                 });
             }
             i += 1;
@@ -1183,6 +1217,7 @@ mod tests {
                 kind,
                 title,
                 points,
+                series: _,
             } => {
                 assert_eq!(*kind, ChartKind::Pie);
                 assert_eq!(title.as_deref(), Some("Mix"));
@@ -1355,11 +1390,8 @@ mod proptest_tests {
         fn heading_levels_valid(heading in "#[ \t]{0,10}[a-zA-Z0-9 ]{0,100}") {
             let elements = parse_markdown(&heading);
             for elem in elements {
-                match elem {
-                    Element::Heading { level, .. } => {
-                        prop_assert!(level >= 1 && level <= 6, "Heading level must be 1-6");
-                    }
-                    _ => {}
+                if let Element::Heading { level, .. } = elem {
+                    prop_assert!((1..=6).contains(&level), "Heading level must be 1-6");
                 }
             }
         }
@@ -1406,15 +1438,11 @@ mod proptest_tests {
         #[test]
         fn footnote_definition_has_label(md in "\\[\\^[a-zA-Z0-9_]{1,20}\\]:[ \t]{0,5}[a-zA-Z0-9 ]{0,100}") {
             let elements = parse_markdown(&md);
-            if !elements.is_empty() {
-                match &elements[0] {
-                    Element::Footnote { label, .. } => {
-                        prop_assert!(!label.is_empty());
-                        prop_assert!(label.len() <= 20);
-                    }
-                    _ => {}
+            if !elements.is_empty()
+                && let Element::Footnote { label, .. } = &elements[0] {
+                    prop_assert!(!label.is_empty());
+                    prop_assert!(label.len() <= 20);
                 }
-            }
         }
     }
 }

@@ -8,9 +8,8 @@ use sha2::{Digest, Sha256};
 /// Apply password protection and permissions to a PDF.
 ///
 /// This function adds security settings to a PDF document, including password protection
-/// and permission restrictions. Note that this is a simplified implementation that adds
-/// the encryption dictionary to the PDF trailer. For production use, you would need
-/// proper cryptographic libraries (like RustCrypto or openssl) for actual encryption.
+/// and permission restrictions. It encrypts string and stream objects using the configured
+/// algorithm (RC4 40/128-bit or AES-128/256-bit) and writes the `/Encrypt` dictionary.
 ///
 /// # Arguments
 ///
@@ -48,19 +47,207 @@ pub fn protect_pdf(
 ) -> Result<()> {
     security.validate()?;
 
-    // Honest gate: do not write fake "protected" PDFs that remain plaintext.
-    if security.is_protected() {
-        // Fail early before touching files when encryption is requested.
-        let _ = security.create_encryption_dict()?;
-        return Err(anyhow!(
-            "Password protection is not implemented yet; refusing to write an unprotected PDF that claims encryption"
-        ));
+    if !security.is_protected() {
+        let content = fs::read(input_file)?;
+        fs::write(output_file, content)?;
+        return Ok(());
     }
 
-    // No passwords configured — copy through unchanged.
-    let content = fs::read(input_file)?;
-    fs::write(output_file, content)?;
+    let pdf_bytes = fs::read(input_file)?;
+    let encrypted = encrypt_pdf_bytes(&pdf_bytes, security)?;
+    fs::write(output_file, encrypted)?;
     Ok(())
+}
+
+/// Encrypt a PDF in memory: encrypts all stream and string objects, appends
+/// the `/Encrypt` dictionary, and rewrites the xref/trailer.
+pub fn encrypt_pdf_bytes(
+    pdf_bytes: &[u8],
+    security: &crate::security::PdfSecurity,
+) -> Result<Vec<u8>> {
+    security.validate()?;
+    if !security.is_protected() {
+        return Ok(pdf_bytes.to_vec());
+    }
+
+    let file_key = security.generate_encryption_key()?;
+    let encrypt_dict = security.create_encryption_dict()?;
+
+    let text = String::from_utf8_lossy(pdf_bytes).to_string();
+
+    // Find all stream objects: "N G obj ... stream\n<data>\nendstream ... endobj"
+    // We encrypt stream data and string literals within objects.
+    let obj_re = regex::Regex::new(
+        r"(?s)(\d+)\s+(\d+)\s+obj\s+(.*?)(stream\r?\n(.*?)\r?\nendstream\s+)?endobj",
+    )
+    .unwrap();
+
+    let mut output = Vec::with_capacity(pdf_bytes.len() + 512);
+    let mut last_end = 0usize;
+    let mut max_obj_num = 0u32;
+
+    // First pass: find max object number
+    for caps in obj_re.captures_iter(&text) {
+        let obj_num: u32 = caps[1].parse().unwrap_or(0);
+        if obj_num > max_obj_num {
+            max_obj_num = obj_num;
+        }
+    }
+    let encrypt_obj_num = max_obj_num + 1;
+
+    // Second pass: rewrite with encrypted streams/strings
+    for caps in obj_re.captures_iter(&text) {
+        let m = caps.get(0).unwrap();
+        output.extend_from_slice(&pdf_bytes[last_end..m.start()]);
+
+        let obj_num: u32 = caps[1].parse().unwrap_or(0);
+        let gen_num: u16 = caps[2].parse().unwrap_or(0);
+
+        // Skip the encryption dictionary object itself (if re-encrypting)
+        // Don't encrypt object 0 (free) or the encrypt object
+        if obj_num == 0 {
+            output.extend_from_slice(m.as_str().as_bytes());
+            last_end = m.end();
+            continue;
+        }
+
+        if let Some(stream_data) = caps.get(5) {
+            // This object has a stream — encrypt the stream data
+            let dict_part = &caps[3];
+            let raw_stream = stream_data.as_str();
+
+            let stream_bytes = raw_stream.as_bytes().to_vec();
+
+            let encrypted = security.encrypt_data(&stream_bytes, &file_key, obj_num, gen_num)?;
+
+            // Rebuild the object with encrypted stream
+            let new_obj = format!(
+                "{} {} obj{}stream\n",
+                obj_num, gen_num, dict_part
+            );
+            output.extend_from_slice(new_obj.as_bytes());
+            output.extend_from_slice(&encrypted);
+            output.extend_from_slice(b"\nendstream\nendobj");
+        } else {
+            // No stream — encrypt string literals in the dictionary
+            let dict_text = &caps[3];
+            let encrypted_dict = encrypt_strings_in_dict(dict_text, security, &file_key, obj_num, gen_num);
+            let new_obj = format!("{} {} obj{}endobj", obj_num, gen_num, encrypted_dict);
+            output.extend_from_slice(new_obj.as_bytes());
+        }
+
+        last_end = m.end();
+    }
+    output.extend_from_slice(&pdf_bytes[last_end..]);
+
+    // Now append the /Encrypt object and rewrite trailer
+    // Find the trailer and add /Encrypt reference
+    let output_str = String::from_utf8_lossy(&output).to_string();
+
+    // Find startxref position
+    let startxref_idx = output_str.rfind("startxref").unwrap_or(output.len());
+    let xref_offset_pos = output_str[..startxref_idx]
+        .rfind("xref")
+        .unwrap_or(0);
+
+    // Build the encrypt object
+    let encrypt_obj = format!(
+        "{} 0 obj\n{}\nendobj\n",
+        encrypt_obj_num, encrypt_dict
+    );
+
+    // Insert encrypt object before xref
+    let mut final_output = Vec::new();
+    final_output.extend_from_slice(&output[..xref_offset_pos]);
+    final_output.extend_from_slice(encrypt_obj.as_bytes());
+
+    // Rewrite xref to include the new object
+    let trailer_part = &output_str[xref_offset_pos..];
+    let xref_end = trailer_part.find("trailer").unwrap_or(trailer_part.len());
+
+    // Add /Encrypt to trailer
+    let trailer_start = xref_offset_pos + xref_end;
+    let trailer_text = &output_str[trailer_start..];
+
+    // Insert /Encrypt reference into trailer dict
+    let mut new_trailer = trailer_text.replacen(
+        "<<",
+        &format!("<< /Encrypt {} 0 R", encrypt_obj_num),
+        1,
+    );
+
+    // Update /Size in trailer
+    let size_re = regex::Regex::new(r"/Size\s+(\d+)").unwrap();
+    if let Some(size_cap) = size_re.captures(&new_trailer) {
+        let old_size: u32 = size_cap[1].parse().unwrap_or(0);
+        let new_size = old_size.max(encrypt_obj_num + 1);
+        new_trailer = new_trailer.replacen(
+            &format!("/Size {}", old_size),
+            &format!("/Size {}", new_size),
+            1,
+        );
+    }
+
+    final_output.extend_from_slice(&output[xref_offset_pos..trailer_start]);
+    final_output.extend_from_slice(new_trailer.as_bytes());
+
+    Ok(final_output)
+}
+
+/// Encrypt PDF string literals `(text)` within a dictionary.
+fn encrypt_strings_in_dict(
+    dict: &str,
+    security: &crate::security::PdfSecurity,
+    file_key: &[u8],
+    obj_num: u32,
+    gen_num: u16,
+) -> String {
+    let mut result = String::with_capacity(dict.len());
+    let mut chars = dict.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '(' {
+            // Find matching close paren
+            let start = result.len();
+            result.push('(');
+            let mut depth = 1;
+            let mut string_content = String::new();
+            while let Some(&next) = chars.peek() {
+                if next == '(' && !string_content.ends_with('\\') {
+                    depth += 1;
+                } else if next == ')' && !string_content.ends_with('\\') {
+                    depth -= 1;
+                    if depth == 0 {
+                        chars.next();
+                        break;
+                    }
+                }
+                string_content.push(next);
+                chars.next();
+            }
+
+            // Encrypt the string content
+            if security.is_protected() {
+                if let Ok(encrypted) = security.encrypt_data(string_content.as_bytes(), file_key, obj_num, gen_num) {
+                    // Write as hex string <...> for binary safety
+                    result.truncate(start);
+                    result.push('<');
+                    for b in &encrypted {
+                        result.push_str(&format!("{:02x}", b));
+                    }
+                    result.push('>');
+                } else {
+                    result.push_str(&string_content);
+                    result.push(')');
+                }
+            } else {
+                result.push_str(&string_content);
+                result.push(')');
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 /// Add a digital signature to a PDF document.

@@ -8,7 +8,10 @@
     "pdfrs.js",
     "pdfrs_bg.wasm",
     "pdfrs.d.ts",
-    "README.md"
+    "README.md",
+    "worker.js",
+    "worker-client.js",
+    "cache.js"
   ],
   "repository": {
     "type": "git",

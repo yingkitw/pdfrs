@@ -161,6 +161,8 @@ impl PdfBuilder {
             cells: cells.iter().map(|s| s.to_string()).collect(),
             is_separator: false,
             alignments: vec![],
+            colspans: Vec::new(),
+            rowspans: Vec::new(),
         });
         self
     }
@@ -171,6 +173,8 @@ impl PdfBuilder {
             cells: cells.iter().map(|s| s.to_string()).collect(),
             is_separator: true,
             alignments: vec![],
+            colspans: Vec::new(),
+            rowspans: Vec::new(),
         });
         self
     }

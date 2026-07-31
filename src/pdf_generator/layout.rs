@@ -392,7 +392,9 @@ pub(super) fn estimated_text_width(text: &str, font_size: f32, monospace: bool) 
         }
 
         // Slow path: multi-byte UTF-8 character
-        let ch = text[i..].chars().next().unwrap();
+        let Some(ch) = text[i..].chars().next() else {
+            break;
+        };
         if is_wide_unicode(ch) {
             units += 2.0;
         } else {
