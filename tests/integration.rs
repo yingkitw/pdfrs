@@ -994,3 +994,140 @@ fn test_3d_u3d_annotation_pdf() {
     std::fs::remove_file(pdf_path).ok();
     std::fs::remove_file(model_path).ok();
 }
+
+// --- Encryption (Standard Security Handler) -------------------------------
+
+fn extract_stream_object(pdf: &[u8], obj_num: u32) -> Option<Vec<u8>> {
+    let header = format!("{obj_num} 0 obj");
+    let start = pdf
+        .windows(header.len())
+        .position(|w| w == header.as_bytes())?;
+    let kw = pdf[start..].windows(7).position(|w| w == b"stream\n")? + start + 7;
+    let end = pdf[kw..].windows(10).position(|w| w == b"\nendstream")? + kw;
+    Some(pdf[kw..end].to_vec())
+}
+
+fn parse_startxref(pdf: &[u8]) -> Option<usize> {
+    let pos = pdf.windows(9).rposition(|w| w == b"startxref")?;
+    let tail = &pdf[pos + 9..];
+    let digits: Vec<u8> = tail
+        .iter()
+        .skip_while(|b| b.is_ascii_whitespace())
+        .take_while(|b| b.is_ascii_digit())
+        .copied()
+        .collect();
+    std::str::from_utf8(&digits).ok()?.parse().ok()
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_roundtrip_all_algorithms() {
+    use pdfrs::security::{EncryptionAlgorithm, PdfSecurity};
+
+    let elements = vec![pdfrs::elements::Element::Paragraph {
+        text: "encrypt me — binary-safe? \u{00e9}\u{4f60}\u{597d}".to_string(),
+    }];
+    let plain = pdfrs::pdf_generator::generate_pdf_bytes(
+        &elements,
+        "Helvetica",
+        12.0,
+        pdfrs::pdf_generator::PageLayout::portrait(),
+    )
+    .unwrap();
+
+    for alg in [
+        EncryptionAlgorithm::Rc4_40,
+        EncryptionAlgorithm::Rc4_128,
+        EncryptionAlgorithm::Aes128,
+        EncryptionAlgorithm::Aes256,
+    ] {
+        let sec = PdfSecurity::new()
+            .with_user_password("user-pw".to_string())
+            .with_owner_password("owner-pw".to_string())
+            .with_encryption(alg);
+        let (protected, materials) =
+            pdfrs::pdf_ops::encrypt_pdf_bytes_with_id(&plain, &sec, [9u8; 16]).unwrap();
+
+        // Structure: trailer references /Encrypt, fresh /ID, proper EOF chain.
+        let text = String::from_utf8_lossy(&protected);
+        assert!(text.contains("/Encrypt"), "{alg:?}");
+        assert!(text.contains("/ID <"), "{alg:?}");
+        assert!(protected.ends_with(b"%%EOF\n"), "{alg:?}");
+        let sx = parse_startxref(&protected).expect("startxref");
+        assert!(
+            protected[sx..].starts_with(b"xref"),
+            "{alg:?}: startxref must point at the xref table"
+        );
+
+        // The structure still loads in our own parser.
+        let doc = PdfDocument::load_from_bytes(&protected).unwrap();
+        assert!(!doc.objects.is_empty(), "{alg:?}");
+
+        // Stream data is actually encrypted and decrypts back exactly.
+        let orig = PdfDocument::load_from_bytes(&plain).unwrap();
+        let mut checked = 0;
+        for (num, obj) in orig.objects.iter() {
+            if let pdfrs::pdf::PdfObject::Stream { data, .. } = obj {
+                let enc = extract_stream_object(&protected, *num)
+                    .unwrap_or_else(|| panic!("{alg:?}: stream object {num} missing"));
+                assert_ne!(enc, *data, "{alg:?}: stream {num} not encrypted");
+                let dec = sec
+                    .decrypt_data(&enc, &materials.file_key, *num, 0)
+                    .unwrap();
+                assert_eq!(dec, *data, "{alg:?}: stream {num} roundtrip");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 2, "{alg:?}: expected multiple streams");
+    }
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_rejects_object_streams() {
+    let doc = b"%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /N 0 /First 0 /Length 0 >>\nstream\n\nendstream\nendobj\ntrailer\n<< /Root 1 0 R /Size 2 >>\nstartxref\n9\n%%EOF\n";
+    let sec = pdfrs::security::PdfSecurity::new().with_user_password("x".to_string());
+    assert!(pdfrs::pdf_ops::encrypt_pdf_bytes(doc, &sec).is_err());
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_non_deterministic() {
+    let elements = vec![pdfrs::elements::Element::Paragraph {
+        text: "same input".to_string(),
+    }];
+    let plain = pdfrs::pdf_generator::generate_pdf_bytes(
+        &elements,
+        "Helvetica",
+        12.0,
+        pdfrs::pdf_generator::PageLayout::portrait(),
+    )
+    .unwrap();
+    let sec = pdfrs::security::PdfSecurity::new()
+        .with_user_password("pw".to_string())
+        .with_encryption(pdfrs::security::EncryptionAlgorithm::Aes256);
+    let a = pdfrs::pdf_ops::encrypt_pdf_bytes(&plain, &sec).unwrap();
+    let b = pdfrs::pdf_ops::encrypt_pdf_bytes(&plain, &sec).unwrap();
+    assert_ne!(a, b, "encryption output must vary between runs");
+}
+
+#[test]
+fn test_sign_pdf_incremental_offsets() {
+    std::fs::create_dir_all("tests/output").ok();
+    let input = "tests/output/sign_in.pdf";
+    let output = "tests/output/sign_out.pdf";
+    create_test_pdf(input, "Sign Me");
+
+    let sig = pdfrs::security::DigitalSignature::new("Verifier");
+    pdfrs::pdf_ops::sign_pdf(input, output, &sig).unwrap();
+
+    let signed = std::fs::read(output).unwrap();
+    // The incremental update must parse: original body intact, new trailer valid.
+    let doc = PdfDocument::load_from_bytes(&signed).unwrap();
+    assert!(!doc.objects.is_empty());
+    assert!(signed.ends_with(b"%%EOF\n"));
+    // ByteRange must not be all zeros (spliced with real values).
+    let text = String::from_utf8_lossy(&signed);
+    assert!(text.contains("/AcroForm"));
+    assert!(!text.contains("[0 0000000000 0000000000 0000000000]"));
+
+    std::fs::remove_file(input).ok();
+    std::fs::remove_file(output).ok();
+}

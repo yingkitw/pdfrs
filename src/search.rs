@@ -284,7 +284,10 @@ pub(crate) fn parse_kids_string(s: &str) -> Vec<u32> {
 }
 
 pub(crate) fn decompress_stream(data: &[u8]) -> Vec<u8> {
-    if data.len() > 2 && data[0] == 0x78 {
+    if data.len() > 2
+        && data[0] == 0x78
+        && ((u16::from(data[0]) * 256) + u16::from(data[1])).is_multiple_of(31)
+    {
         crate::compression::decompress_deflate(data).unwrap_or_else(|_| data.to_vec())
     } else {
         data.to_vec()
@@ -312,15 +315,15 @@ impl FontMetrics {
 
 pub fn collect_font_metrics(doc: &PdfDocument) -> HashMap<String, FontMetrics> {
     let mut out = HashMap::new();
-    let mut queue: Vec<u32> = vec![doc.catalog];
-    let mut seen = std::collections::HashSet::new();
-    while let Some(id) = queue.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-        if let Some(dict) = object_dict(doc, id)
-            && let Some(resources) = dict.get("Resources")
-        {
+    // Scan every object for a /Resources dictionary (pages, catalog, and
+    // standalone resource dicts alike), so per-page fonts are covered.
+    for obj in doc.objects.values() {
+        let dict = match obj {
+            PdfObject::Dictionary(d) => d,
+            PdfObject::Stream { dictionary, .. } => dictionary,
+            _ => continue,
+        };
+        if let Some(resources) = dict.get("Resources") {
             walk_resources(doc, resources, &mut out);
         }
     }

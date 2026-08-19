@@ -578,8 +578,9 @@ impl ContentStreamBuilder {
 
         // Track cells occupied by rowspan from above so we skip them.
         // occupied[row][col] = true means a rowspan cell from above covers this position.
-        let mut occupied: Vec<Vec<bool>> =
-            (0..dims.num_rows).map(|_| vec![false; dims.num_cols]).collect();
+        let mut occupied: Vec<Vec<bool>> = (0..dims.num_rows)
+            .map(|_| vec![false; dims.num_cols])
+            .collect();
 
         // Draw cell contents with wrapping and alignment
         let mut row_y = start_y;
@@ -643,8 +644,10 @@ impl ContentStreamBuilder {
                         // Render word by word with extra spacing
                         let words: Vec<&str> = line.split_whitespace().collect();
                         if words.len() > 1 {
-                            let total_word_width: f32 =
-                                words.iter().map(|w| self.estimate_text_width(w, base_font_size)).sum();
+                            let total_word_width: f32 = words
+                                .iter()
+                                .map(|w| self.estimate_text_width(w, base_font_size))
+                                .sum();
                             let gap = (cell_width - pad_h * 2.0 - total_word_width)
                                 / (words.len() - 1) as f32;
                             let mut word_x = col_x + pad_h;
@@ -654,11 +657,8 @@ impl ContentStreamBuilder {
                                     format!("1 0 0 1 {} {} Tm\n", word_x, y).as_bytes(),
                                 );
                                 self.current.extend_from_slice(
-                                    format!(
-                                        "{} Tj\n",
-                                        self.encode_text_for_current_font(word)
-                                    )
-                                    .as_bytes(),
+                                    format!("{} Tj\n", self.encode_text_for_current_font(word))
+                                        .as_bytes(),
                                 );
                                 word_x += self.estimate_text_width(word, base_font_size) + gap;
                             }
@@ -1764,8 +1764,7 @@ impl ContentStreamBuilder {
                 }
                 let value = s.values[cat_i];
                 let h = (value.abs() / max_v) * plot_h;
-                let (r, g, b) =
-                    crate::chart::CHART_COLORS[s_i % crate::chart::CHART_COLORS.len()];
+                let (r, g, b) = crate::chart::CHART_COLORS[s_i % crate::chart::CHART_COLORS.len()];
                 self.current.extend_from_slice(
                     format!(
                         "{} {} {} rg\n{:.2} {:.2} {:.2} {:.2} re f\n",

@@ -2,6 +2,23 @@
 
 use anyhow::Result;
 
+macro_rules! tables_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+tables_regex!(re_tj, r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj");
+tables_regex!(re_tj_hex, r"<([0-9a-fA-F\s]+)>\s*Tj");
+tables_regex!(re_td, r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]");
+tables_regex!(
+    re_tm_e,
+    r"[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm"
+);
+
 /// A single text fragment with its position in a PDF content stream
 #[derive(Debug, Clone, PartialEq)]
 struct TextFragment {
@@ -25,13 +42,10 @@ pub fn extract_tables_from_pdf(input_file: &str) -> Result<Vec<String>> {
     let mut all_fragments: Vec<TextFragment> = Vec::new();
 
     // Regex patterns for text extraction with positioning
-    let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
-    let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
-    let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
-    let tm_re = regex::Regex::new(
-        r"[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+[\d.\-]+\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm",
-    )
-    .unwrap();
+    let tj_re = re_tj();
+    let tj_hex_re = re_tj_hex();
+    let td_re = re_td();
+    let tm_re = re_tm_e();
 
     for obj in doc.objects.values() {
         if let PdfObject::Stream { data, .. } = obj {

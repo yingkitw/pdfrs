@@ -17,6 +17,18 @@
 
 use anyhow::{Result, anyhow};
 
+macro_rules! incremental_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+incremental_regex!(re_size, r"/Size\s+(\d+)");
+incremental_regex!(re_root_ref, r"/Root\s+(\d+)\s+\d+\s+R");
+
 /// Returns true if the PDF appears to contain more than one `%%EOF` (incremental updates).
 pub fn is_incremental_pdf(data: &[u8]) -> bool {
     data.windows(5).filter(|w| *w == b"%%EOF").count() > 1
@@ -56,13 +68,11 @@ fn parse_last_trailer(data: &[u8]) -> Result<(u32, u32)> {
     // Trailer usually sits just before startxref
     let search_from = startxref_pos.saturating_sub(512);
     let window = String::from_utf8_lossy(&data[search_from..startxref_pos]);
-    let size = regex::Regex::new(r"/Size\s+(\d+)")
-        .unwrap()
+    let size = re_size()
         .captures(&window)
         .and_then(|c| c[1].parse().ok())
         .unwrap_or(1);
-    let root = regex::Regex::new(r"/Root\s+(\d+)\s+\d+\s+R")
-        .unwrap()
+    let root = re_root_ref()
         .captures(&window)
         .and_then(|c| c[1].parse().ok())
         .unwrap_or(1);

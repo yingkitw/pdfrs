@@ -1667,10 +1667,10 @@ fn main() {
                         Err(e) => Err(e.to_string()),
                     }
                 }
-                (None, Some(svg_file)) => vector::svg_document_file_to_pdf(
-                    svg_file, &output, layout,
-                )
-                .map_err(|e| e.to_string()),
+                (None, Some(svg_file)) => {
+                    vector::svg_document_file_to_pdf(svg_file, &output, layout)
+                        .map_err(|e| e.to_string())
+                }
                 (None, None) => Err("Provide --path \"M...\" or --file icon.svg".to_string()),
             };
             match result {

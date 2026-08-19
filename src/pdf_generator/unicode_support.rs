@@ -261,7 +261,7 @@ fn load_unicode_font_bytes() -> Option<Vec<u8>> {
     None
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(super) fn prepare_unicode_font_support() -> Option<(Vec<u8>, UnicodeFontEncoder)> {
     let bytes = load_unicode_font_bytes()?;
     let encoder = UnicodeFontEncoder::from_font_bytes(bytes.clone())?;

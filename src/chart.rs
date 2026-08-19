@@ -119,12 +119,13 @@ fn parse_chart_body(kind: ChartKind, code: &str) -> ChartSpec {
             if let Some((a, b)) = line.split_once(':') {
                 let (label, value_str) = (a.trim(), b.trim());
                 if !label.is_empty()
-                    && let Ok(value) = value_str.replace(',', "").parse::<f32>() {
-                        points.push(ChartPoint {
-                            label: label.to_string(),
-                            value,
-                        });
-                    }
+                    && let Ok(value) = value_str.replace(',', "").parse::<f32>()
+                {
+                    points.push(ChartPoint {
+                        label: label.to_string(),
+                        value,
+                    });
+                }
             }
             continue;
         }
@@ -151,10 +152,7 @@ fn parse_chart_body(kind: ChartKind, code: &str) -> ChartSpec {
         } else {
             // Single-series: "Label, value"
             if let Ok(value) = parts[1].parse::<f32>() {
-                points.push(ChartPoint {
-                    label,
-                    value,
-                });
+                points.push(ChartPoint { label, value });
             }
         }
     }

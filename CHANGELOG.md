@@ -6,27 +6,57 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+### Security
 
-- **Rasterizer text rendering** (`src/raster.rs`): three bugs conspired to
-  render all text as gray bars. (1) `extract_font_name` read the font *size*
-  token instead of the *name* token before `Tf`, and the `Tf` handler wrongly
-  required two numeric operands (the `/Name` token is not numeric), so font
-  metrics were never resolved. (2) Glyph outlines were positioned with the
-  text-matrix translation applied twice, throwing them off-page. (3) CIDFont
-  `/W` arrays (which live on the descendant CIDFont for Type0 fonts) were
-  never parsed, so every glyph used the default advance and overlapped.
-  Base-14 fonts in the raw-scan path now use the built-in width tables.
-- **Search on CID-keyed PDFs** (`src/search.rs`): `search-pdf` found no
-  matches in documents using Type0/Identity-H fonts because hex string
-  operands were decoded as UTF-8 instead of via the document's `/ToUnicode`
-  CMap. Text extraction now uses `decode_pdf_hex_string_with_map`.
-- **Table width** (`src/table_renderer.rs`): tables narrower than the content
-  area no longer stay cramped; columns expand proportionally to fill the
-  available page width.
+- **Spec-conformant encryption** (`src/security.rs`): the Standard Security
+  Handler was rewritten to the PDF 1.7 / ISO 32000-2 algorithms. V1-V4 now
+  implement full Algorithm 2 (including the trailer `/ID` input),
+  Algorithm 3.3 (`/O` with the 19-round RC4 chain), and Algorithms
+  3.4/3.5 (`/U`). AES-256 now emits revision 6 (V5/R6): random 32-byte
+  file key, random validation/key salts, `/U`/`/O`/`/UE`/`/OE` per
+  Algorithms 2.A-2.F, and the hardened iterative Algorithm 2.B hash
+  (AES-128-CBC zero-padded rounds with SHA-256/384/512 selection). AES-CBC
+  stream encryption uses a fresh random IV per object instead of a
+  deterministic hash. New `getrandom` dependency (non-wasm targets;
+  encryption returns a clear error on `wasm32-unknown-unknown`).
+  `PdfSecurity::generate_encryption_materials(&id)` replaces the broken
+  dict/key entry points, which produced deterministic keys and
+  non-standard `/O`/`/U` values that no conforming reader would accept.
+- **Byte-safe document encryption** (`src/pdf_ops/security.rs`):
+  `encrypt_pdf_bytes` no longer round-trips binary PDFs through
+  `String::from_utf8_lossy` (which corrupted Flate streams and could panic
+  on offset splicing). Objects are scanned byte-precisely with
+  `/Length`-verified stream boundaries, streams and literal strings
+  (escape-decoded, nesting-aware) are encrypted, `/Length` entries are
+  rewritten, and the output is rebuilt with a fresh xref table, a
+  trailer carrying `/Encrypt`, `/ID`, `/Root`, `/Info`, and a proper
+  `startxref`/`%%EOF` chain. Documents using object streams or
+  cross-reference streams are rejected with a clear error instead of
+  being corrupted.
+- **True image redaction** (`src/redact.rs`): redacting an image region now
+  removes the image XObject object itself from the document (after
+  verifying nothing else references it), not just the `Do` operator — the
+  image bytes can no longer be extracted from the output.
+- **Redaction coverage**: text-showing operators are now masked even
+  outside `BT…ET`, and Form XObjects plus annotation appearance streams
+  (`/AP`) referenced from the page are rewritten too.
+
 
 ### Added
 
+- **CI restored** (`.github/`): fmt + strict clippy (default and `api`
+  features), multi-OS test matrix, `api` feature job, WASM build,
+  minimal-features build/test, benchmark compile check, `cargo-audit`
+  (push/PR + weekly), and tag-triggered publish workflow.
+- `encrypt_pdf_bytes_with_id` — encryption variant returning the file key
+  and accepting an explicit `/ID` (for callers that need to decrypt later).
+- `sign_pdf_bytes` — in-memory digital-signature incremental update.
+- 17 new tests: encryption roundtrips for all four algorithms
+  (byte-exact stream decryption, structure, xref validation, AES-256
+  non-determinism), object-stream rejection, sign offset checks, redaction
+  of images from documents, outside-`BT` masking, HTML depth-cap safety,
+  API body-limit 413, R6 hash self-consistency, and RC4 empty-key error.
+  Test count: 473 → 487.
 - **Glyph-outline rasterization** (`src/raster.rs`): native PDF rasterizer now
   renders actual glyph outlines from embedded TrueType fonts (TTF) instead of
   schematic gray rectangles. Extracts `/FontFile2` streams from font
@@ -41,12 +71,10 @@ All notable changes to **pdfrs** are documented here. The format follows
   `margin`, `padding`, and `border` properties. Selectors: tag (`p`), class
   (`.classname`), tag.class (`p.highlight`), and id (`#id`). CSS rules
   cascade with inline styles taking highest priority.
-- **Real PDF encryption** (`src/security.rs`): RC4 40-bit, RC4 128-bit,
-  AES-128-CBC, and AES-256-CBC encryption and decryption per PDF 1.7
-  Standard Security Handler. MD5/SHA-256 key derivation, PDF standard
-  password padding, PKCS#7 padding for AES. `pdf_ops::security::protect_pdf`
-  now encrypts streams and strings, inserts `/Encrypt` dictionary, and
-  patches the trailer. New crates: `md-5`, `aes`, `cbc`.
+- **PDF encryption** (`src/security.rs`): RC4 40-bit, RC4 128-bit,
+  AES-128-CBC, and AES-256-CBC encryption and decryption (later reworked
+  to fully spec-conformant algorithms — see Security above). New crates:
+  `md-5`, `aes`, `cbc`.
 - **Redaction improvements** (`src/redact.rs`): image XObject removal
   (detects `Do` operators referencing images whose CTM placement
   intersects redaction regions and removes them) and partial-string
@@ -63,7 +91,8 @@ All notable changes to **pdfrs** are documented here. The format follows
   HTTP server with endpoints for PDF generation (`/api/v1/generate`),
   merge (`/api/v1/merge`), split (`/api/v1/split`), search
   (`/api/v1/search`), redaction (`/api/v1/redact`), text extraction
-  (`/api/v1/extract`), and health check (`/api/v1/health`). CORS enabled.
+  (`/api/v1/extract`), and health check (`/api/v1/health`). CORS is
+  configurable via `router_with_cors` (no permissive default).
   New crates: `axum`, `tower-http`, `base64`. New byte-based helpers:
   `pdf_ops::merge_pdfs_from_bytes`, `pdf_ops::split_pdf_from_bytes`.
 - **WASM polish**: Web Worker offloading (`wasm/worker.js`,
@@ -83,8 +112,74 @@ All notable changes to **pdfrs** are documented here. The format follows
   `cargo publish` to crates.io + GitHub Release with auto-generated notes.
 - `rust-toolchain.toml` pins stable Rust with rustfmt + clippy components.
 
+
+### Changed
+
+- **API hardening** (`src/api.rs`): request bodies are limited via
+  `RequestBodyLimitLayer` (50 MB default, `AppState.max_body`), CPU-heavy
+  handlers run in `tokio::task::spawn_blocking`, CORS is no longer
+  permissive by default (`router_with_cors` attaches an explicit policy),
+  and `api::serve` returns `Result` instead of `unwrap`/`process::exit`.
+- **Regex caching**: all 26 hot-path `Regex::new` sites across
+  `pdf_ops/{forms,structure,tables,security}`, `incremental`, `vector`,
+  and `cli_repl` now use the `OnceLock` pattern via local `*_regex!`
+  macros (matching `pdf.rs`/`elements.rs` conventions).
+- Rasterizer allocations are clamped to 32,768 px per dimension and
+  CIDFont `/W` ranges are bounded (65,535 glyphs max) to guard against
+  malformed documents.
+- HTML conversion caps DOM recursion at 128 levels; deeper subtrees are
+  flattened iteratively so deep content still converts without stack risk.
+- **Module split**: extracted the PDF validation cluster (structural, PDF/A-1b,
+  PDF/A-3b, PDF/UA-1, screen reader compliance) from `src/pdf.rs` into a new
+  `src/pdf/validation.rs` submodule. Public API is unchanged — all items are
+  re-exported at `crate::pdf::`, so `crate::pdf::validate_pdf_bytes` and
+  friends continue to work without code changes. `src/pdf.rs` shrank by ~430
+  lines. Added 6 focused unit tests inside the new module; total test count
+  grew from 389 → 395.
+
+
 ### Fixed
 
+- `rc4_encrypt` returns an error on empty keys instead of panicking
+  (`key[i % key.len()]` division-by-zero equivalent).
+- Image redaction placement now maps the unit square through the full CTM
+  (bbox of all four corners) instead of multiplying `/Width`×`CTM[0]`.
+- `sign_pdf` incremental updates: object numbers are allocated past the
+  document maximum instead of the colliding `999`, the original catalog is
+  copied and extended (not hardcoded `1 0 R`), the digest/`/ByteRange`
+  splice is byte-level with fixed-width values (no more lossy-UTF-8
+  rewrite of the entire file), and malformed `startxref` is an error
+  instead of a slice panic.
+- `escape_pdf_name` applied `#` escaping after injecting `#20`, mangling
+  names containing spaces.
+- Redaction no longer truncates output at the last `/` in the stream when
+  removing a `Do` (name operands are tracked explicitly, so `/` inside
+  string literals survives).
+- `search::collect_font_metrics` only visited catalog-level resources;
+  it now scans every object's `/Resources`, so per-page font width tables
+  resolve for text extraction, search, and redaction.
+- `search::decompress_stream` now validates the full zlib header
+  (mod-31 FCHECK), matching `pdf.rs`, and both copies are unified.
+- Removed dead code: unused `TextSpan`/`SpanCollector` fields in
+  `pdf_to_md.rs`, test-only `prepare_unicode_font_support` gated behind
+  `#[cfg(test)]`.
+
+- **Rasterizer text rendering** (`src/raster.rs`): three bugs conspired to
+  render all text as gray bars. (1) `extract_font_name` read the font *size*
+  token instead of the *name* token before `Tf`, and the `Tf` handler wrongly
+  required two numeric operands (the `/Name` token is not numeric), so font
+  metrics were never resolved. (2) Glyph outlines were positioned with the
+  text-matrix translation applied twice, throwing them off-page. (3) CIDFont
+  `/W` arrays (which live on the descendant CIDFont for Type0 fonts) were
+  never parsed, so every glyph used the default advance and overlapped.
+  Base-14 fonts in the raw-scan path now use the built-in width tables.
+- **Search on CID-keyed PDFs** (`src/search.rs`): `search-pdf` found no
+  matches in documents using Type0/Identity-H fonts because hex string
+  operands were decoded as UTF-8 instead of via the document's `/ToUnicode`
+  CMap. Text extraction now uses `decode_pdf_hex_string_with_map`.
+- **Table width** (`src/table_renderer.rs`): tables narrower than the content
+  area no longer stay cramped; columns expand proportionally to fill the
+  available page width.
 - **WASM build**: `main.rs` unconditionally imported `parallel` module
   (feature-gated behind `parallel`). Split into conditional import with
   sequential `pdf_ops::merge_pdfs` fallback when `parallel` feature is off.
@@ -101,16 +196,6 @@ All notable changes to **pdfrs** are documented here. The format follows
   containing `/`, `\`, or `..`. Regression test covers all attack vectors.
 - **Misleading function name**: `flatten_cubic_into_unsafe` in `raster.rs`
   contained no `unsafe` code; renamed to `flatten_cubic_into_segments`.
-
-### Changed
-
-- **Module split**: extracted the PDF validation cluster (structural, PDF/A-1b,
-  PDF/A-3b, PDF/UA-1, screen reader compliance) from `src/pdf.rs` into a new
-  `src/pdf/validation.rs` submodule. Public API is unchanged — all items are
-  re-exported at `crate::pdf::`, so `crate::pdf::validate_pdf_bytes` and
-  friends continue to work without code changes. `src/pdf.rs` shrank by ~430
-  lines. Added 6 focused unit tests inside the new module; total test count
-  grew from 389 → 395.
 
 ## [0.2.0] — 2026-07-26
 

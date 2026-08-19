@@ -3,6 +3,24 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+macro_rules! structure_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+structure_regex!(re_tj, r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj");
+structure_regex!(re_tj_hex, r"<([0-9a-fA-F\s]+)>\s*Tj");
+structure_regex!(re_td, r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]");
+structure_regex!(
+    re_tm,
+    r"([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm"
+);
+structure_regex!(re_tf, r"/(\S+)\s+([\d.\-]+)\s+Tf");
+
 /// A text fragment augmented with font information for structure detection.
 #[derive(Debug, Clone, PartialEq)]
 struct StyledTextFragment {
@@ -65,14 +83,11 @@ pub fn detect_document_structure(input_file: &str) -> Result<DocumentStructure> 
     let doc = PdfDocument::load_from_file(input_file)?;
     let mut all_fragments: Vec<StyledTextFragment> = Vec::new();
 
-    let tj_re = regex::Regex::new(r"\(((?:[^()\\]|\\.|(?:\([^()]*\)))*)\)\s*Tj").unwrap();
-    let tj_hex_re = regex::Regex::new(r"<([0-9a-fA-F\s]+)>\s*Tj").unwrap();
-    let td_re = regex::Regex::new(r"([\d.\-]+)\s+([\d.\-]+)\s+T[dD]").unwrap();
-    let tm_re = regex::Regex::new(
-        r"([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)\s+Tm",
-    )
-    .unwrap();
-    let tf_re = regex::Regex::new(r"/(\S+)\s+([\d.\-]+)\s+Tf").unwrap();
+    let tj_re = re_tj();
+    let tj_hex_re = re_tj_hex();
+    let td_re = re_td();
+    let tm_re = re_tm();
+    let tf_re = re_tf();
 
     for obj in doc.objects.values() {
         if let PdfObject::Stream { data, .. } = obj {

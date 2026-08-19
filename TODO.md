@@ -325,6 +325,12 @@ This document tracks the planned features, improvements, and tasks for the **pdf
   - [x] Error handling consistency — `Result` propagation throughout; no silent failures
   - [x] Memory safety verification — no `unsafe` blocks in codebase; renamed misleading `flatten_cubic_into_unsafe` → `flatten_cubic_into_segments`; PDF parsing is iterative (not recursive) so no stack overflow risk on deeply nested input
   - [x] Security audit — path traversal vulnerability in `CertificateStore` fixed (`validate_cert_id` rejects `/`, `\`, `..`, empty IDs); encrypt/decrypt stubs properly return `Err`; sanitization/sandboxing modules verified; regression test added (425 tests total)
+  - [x] Full security remediation (2026-08-20 audit) — spec-conformant encryption (Alg 2/3.3/3.4/3.5 + R6 2.A-2.F with `getrandom`), byte-safe `encrypt_pdf_bytes` with xref rebuild, true image-object redaction, redaction of Form XObjects / annotation `/AP` streams / text outside `BT…ET`, byte-level signature splicing, API hardening (body limit, `spawn_blocking`, opt-in CORS), raster/`/W` DoS guards, HTML recursion cap (487 tests total)
+- [ ] Remaining audit deferrals
+  - [ ] Typed error enum to replace `anyhow`-only model (106 sites; breaking API change)
+  - [ ] Split god modules (`pdf.rs` 3,041 LOC, `raster.rs`, `content_stream.rs`, `vector.rs`, `main.rs`)
+  - [ ] WASM exports: async/worker-first API to avoid main-thread blocking
+  - [ ] Object-stream / xref-stream support in `encrypt_pdf_bytes` (currently rejected with a clear error)
 
 - [x] CI/CD improvements
   - [x] Automated testing on multiple platforms — GitHub Actions matrix (ubuntu/macos/windows)

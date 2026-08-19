@@ -4,6 +4,19 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
+macro_rules! forms_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+forms_regex!(re_obj, r#"(?s)(\d+)\s+0\s+obj(.*?)endobj"#);
+forms_regex!(re_paren, r#"\(([^)]*)\)"#);
+forms_regex!(re_v, r#"/V\s*\([^)]*\)"#);
+
 /// Form field types.
 ///
 /// Represents the type of interactive form field that can be added to a PDF.
@@ -274,9 +287,8 @@ pub fn detect_form_fields(input_file: &str) -> Result<Vec<DetectedFormField>> {
 
     let mut fields = Vec::new();
 
-    // Find all PDF objects and check if they are widget annotations
-    let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj(.*?)endobj").unwrap();
-    let opt_re = regex::Regex::new(r"\(([^)]*)\)").unwrap();
+    let obj_re = re_obj();
+    let opt_re = re_paren();
 
     for caps in obj_re.captures_iter(&content) {
         let obj_text = &caps[0];
@@ -399,9 +411,8 @@ pub fn fill_form_fields(
         return Ok(());
     }
 
-    // Find all PDF objects and check if they are widget annotations
-    let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj(.*?)endobj").unwrap();
-    let v_re = regex::Regex::new(r"/V\s*\([^)]*\)").unwrap();
+    let obj_re = re_obj();
+    let v_re = re_v();
 
     let mut updated_bytes = pdf_bytes.clone();
     let mut offset_delta: isize = 0;

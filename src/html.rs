@@ -100,7 +100,11 @@ fn parse_stylesheet(css: &str) -> Vec<CssRule> {
         if i >= chars.len() {
             break;
         }
-        let selector: String = chars[sel_start..i].iter().collect::<String>().trim().to_string();
+        let selector: String = chars[sel_start..i]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_string();
         i += 1; // skip {
         // Read declarations until `}`.
         let decl_start = i;
@@ -188,11 +192,7 @@ fn matches_selector(selector: &str, tag: &str, attrs: &[(String, String)]) -> bo
 }
 
 /// Compute the style for an element by applying matching CSS rules and inline style.
-fn compute_style(
-    tag: &str,
-    attrs: &[(String, String)],
-    rules: &[CssRule],
-) -> ComputedStyle {
+fn compute_style(tag: &str, attrs: &[(String, String)], rules: &[CssRule]) -> ComputedStyle {
     let mut style = ComputedStyle::default();
     // Apply matching stylesheet rules in order.
     for rule in rules {
@@ -270,7 +270,7 @@ pub fn parse_html(html: &str) -> Vec<Element> {
     let css_rules = extract_css_rules(&nodes);
     let mut elements = Vec::new();
     for node in &nodes {
-        convert_node(node, &mut elements, 0, 1, &css_rules);
+        convert_node(node, &mut elements, 0, 1, &css_rules, 0);
     }
     elements
 }
@@ -595,8 +595,52 @@ fn get_attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
 // Node → Element conversion
 // ---------------------------------------------------------------------------
 
+/// Maximum DOM depth the converter descends recursively; deeper subtrees are
+/// flattened iteratively (guards stack usage without losing content).
+const MAX_DOM_DEPTH: u8 = 128;
+
+/// Iteratively collect text from a subtree (no recursion — stack-safe at any depth).
+fn collect_text_flat(nodes: &[Node]) -> String {
+    let mut out = String::new();
+    let mut stack: Vec<&Node> = nodes.iter().rev().collect();
+    while let Some(node) = stack.pop() {
+        match node {
+            Node::Text(text) => out.push_str(text),
+            Node::Void { tag, .. } => {
+                if tag == "br" {
+                    out.push('\n');
+                }
+            }
+            Node::Element { children, .. } => {
+                stack.extend(children.iter().rev());
+            }
+        }
+    }
+    out
+}
+
 /// Convert a parsed HTML node into Element(s), appending to `out`.
-fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter: u32, css_rules: &[CssRule]) {
+fn convert_node(
+    node: &Node,
+    out: &mut Vec<Element>,
+    list_depth: u8,
+    _ol_counter: u32,
+    css_rules: &[CssRule],
+    depth: u8,
+) {
+    if depth > MAX_DOM_DEPTH {
+        // Too deep for recursion: salvage the subtree's text iteratively.
+        if let Node::Element { children, .. } = node {
+            let text = collect_text_flat(children);
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                out.push(Element::Paragraph {
+                    text: trimmed.to_string(),
+                });
+            }
+        }
+        return;
+    }
     match node {
         Node::Text(text) => {
             let trimmed = text.trim();
@@ -606,24 +650,22 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                 });
             }
         }
-        Node::Void { tag, attrs } => {
-            match tag.as_str() {
-                "hr" => out.push(Element::HorizontalRule),
-                "br" => {
-                    if let Some(Element::Paragraph { text }) = out.last_mut() {
-                        text.push('\n');
-                    }
+        Node::Void { tag, attrs } => match tag.as_str() {
+            "hr" => out.push(Element::HorizontalRule),
+            "br" => {
+                if let Some(Element::Paragraph { text }) = out.last_mut() {
+                    text.push('\n');
                 }
-                "img" => {
-                    let alt = get_attr(attrs, "alt").unwrap_or("").to_string();
-                    let src = get_attr(attrs, "src").unwrap_or("").to_string();
-                    if !src.is_empty() {
-                        out.push(Element::Image { alt, path: src });
-                    }
-                }
-                _ => {}
             }
-        }
+            "img" => {
+                let alt = get_attr(attrs, "alt").unwrap_or("").to_string();
+                let src = get_attr(attrs, "src").unwrap_or("").to_string();
+                if !src.is_empty() {
+                    out.push(Element::Image { alt, path: src });
+                }
+            }
+            _ => {}
+        },
         Node::Element {
             tag,
             attrs,
@@ -643,7 +685,8 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                     });
                 }
                 "p" => {
-                    let segments = collect_rich_segments_styled(children, style.bold, style.italic, css_rules);
+                    let segments =
+                        collect_rich_segments_styled(children, style.bold, style.italic, css_rules);
                     if segments.len() == 1
                         && let TextSegment::Plain(text) = &segments[0]
                     {
@@ -657,13 +700,15 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                     }
                 }
                 "strong" | "b" => {
-                    let segments = collect_rich_segments_styled(children, true, style.italic, css_rules);
+                    let segments =
+                        collect_rich_segments_styled(children, true, style.italic, css_rules);
                     if !segments.is_empty() {
                         out.push(Element::RichParagraph { segments });
                     }
                 }
                 "em" | "i" => {
-                    let segments = collect_rich_segments_styled(children, style.bold, true, css_rules);
+                    let segments =
+                        collect_rich_segments_styled(children, style.bold, true, css_rules);
                     if !segments.is_empty() {
                         out.push(Element::RichParagraph { segments });
                     }
@@ -783,18 +828,19 @@ fn convert_node(node: &Node, out: &mut Vec<Element>, list_depth: u8, _ol_counter
                 "hr" => out.push(Element::HorizontalRule),
                 "div" | "section" | "article" | "main" | "header" | "footer" | "nav" | "aside" => {
                     for child in children {
-                        convert_node(child, out, list_depth, _ol_counter, css_rules);
+                        convert_node(child, out, list_depth, _ol_counter, css_rules, depth + 1);
                     }
                 }
                 "span" => {
-                    let segments = collect_rich_segments_styled(children, style.bold, style.italic, css_rules);
+                    let segments =
+                        collect_rich_segments_styled(children, style.bold, style.italic, css_rules);
                     if !segments.is_empty() {
                         out.push(Element::RichParagraph { segments });
                     }
                 }
                 _ => {
                     for child in children {
-                        convert_node(child, out, list_depth, _ol_counter, css_rules);
+                        convert_node(child, out, list_depth, _ol_counter, css_rules, depth + 1);
                     }
                 }
             }
@@ -931,12 +977,16 @@ fn convert_table(table_children: &[Node], out: &mut Vec<Element>, css_rules: &[C
 fn collect_text(nodes: &[Node]) -> String {
     let mut s = String::new();
     for node in nodes {
-        collect_text_inner(node, &mut s);
+        collect_text_inner(node, &mut s, 0);
     }
     s
 }
 
-fn collect_text_inner(node: &Node, out: &mut String) {
+fn collect_text_inner(node: &Node, out: &mut String, depth: u8) {
+    if depth > MAX_DOM_DEPTH {
+        out.push_str(&collect_text_flat(std::slice::from_ref(node)));
+        return;
+    }
     match node {
         Node::Text(text) => out.push_str(text),
         Node::Void { tag, .. } => {
@@ -946,17 +996,22 @@ fn collect_text_inner(node: &Node, out: &mut String) {
         }
         Node::Element { children, .. } => {
             for child in children {
-                collect_text_inner(child, out);
+                collect_text_inner(child, out, depth + 1);
             }
         }
     }
 }
 
 /// Collect rich text segments from children, with inherited bold/italic from CSS.
-fn collect_rich_segments_styled(nodes: &[Node], bold: bool, italic: bool, css_rules: &[CssRule]) -> Vec<TextSegment> {
+fn collect_rich_segments_styled(
+    nodes: &[Node],
+    bold: bool,
+    italic: bool,
+    css_rules: &[CssRule],
+) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     for node in nodes {
-        collect_segments_styled_inner(node, &mut segments, bold, italic, css_rules);
+        collect_segments_styled_inner(node, &mut segments, bold, italic, css_rules, 0);
     }
     if segments.is_empty() {
         return segments;
@@ -986,7 +1041,11 @@ fn collect_segments_styled_inner(
     bold: bool,
     italic: bool,
     css_rules: &[CssRule],
+    depth: u8,
 ) {
+    if depth > MAX_DOM_DEPTH {
+        return;
+    }
     match node {
         Node::Text(text) => {
             let text = text.clone();
@@ -1016,12 +1075,26 @@ fn collect_segments_styled_inner(
             match tag.as_str() {
                 "strong" | "b" => {
                     for child in children {
-                        collect_segments_styled_inner(child, out, true, new_italic, css_rules);
+                        collect_segments_styled_inner(
+                            child,
+                            out,
+                            true,
+                            new_italic,
+                            css_rules,
+                            depth + 1,
+                        );
                     }
                 }
                 "em" | "i" => {
                     for child in children {
-                        collect_segments_styled_inner(child, out, new_bold, true, css_rules);
+                        collect_segments_styled_inner(
+                            child,
+                            out,
+                            new_bold,
+                            true,
+                            css_rules,
+                            depth + 1,
+                        );
                     }
                 }
                 "code" => {
@@ -1046,12 +1119,26 @@ fn collect_segments_styled_inner(
                 }
                 "span" => {
                     for child in children {
-                        collect_segments_styled_inner(child, out, new_bold, new_italic, css_rules);
+                        collect_segments_styled_inner(
+                            child,
+                            out,
+                            new_bold,
+                            new_italic,
+                            css_rules,
+                            depth + 1,
+                        );
                     }
                 }
                 _ => {
                     for child in children {
-                        collect_segments_styled_inner(child, out, new_bold, new_italic, css_rules);
+                        collect_segments_styled_inner(
+                            child,
+                            out,
+                            new_bold,
+                            new_italic,
+                            css_rules,
+                            depth + 1,
+                        );
                     }
                 }
             }
@@ -1372,7 +1459,11 @@ mod tests {
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t == "world")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Bold(t) if t == "world"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -1384,7 +1475,11 @@ mod tests {
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t == "world")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Italic(t) if t == "world"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -1392,11 +1487,16 @@ mod tests {
 
     #[test]
     fn test_inline_style_bold_italic() {
-        let elements = parse_html(r#"<p><span style="font-weight: bold; font-style: italic">both</span></p>"#);
+        let elements =
+            parse_html(r#"<p><span style="font-weight: bold; font-style: italic">both</span></p>"#);
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "both")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "both"))
+                );
             }
             _ => panic!("expected RichParagraph"),
         }
@@ -1411,7 +1511,11 @@ mod tests {
         assert!(!elements.is_empty());
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t.contains("Bold text"))));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Bold(t) if t.contains("Bold text")))
+                );
             }
             _ => panic!("expected RichParagraph with bold text"),
         }
@@ -1424,7 +1528,11 @@ mod tests {
         assert!(!elements.is_empty());
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t.contains("Italic text"))));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Italic(t) if t.contains("Italic text")))
+                );
             }
             _ => panic!("expected RichParagraph with italic text"),
         }
@@ -1437,7 +1545,11 @@ mod tests {
         assert!(!elements.is_empty());
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Bold(t) if t.contains("Bold via class"))));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Bold(t) if t.contains("Bold via class")))
+                );
             }
             _ => panic!("expected RichParagraph with bold text from class selector"),
         }
@@ -1478,12 +1590,17 @@ mod tests {
 
     #[test]
     fn test_css_overrides_inline() {
-        let html = r#"<style>p { font-weight: bold; }</style><p style="font-style: italic">Both</p>"#;
+        let html =
+            r#"<style>p { font-weight: bold; }</style><p style="font-style: italic">Both</p>"#;
         let elements = parse_html(html);
         assert!(!elements.is_empty());
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "Both")));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::BoldItalic(t) if t == "Both"))
+                );
             }
             _ => panic!("expected RichParagraph with bold+italic"),
         }
@@ -1491,14 +1608,37 @@ mod tests {
 
     #[test]
     fn test_css_tag_class_selector() {
-        let html = r#"<style>p.special { font-style: italic; }</style><p class="special">Special</p>"#;
+        let html =
+            r#"<style>p.special { font-style: italic; }</style><p class="special">Special</p>"#;
         let elements = parse_html(html);
         assert!(!elements.is_empty());
         match &elements[0] {
             Element::RichParagraph { segments } => {
-                assert!(segments.iter().any(|s| matches!(s, TextSegment::Italic(t) if t.contains("Special"))));
+                assert!(
+                    segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Italic(t) if t.contains("Special")))
+                );
             }
             _ => panic!("expected RichParagraph with italic from tag.class selector"),
         }
+    }
+
+    #[test]
+    fn deeply_nested_html_does_not_recurse_forever() {
+        // 5000 nested <div>s must terminate (depth-capped recursion).
+        let depth = 5000;
+        let html = format!(
+            "<html><body>{}<p>core text</p>{}</body></html>",
+            "<div>".repeat(depth),
+            "</div>".repeat(depth)
+        );
+        let elements = super::parse_html(&html);
+        assert!(
+            elements
+                .iter()
+                .any(|e| matches!(e, Element::Paragraph { text } if text.contains("core"))),
+            "text at the bottom of a deep tree must still convert"
+        );
     }
 }

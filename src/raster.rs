@@ -84,8 +84,9 @@ pub fn rasterize_page(pdf_bytes: &[u8], page_index: usize, dpi: u32) -> Result<R
 
     let (width_pt, height_pt) = page_media_box(pdf_bytes, &doc, page_id)?;
     let scale = (dpi as f32) / 72.0;
-    let width_px = ((width_pt * scale).round() as u32).max(1);
-    let height_px = ((height_pt * scale).round() as u32).max(1);
+    const MAX_DIM_PX: u32 = 32_768;
+    let width_px = ((width_pt * scale).round() as u32).clamp(1, MAX_DIM_PX);
+    let height_px = ((height_pt * scale).round() as u32).clamp(1, MAX_DIM_PX);
 
     let content_ids = page_content_streams(&doc, page_id)?;
     let font_metrics = collect_font_metrics_with_raw(&doc, pdf_bytes, page_id);
@@ -356,8 +357,7 @@ fn collect_font_metrics_with_raw(
                         if p > ref_start {
                             let num_str: String = chars[ref_start..p].iter().collect();
                             if let Ok(font_obj_id) = num_str.parse::<u32>() {
-                                let metrics =
-                                    font_metrics_from_raw(doc, pdf_bytes, font_obj_id);
+                                let metrics = font_metrics_from_raw(doc, pdf_bytes, font_obj_id);
                                 out.insert(name, metrics);
                             }
                         }
@@ -372,52 +372,52 @@ fn collect_font_metrics_with_raw(
         else {
             let trimmed = after_font.trim_start();
             if let Some(first_num) = trimmed.split_whitespace().next()
-                && let Ok(font_dict_id) = first_num.parse::<u32>() {
-                    // The font dict is an indirect object — scan for it.
-                    let fd_needle = format!("{} 0 obj", font_dict_id);
-                    if let Some(fd_start) = text.find(&fd_needle) {
-                        let after_fd = &text[fd_start + fd_needle.len()..];
-                        if let Some(fd_end) = after_fd.find("endobj") {
-                            let fd_body = &after_fd[..fd_end];
-                            // Parse /Name N 0 R pairs from the font dict body.
-                            let chars: Vec<char> = fd_body.chars().collect();
-                            let mut pos = 0;
-                            while pos < chars.len() {
-                                if chars[pos] == '/' {
-                                    let name_start = pos + 1;
-                                    let mut name_end = name_start;
-                                    while name_end < chars.len()
-                                        && !chars[name_end].is_whitespace()
-                                        && chars[name_end] != '/'
-                                    {
-                                        name_end += 1;
-                                    }
-                                    let name: String = chars[name_start..name_end].iter().collect();
-                                    let mut p = name_end;
-                                    while p < chars.len() && chars[p].is_whitespace() {
-                                        p += 1;
-                                    }
-                                    let ref_start = p;
-                                    while p < chars.len() && chars[p].is_ascii_digit() {
-                                        p += 1;
-                                    }
-                                    if p > ref_start {
-                                        let num_str: String = chars[ref_start..p].iter().collect();
-                                        if let Ok(font_obj_id) = num_str.parse::<u32>() {
-                                            let metrics = font_metrics_from_raw(
-                                                doc, pdf_bytes, font_obj_id,
-                                            );
-                                            out.insert(name, metrics);
-                                        }
-                                    }
-                                    pos = p;
-                                } else {
-                                    pos += 1;
+                && let Ok(font_dict_id) = first_num.parse::<u32>()
+            {
+                // The font dict is an indirect object — scan for it.
+                let fd_needle = format!("{} 0 obj", font_dict_id);
+                if let Some(fd_start) = text.find(&fd_needle) {
+                    let after_fd = &text[fd_start + fd_needle.len()..];
+                    if let Some(fd_end) = after_fd.find("endobj") {
+                        let fd_body = &after_fd[..fd_end];
+                        // Parse /Name N 0 R pairs from the font dict body.
+                        let chars: Vec<char> = fd_body.chars().collect();
+                        let mut pos = 0;
+                        while pos < chars.len() {
+                            if chars[pos] == '/' {
+                                let name_start = pos + 1;
+                                let mut name_end = name_start;
+                                while name_end < chars.len()
+                                    && !chars[name_end].is_whitespace()
+                                    && chars[name_end] != '/'
+                                {
+                                    name_end += 1;
                                 }
+                                let name: String = chars[name_start..name_end].iter().collect();
+                                let mut p = name_end;
+                                while p < chars.len() && chars[p].is_whitespace() {
+                                    p += 1;
+                                }
+                                let ref_start = p;
+                                while p < chars.len() && chars[p].is_ascii_digit() {
+                                    p += 1;
+                                }
+                                if p > ref_start {
+                                    let num_str: String = chars[ref_start..p].iter().collect();
+                                    if let Ok(font_obj_id) = num_str.parse::<u32>() {
+                                        let metrics =
+                                            font_metrics_from_raw(doc, pdf_bytes, font_obj_id);
+                                        out.insert(name, metrics);
+                                    }
+                                }
+                                pos = p;
+                            } else {
+                                pos += 1;
                             }
                         }
                     }
                 }
+            }
         }
     }
 
@@ -451,11 +451,7 @@ fn find_matching_angle_brackets(s: &str) -> Option<usize> {
 
 /// Build FontMetrics for a font object by scanning raw PDF bytes for its
 /// /FontFile2 stream and /Widths or /W array.
-fn font_metrics_from_raw(
-    doc: &PdfDocument,
-    pdf_bytes: &[u8],
-    font_obj_id: u32,
-) -> FontMetrics {
+fn font_metrics_from_raw(doc: &PdfDocument, pdf_bytes: &[u8], font_obj_id: u32) -> FontMetrics {
     let text = String::from_utf8_lossy(pdf_bytes);
     let needle = format!("{} 0 obj", font_obj_id);
     let font_start = text.find(&needle);
@@ -490,7 +486,10 @@ fn font_metrics_from_raw(
             let mut w = extract_widths_from_raw(doc, font_body);
             if w.is_empty()
                 && let Some(df) = extract_array_text(font_body, "DescendantFonts")
-                && let Some(cid_id) = df.split_whitespace().next().and_then(|s| s.parse::<u32>().ok())
+                && let Some(cid_id) = df
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<u32>().ok())
                 && let Some(cid_body) = find_object_body(&text, cid_id)
             {
                 w = extract_cid_widths_from_raw(cid_body);
@@ -511,16 +510,13 @@ fn font_metrics_from_raw(
 
 /// Extract embedded TTF by scanning raw PDF text for /FontDescriptor → /FontFile2.
 /// Also handles Type0 fonts by checking /DescendantFonts → CIDFont → /FontDescriptor.
-fn extract_embedded_ttf_raw(
-    doc: &PdfDocument,
-    text: &str,
-    font_body: &str,
-) -> Option<Vec<u8>> {
+fn extract_embedded_ttf_raw(doc: &PdfDocument, text: &str, font_body: &str) -> Option<Vec<u8>> {
     // Try /FontDescriptor directly on the font body.
     if let Some(fd_id) = find_ref_after_key(font_body, "FontDescriptor")
-        && let Some(ttf) = extract_ttf_from_descriptor(doc, text, fd_id) {
-            return Some(ttf);
-        }
+        && let Some(ttf) = extract_ttf_from_descriptor(doc, text, fd_id)
+    {
+        return Some(ttf);
+    }
 
     // Try /DescendantFonts → [N 0 R] → CIDFont → /FontDescriptor (Type0).
     if let Some(df_str) = extract_array_text(font_body, "DescendantFonts") {
@@ -534,20 +530,17 @@ fn extract_embedded_ttf_raw(
         let cid_body = &after_cid[..cid_end];
 
         if let Some(fd_id) = find_ref_after_key(cid_body, "FontDescriptor")
-            && let Some(ttf) = extract_ttf_from_descriptor(doc, text, fd_id) {
-                return Some(ttf);
-            }
+            && let Some(ttf) = extract_ttf_from_descriptor(doc, text, fd_id)
+        {
+            return Some(ttf);
+        }
     }
 
     None
 }
 
 /// Extract TTF bytes from a font descriptor object via /FontFile2.
-fn extract_ttf_from_descriptor(
-    doc: &PdfDocument,
-    text: &str,
-    fd_id: u32,
-) -> Option<Vec<u8>> {
+fn extract_ttf_from_descriptor(doc: &PdfDocument, text: &str, fd_id: u32) -> Option<Vec<u8>> {
     let fd_needle = format!("{} 0 obj", fd_id);
     let fd_start = text.find(&fd_needle)?;
     let after_fd = &text[fd_start + fd_needle.len()..];
@@ -827,8 +820,7 @@ fn font_metrics_for(doc: &PdfDocument, font: &HashMap<String, PdfValue>) -> Font
             .get("DescendantFonts")
             .and_then(|v| as_array(doc, v))
             .and_then(|arr| arr.first().and_then(as_ref_id))?;
-        object_dict(doc, cid_id)
-            .and_then(|cid| cid.get("W").and_then(|v| as_array(doc, v)))
+        object_dict(doc, cid_id).and_then(|cid| cid.get("W").and_then(|v| as_array(doc, v)))
     });
 
     if let Some(w_array) = w_source {
@@ -843,8 +835,11 @@ fn font_metrics_for(doc: &PdfDocument, font: &HashMap<String, PdfValue>) -> Font
                 )
             {
                 let width = as_number(doc, &w_array[i + 2]).unwrap_or(500.0) as u16;
-                for c in c_first..=c_last {
-                    map.insert(c, width);
+                // Range guard: a corrupt/huge /W range must not allocate gigabytes.
+                if u64::from(c_last.saturating_sub(c_first)) <= 65_535 {
+                    for c in c_first..=c_last {
+                        map.insert(c, width);
+                    }
                 }
                 i += 3;
                 continue;
@@ -880,28 +875,28 @@ fn extract_embedded_ttf(doc: &PdfDocument, font: &HashMap<String, PdfValue>) -> 
     // Try /FontDescriptor directly (simple fonts).
     if let Some(desc_ref) = font.get("FontDescriptor")
         && let Some(desc_id) = as_ref_id(desc_ref)
-            && let Some(desc) = object_dict(doc, desc_id)
-                && let Some(file_ref) = desc.get("FontFile2")
-                    && let Some(file_id) = as_ref_id(file_ref)
-                        && let Some(PdfObject::Stream { data, .. }) = doc.objects.get(&file_id) {
-                            return Some(decompress_stream(data));
-                        }
+        && let Some(desc) = object_dict(doc, desc_id)
+        && let Some(file_ref) = desc.get("FontFile2")
+        && let Some(file_id) = as_ref_id(file_ref)
+        && let Some(PdfObject::Stream { data, .. }) = doc.objects.get(&file_id)
+    {
+        return Some(decompress_stream(data));
+    }
 
     // Try /DescendantFonts → [0] → /FontDescriptor → /FontFile2 (Type0 fonts).
     if let Some(descendants) = font.get("DescendantFonts").and_then(|v| as_array(doc, v))
         && let Some(first) = descendants.first()
-            && let Some(cid_id) = as_ref_id(first)
-                && let Some(cid_font) = object_dict(doc, cid_id)
-                    && let Some(desc_ref) = cid_font.get("FontDescriptor")
-                        && let Some(desc_id) = as_ref_id(desc_ref)
-                            && let Some(desc) = object_dict(doc, desc_id)
-                                && let Some(file_ref) = desc.get("FontFile2")
-                                    && let Some(file_id) = as_ref_id(file_ref)
-                                        && let Some(PdfObject::Stream { data, .. }) =
-                                            doc.objects.get(&file_id)
-                                        {
-                                            return Some(decompress_stream(data));
-                                        }
+        && let Some(cid_id) = as_ref_id(first)
+        && let Some(cid_font) = object_dict(doc, cid_id)
+        && let Some(desc_ref) = cid_font.get("FontDescriptor")
+        && let Some(desc_id) = as_ref_id(desc_ref)
+        && let Some(desc) = object_dict(doc, desc_id)
+        && let Some(file_ref) = desc.get("FontFile2")
+        && let Some(file_id) = as_ref_id(file_ref)
+        && let Some(PdfObject::Stream { data, .. }) = doc.objects.get(&file_id)
+    {
+        return Some(decompress_stream(data));
+    }
 
     None
 }
@@ -1541,7 +1536,10 @@ fn extract_string_raw(tokens: &[String], i: usize) -> Option<Vec<u8>> {
     let trimmed = prev.trim();
     if trimmed.starts_with('<') && trimmed.ends_with('>') {
         // Hex string
-        let hex: String = trimmed[1..trimmed.len() - 1].chars().filter(|c| !c.is_whitespace()).collect();
+        let hex: String = trimmed[1..trimmed.len() - 1]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
         let bytes: Vec<u8> = (0..hex.len())
             .step_by(2)
             .filter_map(|j| {
@@ -1566,15 +1564,34 @@ fn extract_string_raw(tokens: &[String], i: usize) -> Option<Vec<u8>> {
             if b == b'\\' && k + 1 < bytes.len() {
                 let nxt = bytes[k + 1];
                 match nxt {
-                    b'n' => { out.push(b'\n'); k += 2; continue; }
-                    b'r' => { out.push(b'\r'); k += 2; continue; }
-                    b't' => { out.push(b'\t'); k += 2; continue; }
-                    b'\\' | b'(' | b')' => { out.push(nxt); k += 2; continue; }
+                    b'n' => {
+                        out.push(b'\n');
+                        k += 2;
+                        continue;
+                    }
+                    b'r' => {
+                        out.push(b'\r');
+                        k += 2;
+                        continue;
+                    }
+                    b't' => {
+                        out.push(b'\t');
+                        k += 2;
+                        continue;
+                    }
+                    b'\\' | b'(' | b')' => {
+                        out.push(nxt);
+                        k += 2;
+                        continue;
+                    }
                     d if d.is_ascii_digit() => {
                         let mut oct = String::new();
                         oct.push(d as char);
                         let mut j = k + 2;
-                        while j < bytes.len() && oct.len() < 3 && (bytes[j] as char).is_ascii_digit() {
+                        while j < bytes.len()
+                            && oct.len() < 3
+                            && (bytes[j] as char).is_ascii_digit()
+                        {
                             oct.push(bytes[j] as char);
                             j += 1;
                         }
@@ -1584,7 +1601,11 @@ fn extract_string_raw(tokens: &[String], i: usize) -> Option<Vec<u8>> {
                         k = j;
                         continue;
                     }
-                    _ => { out.push(b); k += 1; continue; }
+                    _ => {
+                        out.push(b);
+                        k += 1;
+                        continue;
+                    }
                 }
             }
             out.push(b);
@@ -1621,8 +1642,14 @@ fn extract_array_strings_raw(tokens: &[String], i: usize) -> Option<Vec<u8>> {
                     end += 2;
                     continue;
                 }
-                if cc == '(' { d += 1; } else if cc == ')' { d -= 1; }
-                if d > 0 { end += 1; }
+                if cc == '(' {
+                    d += 1;
+                } else if cc == ')' {
+                    d -= 1;
+                }
+                if d > 0 {
+                    end += 1;
+                }
             }
             // Decode literal string bytes
             let inner = &prev[start..end];
@@ -1637,27 +1664,27 @@ fn extract_array_strings_raw(tokens: &[String], i: usize) -> Option<Vec<u8>> {
                 end += 1;
             }
             // Decode hex string bytes
-            let hex: String = prev[start..end].chars().filter(|ch| !ch.is_whitespace()).collect();
+            let hex: String = prev[start..end]
+                .chars()
+                .filter(|ch| !ch.is_whitespace())
+                .collect();
             for j in (0..hex.len()).step_by(2) {
                 if j + 1 < hex.len() {
                     if let Ok(v) = u8::from_str_radix(&hex[j..j + 2], 16) {
                         out.push(v);
                     }
                 } else if j < hex.len()
-                    && let Ok(v) = u8::from_str_radix(&hex[j..j + 1], 16) {
-                        out.push(v);
-                    }
+                    && let Ok(v) = u8::from_str_radix(&hex[j..j + 1], 16)
+                {
+                    out.push(v);
+                }
             }
             k = end + 1;
         } else {
             k += 1;
         }
     }
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 fn parse_pdf_literal_string(raw: &str) -> Option<String> {
@@ -1744,93 +1771,95 @@ fn draw_text_bytes(surface: &mut Surface, raw: &[u8]) {
 
     // If we have an embedded TTF, rasterise actual glyph outlines.
     if let Some(ttf_bytes) = metrics.as_ref().and_then(|m| m.embedded_ttf.as_ref())
-        && let Ok(face) = ttf_parser::Face::parse(ttf_bytes, 0) {
-            let upem = face.units_per_em().max(1) as f32;
-            let scale = size / upem;
-            let tm = surface.text_matrix;
-            // Text-space cursor: baseline origin is (0,0); the text matrix maps
-            // text space to user space, and transform_pt maps user → screen.
-            let mut text_cursor: f32 = 0.0;
+        && let Ok(face) = ttf_parser::Face::parse(ttf_bytes, 0)
+    {
+        let upem = face.units_per_em().max(1) as f32;
+        let scale = size / upem;
+        let tm = surface.text_matrix;
+        // Text-space cursor: baseline origin is (0,0); the text matrix maps
+        // text space to user space, and transform_pt maps user → screen.
+        let mut text_cursor: f32 = 0.0;
 
-            // Determine if this is a 2-byte CIDFont (heuristic: even-length bytes
-            // and font metrics has /W array with values > 255, or /Subtype /Type0).
-            // For CIDFont, interpret bytes as 2-byte glyph IDs.
-            // For simple fonts with embedded TTF, interpret as Unicode chars.
-            let is_cid = raw.len().is_multiple_of(2) && raw.iter().filter(|&&b| b == 0).count() >= raw.len() / 4;
+        // Determine if this is a 2-byte CIDFont (heuristic: even-length bytes
+        // and font metrics has /W array with values > 255, or /Subtype /Type0).
+        // For CIDFont, interpret bytes as 2-byte glyph IDs.
+        // For simple fonts with embedded TTF, interpret as Unicode chars.
+        let is_cid =
+            raw.len().is_multiple_of(2) && raw.iter().filter(|&&b| b == 0).count() >= raw.len() / 4;
 
-            if is_cid {
-                // 2-byte glyph IDs
-                let mut idx = 0;
-                while idx + 1 < raw.len() {
-                    let gid = u16::from_be_bytes([raw[idx], raw[idx + 1]]);
-                    let gid_u32 = gid as u32;
-                    let advance_units = metrics.as_ref().map(|m| m.advance(gid_u32)).unwrap_or(500);
-                    let advance_pt = advance_units as f32 * size / 1000.0;
+        if is_cid {
+            // 2-byte glyph IDs
+            let mut idx = 0;
+            while idx + 1 < raw.len() {
+                let gid = u16::from_be_bytes([raw[idx], raw[idx + 1]]);
+                let gid_u32 = gid as u32;
+                let advance_units = metrics.as_ref().map(|m| m.advance(gid_u32)).unwrap_or(500);
+                let advance_pt = advance_units as f32 * size / 1000.0;
 
-                    if gid > 0 {
-                        let mut builder = GlyphOutlineBuilder::new();
-                        let _ = face.outline_glyph(ttf_parser::GlyphId(gid), &mut builder);
-                        for contour in &builder.contours {
-                            if contour.len() < 3 {
-                                continue;
-                            }
-                            let screen_poly: Vec<(f32, f32)> = contour
-                                .iter()
-                                .map(|(gx, gy)| {
-                                    let px = text_cursor + gx * scale;
-                                    let py = gy * scale;
-                                    let tx = tm[0] * px + tm[2] * py + tm[4];
-                                    let ty = tm[1] * px + tm[3] * py + tm[5];
-                                    surface.transform_pt(tx, ty)
-                                })
-                                .collect();
-                            fill_polygon_raw(surface, &screen_poly, color);
+                if gid > 0 {
+                    let mut builder = GlyphOutlineBuilder::new();
+                    let _ = face.outline_glyph(ttf_parser::GlyphId(gid), &mut builder);
+                    for contour in &builder.contours {
+                        if contour.len() < 3 {
+                            continue;
                         }
+                        let screen_poly: Vec<(f32, f32)> = contour
+                            .iter()
+                            .map(|(gx, gy)| {
+                                let px = text_cursor + gx * scale;
+                                let py = gy * scale;
+                                let tx = tm[0] * px + tm[2] * py + tm[4];
+                                let ty = tm[1] * px + tm[3] * py + tm[5];
+                                surface.transform_pt(tx, ty)
+                            })
+                            .collect();
+                        fill_polygon_raw(surface, &screen_poly, color);
                     }
-                    text_cursor += advance_pt;
-                    idx += 2;
                 }
-            } else {
-                // Simple font: interpret bytes as characters
-                for &b in raw {
-                    let ch = b as char;
-                    let cp = ch as u32;
-                    let advance_units = metrics.as_ref().map(|m| m.advance(cp)).unwrap_or(500);
-                    let advance_pt = advance_units as f32 * size / 1000.0;
-
-                    if let Some(gid) = face.glyph_index(ch) {
-                        let mut builder = GlyphOutlineBuilder::new();
-                        let _ = face.outline_glyph(gid, &mut builder);
-                        for contour in &builder.contours {
-                            if contour.len() < 3 {
-                                continue;
-                            }
-                            let screen_poly: Vec<(f32, f32)> = contour
-                                .iter()
-                                .map(|(gx, gy)| {
-                                    let px = text_cursor + gx * scale;
-                                    let py = gy * scale;
-                                    let tx = tm[0] * px + tm[2] * py + tm[4];
-                                    let ty = tm[1] * px + tm[3] * py + tm[5];
-                                    surface.transform_pt(tx, ty)
-                                })
-                                .collect();
-                            fill_polygon_raw(surface, &screen_poly, color);
-                        }
-                    } else {
-                        let ux = tm[0] * text_cursor + tm[4];
-                        let uy = tm[1] * text_cursor + tm[5];
-                        draw_glyph_rect(surface, ux, uy, advance_pt, size, color);
-                    }
-                    text_cursor += advance_pt;
-                }
+                text_cursor += advance_pt;
+                idx += 2;
             }
+        } else {
+            // Simple font: interpret bytes as characters
+            for &b in raw {
+                let ch = b as char;
+                let cp = ch as u32;
+                let advance_units = metrics.as_ref().map(|m| m.advance(cp)).unwrap_or(500);
+                let advance_pt = advance_units as f32 * size / 1000.0;
 
-            let m = surface.text_matrix;
-            surface.text_matrix = [m[0], m[1], m[2], m[3], m[4] + text_cursor, m[5]];
-            surface.text_line_matrix = surface.text_matrix;
-            return;
+                if let Some(gid) = face.glyph_index(ch) {
+                    let mut builder = GlyphOutlineBuilder::new();
+                    let _ = face.outline_glyph(gid, &mut builder);
+                    for contour in &builder.contours {
+                        if contour.len() < 3 {
+                            continue;
+                        }
+                        let screen_poly: Vec<(f32, f32)> = contour
+                            .iter()
+                            .map(|(gx, gy)| {
+                                let px = text_cursor + gx * scale;
+                                let py = gy * scale;
+                                let tx = tm[0] * px + tm[2] * py + tm[4];
+                                let ty = tm[1] * px + tm[3] * py + tm[5];
+                                surface.transform_pt(tx, ty)
+                            })
+                            .collect();
+                        fill_polygon_raw(surface, &screen_poly, color);
+                    }
+                } else {
+                    let ux = tm[0] * text_cursor + tm[4];
+                    let uy = tm[1] * text_cursor + tm[5];
+                    draw_glyph_rect(surface, ux, uy, advance_pt, size, color);
+                }
+                text_cursor += advance_pt;
+            }
         }
+
+        let m = surface.text_matrix;
+        surface.text_matrix = [m[0], m[1], m[2], m[3], m[4] + text_cursor, m[5]];
+        surface.text_line_matrix = surface.text_matrix;
+        return;
+    }
 
     // Fallback: gray glyph-block rectangles (base-14 or no embedded font).
     // Interpret bytes as characters for width lookup.
@@ -1851,7 +1880,14 @@ fn draw_text_bytes(surface: &mut Surface, raw: &[u8]) {
 }
 
 /// Draw a gray fallback rectangle for a glyph cell.
-fn draw_glyph_rect(surface: &mut Surface, cursor_x: f32, baseline_y: f32, advance_pt: f32, size: f32, color: Color) {
+fn draw_glyph_rect(
+    surface: &mut Surface,
+    cursor_x: f32,
+    baseline_y: f32,
+    advance_pt: f32,
+    size: f32,
+    color: Color,
+) {
     let cap_height = size * 0.7;
     let x0 = cursor_x;
     let y0 = baseline_y - cap_height * 0.2;
@@ -2573,7 +2609,14 @@ mod tests {
         assert!(png.len() > 500);
         assert_eq!(&png[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
         // The page should have non-white pixels (text was rendered).
-        let non_white = page.pixels.chunks(4).filter(|px| px[0] < 250 || px[1] < 250 || px[2] < 250).count();
-        assert!(non_white > 100, "expected rendered text pixels, got {non_white}");
+        let non_white = page
+            .pixels
+            .chunks(4)
+            .filter(|px| px[0] < 250 || px[1] < 250 || px[2] < 250)
+            .count();
+        assert!(
+            non_white > 100,
+            "expected rendered text pixels, got {non_white}"
+        );
     }
 }

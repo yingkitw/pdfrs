@@ -8,6 +8,25 @@ use crate::pdf_generator::{Color, PageLayout, PdfGenerator};
 use anyhow::Result;
 use std::collections::HashMap;
 
+macro_rules! vector_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+vector_regex!(
+    re_svg_path_attr,
+    r#"(?i)<path\b[^>]*\bd\s*=\s*["']([^"']+)["']"#
+);
+vector_regex!(re_svg_d_attr, r#"(?i)\bd\s*=\s*["']([^"']+)["']"#);
+vector_regex!(
+    re_svg_transform,
+    r"(?i)(translate|rotate|scale|matrix|skewx|skewy)\s*\(([^)]*)\)"
+);
+
 /// How a path is painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaintMode {
@@ -230,9 +249,8 @@ impl VectorCanvas {
         );
 
         // Add a Helvetica font so SVG <text> elements can render.
-        let font_id = generator.add_object(
-            "<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string(),
-        );
+        let font_id = generator
+            .add_object("<< /Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\n".to_string());
 
         // page will be next_id, pages the one after that
         let pages_id = generator.next_id + 1;
@@ -462,11 +480,11 @@ pub fn parse_svg_path(d: &str) -> Result<Vec<PathOp>> {
 /// Extract the first `d="..."` path from a simple SVG document string.
 pub fn extract_svg_path_d(svg: &str) -> Result<String> {
     // Prefer path elements; fall back to any d="..."
-    let re = regex::Regex::new(r#"(?i)<path\b[^>]*\bd\s*=\s*["']([^"']+)["']"#).unwrap();
+    let re = re_svg_path_attr();
     if let Some(caps) = re.captures(svg) {
         return Ok(caps[1].to_string());
     }
-    let re_any = regex::Regex::new(r#"(?i)\bd\s*=\s*["']([^"']+)["']"#).unwrap();
+    let re_any = re_svg_d_attr();
     if let Some(caps) = re_any.captures(svg) {
         return Ok(caps[1].to_string());
     }
@@ -740,7 +758,9 @@ fn maybe_apply_transform(el: &SvgElement, ctx: &mut RenderCtx) -> bool {
 /// `<symbol>` sections into the defs registry.
 fn collect_defs(el: &SvgElement, ctx: &mut RenderCtx) {
     for child in &el.children {
-        let SvgNode::Element(child_el) = child else { continue };
+        let SvgNode::Element(child_el) = child else {
+            continue;
+        };
         if child_el.name == "defs" || child_el.name == "symbol" {
             collect_defs_children(child_el, ctx);
         } else if child_el.name == "g" {
@@ -752,7 +772,9 @@ fn collect_defs(el: &SvgElement, ctx: &mut RenderCtx) {
 
 fn collect_defs_children(el: &SvgElement, ctx: &mut RenderCtx) {
     for child in &el.children {
-        let SvgNode::Element(child_el) = child else { continue };
+        let SvgNode::Element(child_el) = child else {
+            continue;
+        };
         if let Some(id) = child_el.attrs.get("id") {
             ctx.defs.insert(id.clone(), child_el.clone());
         }
@@ -772,7 +794,9 @@ fn render_use(el: &SvgElement, ctx: &mut RenderCtx) {
         .or_else(|| el.attrs.get("xlink:href"))
         .map(|s| s.trim_start_matches('#').to_string());
     let Some(id) = href else { return };
-    let Some(def_el) = ctx.defs.get(&id).cloned() else { return };
+    let Some(def_el) = ctx.defs.get(&id).cloned() else {
+        return;
+    };
 
     let x = attr_f32(el, "x", 0.0);
     let y = attr_f32(el, "y", 0.0);
@@ -808,10 +832,21 @@ fn render_rect(el: &SvgElement, ctx: &mut RenderCtx) {
     if rx > 0.0 || ry > 0.0 {
         let r = rx.min(ry).min(abs_w / 2.0).min(abs_h / 2.0);
         let ops = rounded_rect_path_ops(min_x, min_y, abs_w, abs_h, r);
-        ctx.canvas.push_shape(VectorShape::Path { ops, stroke, fill, line_width: lw });
+        ctx.canvas.push_shape(VectorShape::Path {
+            ops,
+            stroke,
+            fill,
+            line_width: lw,
+        });
     } else {
         ctx.canvas.push_shape(VectorShape::Rect {
-            x: min_x, y: min_y, width: abs_w, height: abs_h, stroke, fill, line_width: lw,
+            x: min_x,
+            y: min_y,
+            width: abs_w,
+            height: abs_h,
+            stroke,
+            fill,
+            line_width: lw,
         });
     }
 }
@@ -996,9 +1031,11 @@ fn apply_svg_viewbox(el: &SvgElement, ctx: &mut RenderCtx, layout: PageLayout) {
     let svg_w = attr_f32(el, "width", layout.width);
     let svg_h = attr_f32(el, "height", layout.height);
     if let Some(vb) = el.attrs.get("viewBox") {
-        let nums: Vec<f32> = vb.split(|c: char| c.is_whitespace() || c == ',')
+        let nums: Vec<f32> = vb
+            .split(|c: char| c.is_whitespace() || c == ',')
             .filter(|t| !t.is_empty())
-            .filter_map(|t| t.parse::<f32>().ok()).collect();
+            .filter_map(|t| t.parse::<f32>().ok())
+            .collect();
         if nums.len() == 4 {
             let (vbx, vby, vbw, vbh) = (nums[0], nums[1], nums[2], nums[3]);
             if vbw > 0.0 && vbh > 0.0 {
@@ -1014,14 +1051,45 @@ fn rounded_rect_path_ops(x: f32, y: f32, w: f32, h: f32, r: f32) -> Vec<PathOp> 
     let k = 0.552_284_8_f32 * r;
     vec![
         PathOp::MoveTo { x: x + r, y: y + h },
-        PathOp::LineTo { x: x + w - r, y: y + h },
-        PathOp::CurveTo { x1: x + w - r + k, y1: y + h, x2: x + w, y2: y + h - r + k, x3: x + w, y3: y + h - r },
+        PathOp::LineTo {
+            x: x + w - r,
+            y: y + h,
+        },
+        PathOp::CurveTo {
+            x1: x + w - r + k,
+            y1: y + h,
+            x2: x + w,
+            y2: y + h - r + k,
+            x3: x + w,
+            y3: y + h - r,
+        },
         PathOp::LineTo { x: x + w, y: y + r },
-        PathOp::CurveTo { x1: x + w, y1: y + r - k, x2: x + w - r + k, y2: y, x3: x + w - r, y3: y },
+        PathOp::CurveTo {
+            x1: x + w,
+            y1: y + r - k,
+            x2: x + w - r + k,
+            y2: y,
+            x3: x + w - r,
+            y3: y,
+        },
         PathOp::LineTo { x: x + r, y },
-        PathOp::CurveTo { x1: x + r - k, y1: y, x2: x, y2: y + r - k, x3: x, y3: y + r },
+        PathOp::CurveTo {
+            x1: x + r - k,
+            y1: y,
+            x2: x,
+            y2: y + r - k,
+            x3: x,
+            y3: y + r,
+        },
         PathOp::LineTo { x, y: y + h - r },
-        PathOp::CurveTo { x1: x, y1: y + h - r + k, x2: x + r - k, y2: y + h, x3: x + r, y3: y + h },
+        PathOp::CurveTo {
+            x1: x,
+            y1: y + h - r + k,
+            x2: x + r - k,
+            y2: y + h,
+            x3: x + r,
+            y3: y + h,
+        },
         PathOp::Close,
     ]
 }
@@ -1110,8 +1178,7 @@ fn parse_hex_color(s: &str) -> Option<Color> {
 /// Parse `transform="translate(x,y) rotate(a) scale(s) matrix(a,b,c,d,e,f)"`.
 pub fn parse_svg_transform(s: &str) -> [f32; 6] {
     let mut result = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
-    let re = regex::Regex::new(r"(?i)(translate|rotate|scale|matrix|skewx|skewy)\s*\(([^)]*)\)")
-        .unwrap();
+    let re = re_svg_transform();
     for caps in re.captures_iter(s) {
         let func = caps[1].to_ascii_lowercase();
         let args: Vec<f32> = caps[2]
@@ -1991,7 +2058,8 @@ mod tests {
 
     #[test]
     fn test_svg_default_stroke_is_none() {
-        let svg = r##"<svg width="100" height="100"><rect width="50" height="50" fill="red"/></svg>"##;
+        let svg =
+            r##"<svg width="100" height="100"><rect width="50" height="50" fill="red"/></svg>"##;
         let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
         match &canvas.shapes()[0] {
             VectorShape::Rect { stroke, .. } => {
@@ -2015,7 +2083,10 @@ mod tests {
         assert!(!canvas.shapes().is_empty());
         match &canvas.shapes()[0] {
             VectorShape::Path { ops, .. } => {
-                assert!(ops.len() > 4, "rounded rect should produce a path with curves");
+                assert!(
+                    ops.len() > 4,
+                    "rounded rect should produce a path with curves"
+                );
             }
             VectorShape::Rect { .. } => panic!("rounded rect should be a Path, not Rect"),
             _ => panic!("unexpected shape"),
@@ -2026,7 +2097,10 @@ mod tests {
     fn test_svg_text_renders_as_text_shape() {
         let svg = r##"<svg width="200" height="100"><text x="50" y="50" font-size="14" fill="black">Hello</text></svg>"##;
         let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
-        let has_text = canvas.shapes().iter().any(|s| matches!(s, VectorShape::Text { .. }));
+        let has_text = canvas
+            .shapes()
+            .iter()
+            .any(|s| matches!(s, VectorShape::Text { .. }));
         assert!(has_text, "should have a Text shape, not a Rect");
     }
 
@@ -2035,10 +2109,19 @@ mod tests {
         let svg = r##"<svg width="200" height="100"><text x="50" y="50" font-size="14" fill="black">Hello</text></svg>"##;
         let bytes = svg_document_to_pdf_bytes(svg, PageLayout::portrait()).unwrap();
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("BT"), "PDF should contain BT operator for text");
-        assert!(text.contains("Tj"), "PDF should contain Tj operator for text");
+        assert!(
+            text.contains("BT"),
+            "PDF should contain BT operator for text"
+        );
+        assert!(
+            text.contains("Tj"),
+            "PDF should contain Tj operator for text"
+        );
         assert!(text.contains("/F1"), "PDF should reference /F1 font");
-        assert!(text.contains("Helvetica"), "PDF should embed Helvetica font");
+        assert!(
+            text.contains("Helvetica"),
+            "PDF should embed Helvetica font"
+        );
     }
 
     #[test]
@@ -2066,9 +2149,10 @@ mod tests {
           <text x="10" y="50"><![CDATA[CDATA text]]></text>
         </svg>"##;
         let canvas = parse_svg_document(svg, PageLayout::portrait()).unwrap();
-        let has_text = canvas.shapes().iter().any(|s| {
-            matches!(s, VectorShape::Text { text, .. } if text.contains("CDATA text"))
-        });
+        let has_text = canvas
+            .shapes()
+            .iter()
+            .any(|s| matches!(s, VectorShape::Text { text, .. } if text.contains("CDATA text")));
         assert!(has_text, "should render text from CDATA section");
     }
 

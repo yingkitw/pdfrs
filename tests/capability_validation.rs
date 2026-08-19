@@ -212,7 +212,8 @@ fn test_capability_showcase_end_to_end() {
             Element::MathBlock { .. } | Element::MathInline { .. } => false,
             _ => true,
         })
-        .take(25).cloned()
+        .take(25)
+        .cloned()
         .collect();
     let tagged = generate_tagged_pdf_bytes(
         &tagged_elements,

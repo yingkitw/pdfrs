@@ -4,15 +4,22 @@
 //! stream so the redacted text no longer appears in the extracted text or in
 //! any text-level reader. The rewriter:
 //!
-//! 1. Walks every page's content stream.
-//! 2. Computes the bounding box of each text-show operation.
+//! 1. Walks every page's content stream **and** the streams of Form
+//!    XObjects and annotation appearance streams referenced from the page.
+//! 2. Computes the bounding box of each text-show operation (text-showing
+//!    operators are masked whether or not they appear inside `BT…ET`).
 //! 3. Replaces text whose box intersects a redacted region with spaces —
 //!    at **character granularity** (only the characters whose individual
 //!    bounding boxes fall within the region are masked, not the whole `Tj`).
 //! 4. Removes `Do` operators for image XObjects whose placement intersects
-//!    a redacted region (true image removal, not just overlay).
+//!    a redacted region, drops their `/XObject` resource entries, and
+//!    deletes the image objects themselves when no longer referenced.
 //! 5. Appends a solid-black filled rectangle over each redacted region before
 //!    `ET`, so any non-text content under the box is also visually obscured.
+//!
+//! Known limitation: text inside Form XObjects is matched against the page's
+//! redaction regions in form-local coordinates (exact for forms placed with
+//! an identity or translation-only CTM).
 //!
 //! ```rust,no_run
 //! use pdfrs::redact::{redact_pdf_bytes, RedactionRegion};
@@ -25,7 +32,7 @@
 //! ```
 
 use crate::compression::compress_deflate;
-use crate::pdf::{PdfDocument, PdfObject};
+use crate::pdf::{PdfDocument, PdfObject, PdfValue};
 use crate::search::Rect;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
@@ -95,26 +102,41 @@ pub fn redact_pdf_bytes_with_style(
                 pages.len()
             ));
         }
-        by_page.entry(r.page).or_insert(Vec::new()).push(r.rect());
+        by_page.entry(r.page).or_default().push(r.rect());
     }
 
     let fonts = collect_font_metrics(&doc);
+    // Image object ids removed across all pages (name -> object id, per page).
+    let mut removed_images: HashMap<u32, u32> = HashMap::new(); // image_obj_id -> page_id owning the resource entry
 
     for (page_idx, page_id) in pages.iter().enumerate() {
         let Some(regs) = by_page.get(&page_idx).cloned() else {
             continue;
         };
-        // Collect image XObject names for this page so we can remove `Do` calls.
-        let image_xobjects = collect_image_xobjects(&doc, *page_id);
-        let content_ids = page_content_streams(&doc, *page_id)?;
-        for cid in content_ids {
+        let xobjects = collect_xobjects(&doc, *page_id);
+        let annot_stream_ids = collect_annotation_ap_streams(&doc, *page_id);
+        let form_ids: Vec<u32> = xobjects
+            .values()
+            .filter(|x| x.is_form)
+            .map(|x| x.id)
+            .collect();
+
+        // Rewrite page content streams, form XObjects, and annotation
+        // appearance streams — all can carry text-showing operators.
+        let mut stream_ids = page_content_streams(&doc, *page_id)?;
+        stream_ids.extend(form_ids);
+        stream_ids.extend(annot_stream_ids);
+        let mut removed_names: Vec<String> = Vec::new();
+
+        for cid in stream_ids {
             let raw = match doc.objects.get(&cid) {
                 Some(PdfObject::Stream { data, .. }) => data.clone(),
                 _ => continue,
             };
             let decompressed = decompress_stream(&raw);
             let src = String::from_utf8_lossy(&decompressed).into_owned();
-            let rewritten = rewrite_stream(&src, &regs, &fonts, style, &image_xobjects);
+            let (rewritten, removed) = rewrite_stream(&src, &regs, &fonts, style, &xobjects);
+            removed_names.extend(removed);
             let new_bytes = rewritten.into_bytes();
             // Compress if original was compressed
             let (new_data, filter) = if is_deflate_stream(&raw) {
@@ -128,117 +150,242 @@ pub fn redact_pdf_bytes_with_style(
                 if let Some(f) = filter {
                     dictionary.insert(
                         "Filter".to_string(),
-                        crate::pdf::PdfValue::Object(crate::pdf::PdfObject::Name(f.to_string())),
+                        PdfValue::Object(PdfObject::Name(f.to_string())),
                     );
                 }
-                // Update /Length
                 dictionary.insert(
                     "Length".to_string(),
-                    crate::pdf::PdfValue::Object(crate::pdf::PdfObject::Number(
-                        new_data.len() as f64
-                    )),
+                    PdfValue::Object(PdfObject::Number(new_data.len() as f64)),
                 );
                 *data = new_data;
             }
+        }
+
+        // Drop the removed images' resource entries and remember the object
+        // ids so they can be deleted when no longer referenced.
+        if !removed_names.is_empty() {
+            for name in &removed_names {
+                if let Some(info) = xobjects.get(name) {
+                    removed_images.insert(info.id, *page_id);
+                }
+            }
+            remove_xobject_entries(&mut doc, *page_id, &removed_names);
+        }
+    }
+
+    // Delete image objects that are no longer referenced anywhere in the
+    // document (other pages, forms, or annotations may still use them).
+    for (image_id, _) in removed_images {
+        if !is_referenced(&doc, image_id) {
+            doc.objects.remove(&image_id);
         }
     }
 
     Ok(doc.to_bytes())
 }
 
+/// Whether any object in the document still references `id`.
+fn is_referenced(doc: &PdfDocument, id: u32) -> bool {
+    fn value_references(v: &PdfValue, id: u32) -> bool {
+        match v {
+            PdfValue::Reference(r, _) => *r == id,
+            PdfValue::Object(o) => object_references(o, id),
+        }
+    }
+    fn object_references(o: &PdfObject, id: u32) -> bool {
+        match o {
+            PdfObject::Dictionary(d) => d.values().any(|v| value_references(v, id)),
+            PdfObject::Stream { dictionary, .. } => {
+                dictionary.values().any(|v| value_references(v, id))
+            }
+            PdfObject::Array(items) => items.iter().any(|v| value_references(v, id)),
+            PdfObject::Reference(r, _) => *r == id,
+            _ => false,
+        }
+    }
+    doc.objects.values().any(|o| object_references(o, id))
+}
+
+/// Remove `names` from the page's `/Resources /XObject` dictionary (whether
+/// the resources dict is inline or a separate object).
+fn remove_xobject_entries(doc: &mut PdfDocument, page_id: u32, names: &[String]) {
+    // Find the object that owns the XObject dict: the page itself or the
+    // object its /Resources points at.
+    let owner_id = {
+        let Some(dict) = crate::search::object_dict(doc, page_id) else {
+            return;
+        };
+        match dict.get("Resources") {
+            Some(PdfValue::Reference(id, _)) => *id,
+            Some(PdfValue::Object(PdfObject::Dictionary(_))) => page_id,
+            _ => return,
+        }
+    };
+    let Some(owner) = doc.objects.get_mut(&owner_id) else {
+        return;
+    };
+    let dict = match owner {
+        PdfObject::Dictionary(d) | PdfObject::Stream { dictionary: d, .. } => d,
+        _ => return,
+    };
+    if let Some(PdfValue::Object(PdfObject::Dictionary(res))) = dict.get_mut("Resources")
+        && let Some(PdfValue::Object(PdfObject::Dictionary(xobj))) = res.get_mut("XObject")
+    {
+        xobj.retain(|k, _| !names.contains(k));
+    }
+}
+
+/// Stream object ids of annotation appearance streams (`/AP /N /R /D`)
+/// attached to a page's `/Annots`.
+fn collect_annotation_ap_streams(doc: &PdfDocument, page_id: u32) -> Vec<u32> {
+    let mut result = Vec::new();
+    let Some(dict) = crate::search::object_dict(doc, page_id) else {
+        return result;
+    };
+    let annots = match dict.get("Annots") {
+        Some(PdfValue::Object(PdfObject::Array(items))) => items.clone(),
+        Some(PdfValue::Reference(id, _)) => match doc.objects.get(id) {
+            Some(PdfObject::Array(items)) => items.clone(),
+            _ => return result,
+        },
+        _ => return result,
+    };
+    for annot_val in annots {
+        let annot_id = match annot_val {
+            PdfValue::Reference(id, _) => id,
+            PdfValue::Object(PdfObject::Dictionary(_)) => continue,
+            _ => continue,
+        };
+        let Some(annot_dict) = crate::search::object_dict(doc, annot_id) else {
+            continue;
+        };
+        if let Some(PdfValue::Object(PdfObject::Dictionary(ap))) = annot_dict.get("AP") {
+            for entry in ap.values() {
+                match entry {
+                    PdfValue::Reference(id, _) => result.push(*id),
+                    PdfValue::Object(PdfObject::Dictionary(states)) => {
+                        for state in states.values() {
+                            if let PdfValue::Reference(id, _) = state {
+                                result.push(*id);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    result
+}
+
 // ----- Stream rewriting ---------------------------------------------------
 
-/// Names of image XObjects on a page that should be removed if their placement
-/// intersects a redaction region.
-type ImageXObjects = HashMap<String, (f32, f32)>; // name -> (width, height) in user units
+/// An XObject entry from a page's `/Resources`.
+#[derive(Debug, Clone)]
+struct XObjectInfo {
+    /// Object number of the XObject.
+    id: u32,
+    is_image: bool,
+    is_form: bool,
+}
 
-/// Collect image XObject names and their natural sizes from a page's /Resources.
-fn collect_image_xobjects(doc: &PdfDocument, page_id: u32) -> ImageXObjects {
-    use crate::pdf::PdfValue;
+type XObjectMap = HashMap<String, XObjectInfo>;
+
+/// Collect XObject entries (images and forms) from a page's /Resources.
+fn collect_xobjects(doc: &PdfDocument, page_id: u32) -> XObjectMap {
     let mut result = HashMap::new();
     let Some(dict) = crate::search::object_dict(doc, page_id) else {
         return result;
     };
-    let Some(resources) = dict.get("Resources") else {
-        return result;
-    };
-    let resources_dict = match resources {
-        PdfValue::Reference(id, _) => crate::search::object_dict(doc, *id),
-        PdfValue::Object(PdfObject::Dictionary(d)) => Some(d),
+    let resources_dict = match dict.get("Resources") {
+        Some(PdfValue::Reference(id, _)) => crate::search::object_dict(doc, *id),
+        Some(PdfValue::Object(PdfObject::Dictionary(d))) => Some(d),
         _ => None,
     };
     let Some(res_dict) = resources_dict else {
         return result;
     };
-    let Some(xobjects) = res_dict.get("XObject") else {
-        return result;
-    };
-    let xobj_dict = match xobjects {
-        PdfValue::Reference(id, _) => crate::search::object_dict(doc, *id),
-        PdfValue::Object(PdfObject::Dictionary(d)) => Some(d),
+    let xobj_dict = match res_dict.get("XObject") {
+        Some(PdfValue::Reference(id, _)) => crate::search::object_dict(doc, *id),
+        Some(PdfValue::Object(PdfObject::Dictionary(d))) => Some(d),
         _ => None,
     };
     let Some(xobj_dict) = xobj_dict else {
         return result;
     };
     for (name, val) in xobj_dict {
-        let obj_id = match val {
-            PdfValue::Reference(id, _) => Some(*id),
-            _ => None,
+        let PdfValue::Reference(id, _) = val else {
+            continue;
         };
-        if let Some(id) = obj_id
-            && let Some(obj_dict) = crate::search::object_dict(doc, id) {
-                let is_image = obj_dict
-                    .get("Subtype")
-                    .and_then(|v| match v {
-                        PdfValue::Object(PdfObject::Name(s)) => Some(s.as_str()),
-                        _ => None,
-                    })
-                    .map(|s| s == "Image")
-                    .unwrap_or(false);
-                if is_image {
-                    let w = obj_dict
-                        .get("Width")
-                        .and_then(|v| match v {
-                            PdfValue::Object(PdfObject::Number(n)) => Some(*n as f32),
-                            _ => None,
-                        })
-                        .unwrap_or(100.0);
-                    let h = obj_dict
-                        .get("Height")
-                        .and_then(|v| match v {
-                            PdfValue::Object(PdfObject::Number(n)) => Some(*n as f32),
-                            _ => None,
-                        })
-                        .unwrap_or(100.0);
-                    result.insert(name.clone(), (w, h));
-                }
-            }
+        let Some(obj_dict) = crate::search::object_dict(doc, *id) else {
+            continue;
+        };
+        let subtype = obj_dict
+            .get("Subtype")
+            .and_then(|v| match v {
+                PdfValue::Object(PdfObject::Name(s)) => Some(s.as_str()),
+                _ => None,
+            })
+            .unwrap_or("");
+        result.insert(
+            name.clone(),
+            XObjectInfo {
+                id: *id,
+                is_image: subtype == "Image",
+                is_form: subtype == "Form",
+            },
+        );
     }
     result
 }
 
+/// Rewrite one content stream. Returns the rewritten stream plus the names of
+/// image XObjects whose `Do` calls were removed.
 fn rewrite_stream(
     src: &str,
     regions: &[Rect],
     fonts: &HashMap<String, crate::search::FontMetrics>,
     style: RedactionStyle,
-    image_xobjects: &ImageXObjects,
-) -> String {
+    image_xobjects: &XObjectMap,
+) -> (String, Vec<String>) {
     let tokens = crate::search::tokenize(src);
     let mut i = 0;
     let mut operands: Vec<f32> = Vec::new();
+    let mut pending_name: Option<String> = None;
     let mut text_matrix = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
     let mut text_line_matrix = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
     let mut font_size = 12.0f32;
-    let mut in_text = false;
     let mut current_metrics: Option<crate::search::FontMetrics> = None;
     // CTM stack for tracking graphics state (for image XObject placement).
     let mut ctm_stack: Vec<[f32; 6]> = Vec::new();
     let mut ctm = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
     let mut out = String::new();
+    let mut removed_images: Vec<String> = Vec::new();
+
+    // Emit a pending `/Name` operand plus numeric operands and the operator.
+    macro_rules! emit {
+        ($op:expr) => {{
+            if let Some(name) = pending_name.take() {
+                out.push('/');
+                out.push_str(&name);
+                out.push(' ');
+            }
+            for n in &operands {
+                out.push_str(&fmt_f(*n));
+                out.push(' ');
+            }
+            out.push_str($op);
+            out.push('\n');
+        }};
+    }
+
     while i < tokens.len() {
         let t = &tokens[i];
+        if let Some(name) = t.strip_prefix('/') {
+            pending_name = Some(name.to_string());
+            i += 1;
+            continue;
+        }
         if let Ok(n) = t.parse::<f32>() {
             operands.push(n);
             i += 1;
@@ -247,7 +394,6 @@ fn rewrite_stream(
         let op = t.as_str();
         match op {
             "BT" => {
-                in_text = true;
                 text_matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
                 text_line_matrix = text_matrix;
                 out.push_str("BT\n");
@@ -265,7 +411,6 @@ fn rewrite_stream(
                         ));
                     }
                 }
-                in_text = false;
                 out.push_str("ET\n");
             }
             "q" => {
@@ -290,58 +435,52 @@ fn rewrite_stream(
                     ];
                     ctm = matrix_multiply(&ctm, &m);
                 }
-                emit_operator(&mut out, "cm", &operands);
+                emit!("cm");
             }
             "Do" => {
-                // Check if this Do references an image XObject in a redacted region.
-                let xobj_name = if i > 0 {
-                    let prev = &tokens[i - 1];
-                    if let Some(stripped) = prev.strip_prefix('/') {
-                        Some(stripped.to_string())
-                    } else {
-                        None
+                let name = pending_name.clone();
+                let mut removed = false;
+                if let Some(ref name) = name
+                    && image_xobjects.get(name).is_some_and(|x| x.is_image)
+                {
+                    // `Do` maps the unit square through the CTM; the
+                    // placement rect is that square's bounding box.
+                    let corners = [
+                        ctm_apply(&ctm, 0.0, 0.0),
+                        ctm_apply(&ctm, 1.0, 0.0),
+                        ctm_apply(&ctm, 0.0, 1.0),
+                        ctm_apply(&ctm, 1.0, 1.0),
+                    ];
+                    let xs = [corners[0].0, corners[1].0, corners[2].0, corners[3].0];
+                    let ys = [corners[0].1, corners[1].1, corners[2].1, corners[3].1];
+                    let img_rect = Rect {
+                        x: xs.iter().cloned().fold(f32::INFINITY, f32::min),
+                        y: ys.iter().cloned().fold(f32::INFINITY, f32::min),
+                        width: xs.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+                            - xs.iter().cloned().fold(f32::INFINITY, f32::min),
+                        height: ys.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+                            - ys.iter().cloned().fold(f32::INFINITY, f32::min),
+                    };
+                    if regions.iter().any(|r| r.intersects(&img_rect)) {
+                        removed_images.push(name.clone());
+                        out.push_str("% redacted image\n");
+                        removed = true;
                     }
+                }
+                if !removed {
+                    emit!("Do");
                 } else {
-                    None
-                };
-                if let Some(ref name) = xobj_name {
-                    if let Some(&(w, h)) = image_xobjects.get(name) {
-                        // Compute image position using CTM.
-                        let img_x = ctm[4];
-                        let img_y = ctm[5];
-                        let img_w = ctm[0] * w;
-                        let img_h = ctm[3] * h;
-                        let img_rect = Rect {
-                            x: img_x,
-                            y: img_y,
-                            width: img_w.abs(),
-                            height: img_h.abs(),
-                        };
-                        if regions.iter().any(|r| r.intersects(&img_rect)) {
-                            // Remove the /name operand from output and skip the Do.
-                            if let Some(pos) = out.rfind('/') {
-                                out.truncate(pos);
-                            }
-                            out.push_str("% redacted image\n");
-                        } else {
-                            out.push_str(&format!("/{} Do\n", name));
-                        }
-                    } else {
-                        // Not an image XObject — pass through.
-                        out.push_str(&format!("/{} Do\n", name));
-                    }
-                } else {
-                    out.push_str("Do\n");
+                    pending_name.take();
                 }
             }
             "Tf" => {
                 if !operands.is_empty() {
                     font_size = *operands.last().unwrap();
                 }
-                if let Some(name) = extract_font_name(&tokens, i) {
-                    current_metrics = fonts.get(&name).cloned();
+                if let Some(name) = pending_name.as_ref() {
+                    current_metrics = fonts.get(name).cloned();
                 }
-                emit_operator(&mut out, "Tf", &operands);
+                emit!("Tf");
             }
             "Tm" => {
                 if operands.len() == 6 {
@@ -356,9 +495,9 @@ fn rewrite_stream(
                     text_matrix = n;
                     text_line_matrix = n;
                 }
-                emit_operator(&mut out, "Tm", &operands);
+                emit!("Tm");
             }
-            "Td" => {
+            "Td" | "TD" => {
                 if operands.len() == 2 {
                     let (tx, ty) = (operands[0], operands[1]);
                     let m = text_line_matrix;
@@ -372,23 +511,7 @@ fn rewrite_stream(
                     ];
                     text_matrix = text_line_matrix;
                 }
-                emit_operator(&mut out, "Td", &operands);
-            }
-            "TD" => {
-                if operands.len() == 2 {
-                    let (tx, ty) = (operands[0], operands[1]);
-                    let m = text_line_matrix;
-                    text_line_matrix = [
-                        m[0],
-                        m[1],
-                        m[2],
-                        m[3],
-                        m[0] * tx + m[2] * ty + m[4],
-                        m[1] * tx + m[3] * ty + m[5],
-                    ];
-                    text_matrix = text_line_matrix;
-                }
-                emit_operator(&mut out, "TD", &operands);
+                emit!(op);
             }
             "T*" => {
                 let m = text_line_matrix;
@@ -399,21 +522,22 @@ fn rewrite_stream(
             }
             "Tj" => {
                 if let Some(text) = extract_string(&tokens, i) {
-                    if in_text {
-                        let (x, y) = (text_matrix[4], text_matrix[5]);
-                        let masked = mask_string_partial(&text, x, y, font_size, current_metrics.as_ref(), regions);
-                        out.push('(');
-                        out.push_str(&masked);
-                        out.push(')');
-                        out.push_str(" Tj\n");
-                        let width = text_width(&text, font_size, current_metrics.as_ref());
-                        text_matrix[4] = x + width;
-                    } else {
-                        out.push('(');
-                        out.push_str(&text);
-                        out.push(')');
-                        out.push_str(" Tj\n");
-                    }
+                    // Mask text-showing operators even outside BT…ET:
+                    // such operators are invalid PDF but must not leak.
+                    let (x, y) = (text_matrix[4], text_matrix[5]);
+                    let masked = mask_string_partial(
+                        &text,
+                        x,
+                        y,
+                        font_size,
+                        current_metrics.as_ref(),
+                        regions,
+                    );
+                    out.push('(');
+                    out.push_str(&masked);
+                    out.push_str(") Tj\n");
+                    let width = text_width(&text, font_size, current_metrics.as_ref());
+                    text_matrix[4] = x + width;
                 }
             }
             "TJ" => {
@@ -424,18 +548,19 @@ fn rewrite_stream(
                     for item in items {
                         match item {
                             TjItem::Text(t) => {
-                                if in_text {
-                                    let masked = mask_string_partial(&t, x, y, font_size, current_metrics.as_ref(), regions);
-                                    out.push('(');
-                                    out.push_str(&masked);
-                                    out.push(')');
-                                    let width = text_width(&t, font_size, current_metrics.as_ref());
-                                    x += width;
-                                } else {
-                                    out.push('(');
-                                    out.push_str(&t);
-                                    out.push(')');
-                                }
+                                let masked = mask_string_partial(
+                                    &t,
+                                    x,
+                                    y,
+                                    font_size,
+                                    current_metrics.as_ref(),
+                                    regions,
+                                );
+                                out.push('(');
+                                out.push_str(&masked);
+                                out.push(')');
+                                let width = text_width(&t, font_size, current_metrics.as_ref());
+                                x += width;
                             }
                             TjItem::Kern(amount) => {
                                 out.push_str(&format!(" {} ", fmt_f(amount)));
@@ -454,13 +579,16 @@ fn rewrite_stream(
                     text_line_matrix = [m[0], m[1], m[2], m[3], m[4], new_ey];
                     text_matrix = text_line_matrix;
                     out.push_str("T*\n(");
-                    if in_text {
-                        let (x, y) = (text_matrix[4], text_matrix[5]);
-                        let masked = mask_string_partial(&text, x, y, font_size, current_metrics.as_ref(), regions);
-                        out.push_str(&masked);
-                    } else {
-                        out.push_str(&text);
-                    }
+                    let (x, y) = (text_matrix[4], text_matrix[5]);
+                    let masked = mask_string_partial(
+                        &text,
+                        x,
+                        y,
+                        font_size,
+                        current_metrics.as_ref(),
+                        regions,
+                    );
+                    out.push_str(&masked);
                     out.push_str(") Tj\n");
                 }
             }
@@ -471,14 +599,20 @@ fn rewrite_stream(
                 if op.starts_with('(') || op.starts_with('<') || op.starts_with('[') {
                     // Skip — handled by Tj/TJ arms.
                 } else {
-                    emit_operator(&mut out, op, &operands);
+                    emit!(op);
                 }
             }
         }
+        pending_name = None;
         operands.clear();
         i += 1;
     }
-    out
+    (out, removed_images)
+}
+
+/// Apply a 6-element affine matrix to a point.
+fn ctm_apply(m: &[f32; 6], x: f32, y: f32) -> (f32, f32) {
+    (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
 }
 
 /// Multiply two 2D affine matrices (6-element: a, b, c, d, e, f).
@@ -524,15 +658,6 @@ fn mask_string_partial(
     result
 }
 
-fn emit_operator(out: &mut String, op: &str, operands: &[f32]) {
-    for n in operands {
-        out.push_str(&fmt_f(*n));
-        out.push(' ');
-    }
-    out.push_str(op);
-    out.push('\n');
-}
-
 fn fmt_f(v: f32) -> String {
     let s = format!("{:.4}", v);
     s.trim_end_matches('0').trim_end_matches('.').to_string()
@@ -551,18 +676,9 @@ fn text_width(text: &str, font_size: f32, metrics: Option<&crate::search::FontMe
 
 // Re-use small subset of search.rs helpers.
 use crate::search::{
-    TjItem, collect_font_metrics as collect_font_metrics_search, decompress_stream,
-    extract_font_name as search_extract_font_name, extract_string as search_extract_string,
+    TjItem, collect_font_metrics, decompress_stream, extract_string as search_extract_string,
     extract_tj_array, is_deflate_stream, page_content_streams,
 };
-
-fn collect_font_metrics(doc: &PdfDocument) -> HashMap<String, crate::search::FontMetrics> {
-    collect_font_metrics_search(doc)
-}
-
-fn extract_font_name(tokens: &[String], i: usize) -> Option<String> {
-    search_extract_font_name(tokens, i)
-}
 
 fn extract_string(tokens: &[String], i: usize) -> Option<String> {
     search_extract_string(tokens, i)
@@ -750,5 +866,133 @@ mod tests {
         let translate = [1.0f32, 0.0, 0.0, 1.0, 100.0, 200.0];
         let result = matrix_multiply(&identity, &translate);
         assert_eq!(result, translate);
+    }
+
+    #[test]
+    fn rewrite_masks_text_outside_bt_et() {
+        // Text-showing operators outside BT…ET must still be masked.
+        let regions = [Rect {
+            x: 0.0,
+            y: 690.0,
+            width: 600.0,
+            height: 30.0,
+        }];
+        let src = "/F1 12 Tf\n1 0 0 1 100 700 Tm\n(SECRET outside) Tj\n";
+        let (out, removed) = rewrite_stream(
+            src,
+            &regions,
+            &HashMap::new(),
+            RedactionStyle::Strip,
+            &HashMap::new(),
+        );
+        assert!(removed.is_empty());
+        assert!(
+            !out.contains("SECRET"),
+            "text outside BT…ET must be masked: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_removes_intersecting_image_do_and_reports_name() {
+        // Image drawn at 100..300 x 100..200 via cm; region overlaps it.
+        let mut xobjects = HashMap::new();
+        xobjects.insert(
+            "Im0".to_string(),
+            XObjectInfo {
+                id: 9,
+                is_image: true,
+                is_form: false,
+            },
+        );
+        let regions = [Rect {
+            x: 150.0,
+            y: 120.0,
+            width: 100.0,
+            height: 50.0,
+        }];
+        let src = "q\n200 0 0 100 100 100 cm\n/Im0 Do\nQ\n";
+        let (out, removed) = rewrite_stream(
+            src,
+            &regions,
+            &HashMap::new(),
+            RedactionStyle::Strip,
+            &xobjects,
+        );
+        assert_eq!(removed, vec!["Im0".to_string()]);
+        assert!(!out.contains("/Im0 Do"), "image Do must be removed: {out}");
+    }
+
+    #[test]
+    fn rewrite_does_not_mangle_names_or_strings_before_do() {
+        // A '/' inside a string literal must not be mistaken for the Do operand.
+        let mut xobjects = HashMap::new();
+        xobjects.insert(
+            "Im0".to_string(),
+            XObjectInfo {
+                id: 9,
+                is_image: true,
+                is_form: false,
+            },
+        );
+        let regions = [Rect {
+            x: 150.0,
+            y: 120.0,
+            width: 100.0,
+            height: 50.0,
+        }];
+        let src = "BT\n(a/b) Tj\nET\nq\n200 0 0 100 100 100 cm\n/Im0 Do\nQ\n";
+        let (out, removed) = rewrite_stream(
+            src,
+            &regions,
+            &HashMap::new(),
+            RedactionStyle::Strip,
+            &xobjects,
+        );
+        assert_eq!(removed, vec!["Im0".to_string()]);
+        // The string operand must survive intact (no rfind('/') truncation).
+        assert!(out.contains("(a/b)"), "string operand must survive: {out}");
+    }
+
+    #[test]
+    fn redaction_removes_image_object_from_document() {
+        // Build a PDF with an embedded image, then redact over it.
+        let png_path = format!("{}/tests/fixtures/sample.png", env!("CARGO_MANIFEST_DIR"));
+        let elements = vec![crate::elements::Element::Image {
+            alt: "sample".to_string(),
+            path: png_path,
+        }];
+        let pdf = generate_pdf_bytes(&elements, "Helvetica", 12.0, PageLayout::portrait()).unwrap();
+        let is_image = |o: &PdfObject| {
+            matches!(o, PdfObject::Stream { dictionary, .. }
+                if dictionary.get("Subtype")
+                    .and_then(|v| match v {
+                        PdfValue::Object(PdfObject::Name(n)) => Some(n.as_str()),
+                        _ => None,
+                    })
+                    .is_some_and(|n| n == "Image"))
+        };
+        // Sanity: the original contains an image XObject.
+        let doc = PdfDocument::load_from_bytes(&pdf).unwrap();
+        if !doc.objects.values().any(&is_image) {
+            return; // fixture unavailable — skip rather than fail
+        }
+
+        // Cover the whole page.
+        let redacted = redact_pdf_bytes(
+            &pdf,
+            &[RedactionRegion {
+                page: 0,
+                x: 0.0,
+                y: 0.0,
+                width: 612.0,
+                height: 792.0,
+            }],
+        )
+        .unwrap();
+        let doc2 = PdfDocument::load_from_bytes(&redacted).unwrap();
+        assert!(
+            !doc2.objects.values().any(&is_image),
+            "image object must be removed from the document"
+        );
     }
 }

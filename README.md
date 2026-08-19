@@ -260,7 +260,7 @@ This tool is built with a modular architecture:
 - **Linearize / incremental** (`src/linearize.rs`, `src/incremental.rs`): Fast Web View; append-only updates
 - **Plugins** (`src/plugin.rs`): Parser/generator hooks (e.g. callouts)
 - **Compression** (`src/compression.rs`): PDF stream compression (deflate)
-- **Security** (`src/security.rs`): Password protection, permissions (stub crypto gated)
+- **Security** (`src/security.rs`): Spec-conformant PDF encryption (RC4 40/128-bit, AES-128, AES-256 R6) with random salts/IVs, permissions, digital signatures, certificate store
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec and backlog: [SPEC.md](SPEC.md), [TODO.md](TODO.md).
 

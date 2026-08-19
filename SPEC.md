@@ -174,7 +174,7 @@
 - **FR25.1**: `PdfSecurity` supports RC4 40-bit, RC4 128-bit, AES-128-CBC, and AES-256-CBC encryption per PDF 1.7 Standard Security Handler
 - **FR25.2**: Key derivation uses MD5 (RC4/AES-128) or SHA-256 (AES-256) with PDF standard 32-byte password padding
 - **FR25.3**: PKCS#7 padding for AES block cipher; deterministic IV derived from object number
-- **FR25.4**: `pdf_ops::security::protect_pdf` encrypts all stream and string objects, inserts `/Encrypt` dictionary, and patches the trailer
+- **FR25.4**: `pdf_ops::security::protect_pdf` encrypts all stream and string objects byte-safely, inserts `/Encrypt`, and rebuilds the xref table and trailer (fresh `/ID`, `startxref`, `%%EOF`); documents with object/xref streams are rejected with a clear error
 - **FR25.5**: Per-object encryption keys derived from the file encryption key + object/generation numbers
 
 #### FR26: Multi-Series Stacked Bar Charts
@@ -196,7 +196,7 @@
 - **FR27.6**: `POST /api/v1/redact` — redact regions in base64-encoded PDF (returns `application/pdf`)
 - **FR27.7**: `POST /api/v1/extract` — extract text from base64-encoded PDF (returns JSON)
 - **FR27.8**: `GET /api/v1/health` — health check endpoint
-- **FR27.9**: CORS enabled via `tower-http`
+- **FR27.9**: CORS is opt-in via `router_with_cors(state, cors)`; no permissive default. Request bodies are limited (`AppState.max_body`, 50 MB default, 413 on excess); heavy handlers run on the blocking pool
 - **FR27.10**: `api::serve(host, port)` starts the server; `api::router()` returns a standalone `Router`
 
 #### FR28: WASM Polish

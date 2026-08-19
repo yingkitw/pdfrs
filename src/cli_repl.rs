@@ -4,6 +4,17 @@ use pdfrs::optimization;
 use pdfrs::pdf;
 use regex::Regex;
 
+macro_rules! repl_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static Regex {
+            static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+            RE.get_or_init(|| Regex::new($pat).unwrap())
+        }
+    };
+}
+
+repl_regex!(re_page_type, r"/Type\s+/Page[^s]");
+
 /// Interactive REPL for PDF manipulation.
 ///
 /// Supports commands:
@@ -23,7 +34,7 @@ pub fn run_repl() {
     use std::io::{self, Write};
 
     let mut doc: Option<pdf::PdfDocument> = None;
-    let page_re = Regex::new(r"/Type\s+/Page[^s]").unwrap();
+    let page_re = re_page_type();
 
     println!("pdfrs PDF REPL — type 'help' for commands, 'quit' to exit.");
 

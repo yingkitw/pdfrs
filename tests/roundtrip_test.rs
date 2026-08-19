@@ -1178,7 +1178,10 @@ fn test_complex_examples_library_api_batch() {
         let stem = filename.replace(".md", "");
         let _ = fs::create_dir_all(&out_dir);
         let _ = fs::write(format!("{}/batch_{}_portrait.pdf", out_dir, stem), &bytes_p);
-        let _ = fs::write(format!("{}/batch_{}_landscape.pdf", out_dir, stem), &bytes_l);
+        let _ = fs::write(
+            format!("{}/batch_{}_landscape.pdf", out_dir, stem),
+            &bytes_l,
+        );
     }
 
     println!("=== PASSED: complex_examples_library_api_batch ===");

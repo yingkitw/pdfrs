@@ -23,16 +23,16 @@
 //!
 //! # #[tokio::main]
 //! # async fn main() {
-//! api::serve("0.0.0.0", 8080).await;
+//! api::serve("0.0.0.0", 8080).await.unwrap();
 //! # }
 //! ```
 
 use axum::{
+    Json, Router,
     extract::State,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
@@ -46,7 +46,9 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
-        Self { max_body: 50 * 1024 * 1024 }
+        Self {
+            max_body: 50 * 1024 * 1024,
+        }
     }
 }
 
@@ -63,9 +65,15 @@ pub struct GenerateRequest {
     pub portrait: bool,
 }
 
-fn default_font() -> String { "Helvetica".into() }
-fn default_font_size() -> f32 { 12.0 }
-fn default_true() -> bool { true }
+fn default_font() -> String {
+    "Helvetica".into()
+}
+fn default_font_size() -> f32 {
+    12.0
+}
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Serialize)]
 pub struct PdfResponse {
@@ -162,79 +170,141 @@ async fn generate_pdf(
     } else {
         crate::pdf_generator::PageLayout::landscape()
     };
-    match crate::pdf_generator::generate_pdf_bytes(&elements, &req.font, req.font_size, layout) {
-        Ok(pdf_bytes) => {
-            (
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, "application/pdf")],
-                pdf_bytes,
-            )
-                .into_response()
-        }
-        Err(e) => {
-            (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e.to_string() })).into_response()
-        }
+    let result = tokio::task::spawn_blocking(move || {
+        crate::pdf_generator::generate_pdf_bytes(&elements, &req.font, req.font_size, layout)
+    })
+    .await;
+    match result {
+        Ok(Ok(pdf_bytes)) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/pdf")],
+            pdf_bytes,
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("worker task failed: {e}"),
+            }),
+        )
+            .into_response(),
     }
 }
 
-async fn merge_pdfs(
-    State(_state): State<AppState>,
-    Json(req): Json<MergeRequest>,
-) -> Response {
+async fn merge_pdfs(State(_state): State<AppState>, Json(req): Json<MergeRequest>) -> Response {
     use base64::{Engine, engine::general_purpose};
     let mut pdfs = Vec::new();
     for b64 in &req.pdfs {
         match general_purpose::STANDARD.decode(b64) {
             Ok(data) => pdfs.push(data),
             Err(e) => {
-                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("Invalid base64: {e}") })).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Invalid base64: {e}"),
+                    }),
+                )
+                    .into_response();
             }
         }
     }
-    match crate::pdf_ops::merge_pdfs_from_bytes(&pdfs) {
-        Ok(merged) => {
-            (StatusCode::OK, [(header::CONTENT_TYPE, "application/pdf")], merged).into_response()
-        }
-        Err(e) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })).into_response()
-        }
+    let result =
+        tokio::task::spawn_blocking(move || crate::pdf_ops::merge_pdfs_from_bytes(&pdfs)).await;
+    match result {
+        Ok(Ok(merged)) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/pdf")],
+            merged,
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("worker task failed: {e}"),
+            }),
+        )
+            .into_response(),
     }
 }
 
-async fn split_pdf(
-    State(_state): State<AppState>,
-    Json(req): Json<SplitRequest>,
-) -> Response {
+async fn split_pdf(State(_state): State<AppState>, Json(req): Json<SplitRequest>) -> Response {
     use base64::{Engine, engine::general_purpose};
     let pdf = match general_purpose::STANDARD.decode(&req.pdf) {
         Ok(d) => d,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("Invalid base64: {e}") })).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid base64: {e}"),
+                }),
+            )
+                .into_response();
+        }
     };
-    match crate::pdf_ops::split_pdf_from_bytes(&pdf) {
-        Ok(pages) => {
+    let result =
+        tokio::task::spawn_blocking(move || crate::pdf_ops::split_pdf_from_bytes(&pdf)).await;
+    match result {
+        Ok(Ok(pages)) => {
             // Return each page as base64 in a JSON array
             let encoded: Vec<String> = pages
                 .iter()
                 .map(|p| general_purpose::STANDARD.encode(p))
                 .collect();
-            (StatusCode::OK, Json(serde_json::json!({ "pages": encoded }))).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "pages": encoded })),
+            )
+                .into_response()
         }
-        Err(e) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })).into_response()
-        }
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("worker task failed: {e}"),
+            }),
+        )
+            .into_response(),
     }
 }
 
-async fn search_pdf(
-    State(_state): State<AppState>,
-    Json(req): Json<SearchRequest>,
-) -> Response {
+async fn search_pdf(State(_state): State<AppState>, Json(req): Json<SearchRequest>) -> Response {
     use base64::{Engine, engine::general_purpose};
     let pdf = match general_purpose::STANDARD.decode(&req.pdf) {
         Ok(d) => d,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("Invalid base64: {e}") })).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid base64: {e}"),
+                }),
+            )
+                .into_response();
+        }
     };
-    let hits = crate::search::search_text(&pdf, &req.query, false);
+    let hits =
+        tokio::task::spawn_blocking(move || crate::search::search_text(&pdf, &req.query, false))
+            .await
+            .unwrap_or_default();
     let total = hits.len();
     let dtos: Vec<SearchHitDto> = hits
         .iter()
@@ -247,17 +317,29 @@ async fn search_pdf(
             height: h.bbox.height,
         })
         .collect();
-    (StatusCode::OK, Json(SearchResponse { total_hits: total, hits: dtos })).into_response()
+    (
+        StatusCode::OK,
+        Json(SearchResponse {
+            total_hits: total,
+            hits: dtos,
+        }),
+    )
+        .into_response()
 }
 
-async fn redact_pdf(
-    State(_state): State<AppState>,
-    Json(req): Json<RedactRequest>,
-) -> Response {
+async fn redact_pdf(State(_state): State<AppState>, Json(req): Json<RedactRequest>) -> Response {
     use base64::{Engine, engine::general_purpose};
     let pdf = match general_purpose::STANDARD.decode(&req.pdf) {
         Ok(d) => d,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("Invalid base64: {e}") })).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid base64: {e}"),
+                }),
+            )
+                .into_response();
+        }
     };
     let regions: Vec<crate::redact::RedactionRegion> = req
         .regions
@@ -270,37 +352,78 @@ async fn redact_pdf(
             height: r.height,
         })
         .collect();
-    match crate::redact::redact_pdf_bytes(&pdf, &regions) {
-        Ok(redacted) => {
-            (StatusCode::OK, [(header::CONTENT_TYPE, "application/pdf")], redacted).into_response()
-        }
-        Err(e) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })).into_response()
-        }
+    let result =
+        tokio::task::spawn_blocking(move || crate::redact::redact_pdf_bytes(&pdf, &regions)).await;
+    match result {
+        Ok(Ok(redacted)) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/pdf")],
+            redacted,
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("worker task failed: {e}"),
+            }),
+        )
+            .into_response(),
     }
 }
 
-async fn extract_text(
-    State(_state): State<AppState>,
-    Json(req): Json<ExtractRequest>,
-) -> Response {
+async fn extract_text(State(_state): State<AppState>, Json(req): Json<ExtractRequest>) -> Response {
     use base64::{Engine, engine::general_purpose};
     let pdf = match general_purpose::STANDARD.decode(&req.pdf) {
         Ok(d) => d,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("Invalid base64: {e}") })).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid base64: {e}"),
+                }),
+            )
+                .into_response();
+        }
     };
-    let doc = match crate::pdf::PdfDocument::load_from_bytes(&pdf) {
-        Ok(d) => d,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e.to_string() })).into_response(),
-    };
-    let text = doc.get_text().unwrap_or_default();
-    let pages = crate::search::collect_pages_from_doc(&doc, Some(&pdf)).len();
-    (StatusCode::OK, Json(ExtractResponse { text, pages })).into_response()
+    let result = tokio::task::spawn_blocking(move || {
+        let doc = crate::pdf::PdfDocument::load_from_bytes(&pdf)?;
+        let text = doc.get_text().unwrap_or_default();
+        let pages = crate::search::collect_pages_from_doc(&doc, None).len();
+        Ok::<_, anyhow::Error>(ExtractResponse { text, pages })
+    })
+    .await;
+    match result {
+        Ok(Ok(resp)) => (StatusCode::OK, Json(resp)).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("worker task failed: {e}"),
+            }),
+        )
+            .into_response(),
+    }
 }
 
 // ----- Server setup ----------------------------------------------------------
 
-/// Build the axum router with all endpoints.
+/// Build the axum router with all endpoints and default state.
+///
+/// No CORS layer is applied by default; use [`router_with_cors`] to attach
+/// an explicitly configured policy (e.g. a specific origin allow-list).
 pub fn router() -> Router {
     router_with_state(AppState::default())
 }
@@ -315,8 +438,15 @@ pub fn router_with_state(state: AppState) -> Router {
         .route("/api/v1/search", post(search_pdf))
         .route("/api/v1/redact", post(redact_pdf))
         .route("/api/v1/extract", post(extract_text))
-        .layer(CorsLayer::permissive())
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            state.max_body,
+        ))
         .with_state(state)
+}
+
+/// Build the router with an explicit CORS policy.
+pub fn router_with_cors(state: AppState, cors: CorsLayer) -> Router {
+    router_with_state(state).layer(cors)
 }
 
 /// Start the API server on the given host and port.
@@ -324,17 +454,14 @@ pub fn router_with_state(state: AppState) -> Router {
 /// ```rust,no_run
 /// # #[tokio::main]
 /// # async fn main() {
-/// pdfrs::api::serve("0.0.0.0", 8080).await;
+/// pdfrs::api::serve("0.0.0.0", 8080).await.unwrap();
 /// # }
 /// ```
-pub async fn serve(host: &str, port: u16) {
+pub async fn serve(host: &str, port: u16) -> anyhow::Result<()> {
     let addr = format!("{host}:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap_or_else(|e| {
-        eprintln!("Failed to bind {addr}: {e}");
-        std::process::exit(1);
-    });
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
     println!("pdfrs API listening on http://{addr}");
-    axum::serve(listener, router()).await.unwrap();
+    Ok(axum::serve(listener, router()).await?)
 }
 
 #[cfg(test)]
@@ -349,7 +476,12 @@ mod tests {
     async fn test_health_endpoint() {
         let app = router();
         let resp = app
-            .oneshot(Request::builder().uri("/api/v1/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -387,7 +519,8 @@ mod tests {
         // Generate a small PDF first
         let elements = crate::elements::parse_markdown("# Test\n\nExtract me");
         let layout = crate::pdf_generator::PageLayout::portrait();
-        let pdf_bytes = crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
         let b64 = base64::engine::general_purpose::STANDARD.encode(&pdf_bytes);
 
         let app = router();
@@ -404,5 +537,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_body_limit_rejects_oversized_requests() {
+        let state = AppState { max_body: 1024 };
+        let app = router_with_state(state);
+        let big = "x".repeat(4096);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({ "markdown": big }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

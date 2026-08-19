@@ -317,7 +317,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `src/streaming.rs` — memory-efficient streaming generation
 - `src/optimization.rs` — web/print/archive/ebook profiles
 - `src/vector.rs` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`)
-- `src/security.rs` — PDF Standard Security Handler with RC4 40/128-bit and AES-128/256-CBC encryption/decryption; MD5/SHA-256 key derivation; PKCS#7 padding for AES; `protect_pdf` encrypts streams + strings with `/Encrypt` dictionary
+- `src/security.rs` — PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass
 
 ### 15b. Rasterization (`src/raster.rs`)
 
@@ -389,7 +389,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `api::router()` — get a standalone `Router` for embedding
 - `api::router_with_state(AppState)` — custom state (e.g. max body size)
 
-**Design**: CORS enabled via `tower-http`; PDFs exchanged as base64 in JSON; binary PDF responses use `application/pdf` content type. Byte-based helpers `merge_pdfs_from_bytes` and `split_pdf_from_bytes` added to `pdf_ops` for filesystem-free operation.
+**Design**: PDFs exchanged as base64 in JSON; binary PDF responses use `application/pdf` content type. Request bodies limited by `RequestBodyLimitLayer` (`AppState.max_body`, 50 MB default); CPU-heavy handlers offloaded via `tokio::task::spawn_blocking`; CORS is opt-in through `router_with_cors` (no permissive default). Byte-based helpers `merge_pdfs_from_bytes` and `split_pdf_from_bytes` added to `pdf_ops` for filesystem-free operation.
 
 ### 15g. WASM Bindings (`src/wasm.rs` + `wasm/`)
 

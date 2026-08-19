@@ -4,7 +4,6 @@
 //! navigating objects, extracting text with [`PdfDocument::get_text`], validating
 //! structure, and comparing documents with [`diff_pdf_bytes`].
 
-use crate::compression;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::fs;
@@ -1105,20 +1104,8 @@ impl PdfDocument {
 }
 
 /// Check if bytes form a valid zlib header (CMF=0x78, FLG satisfies checksum)
-fn is_zlib_header(b0: u8, b1: u8) -> bool {
-    b0 == 0x78 && ((b0 as u16) * 256 + (b1 as u16)).is_multiple_of(31)
-}
-
-/// Decompress stream data if it appears to be deflate-compressed
 fn decompress_stream(data: &[u8]) -> Vec<u8> {
-    if data.len() > 2 && is_zlib_header(data[0], data[1]) {
-        match compression::decompress_deflate(data) {
-            Ok(decompressed) => decompressed,
-            Err(_) => data.to_vec(),
-        }
-    } else {
-        data.to_vec()
-    }
+    crate::search::decompress_stream(data)
 }
 
 // --- Object parsing ---
@@ -1736,7 +1723,8 @@ pub(crate) fn decode_pdf_hex_string_with_map(
 pub(crate) fn collect_tounicode_gid_map(doc: &PdfDocument) -> HashMap<u16, char> {
     let mut map = HashMap::new();
     static PAIR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let pair_re = PAIR_RE.get_or_init(|| regex::Regex::new(r"<([0-9A-Fa-f]{4})>\s*<([0-9A-Fa-f]+)>").unwrap());
+    let pair_re = PAIR_RE
+        .get_or_init(|| regex::Regex::new(r"<([0-9A-Fa-f]{4})>\s*<([0-9A-Fa-f]+)>").unwrap());
     for obj in doc.objects.values() {
         let PdfObject::Stream { data, .. } = obj else {
             continue;

@@ -5,6 +5,24 @@ use std::fs;
 
 use sha2::{Digest, Sha256};
 
+macro_rules! security_regex {
+    ($name:ident, $pat:literal) => {
+        fn $name() -> &'static regex::Regex {
+            static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            RE.get_or_init(|| regex::Regex::new($pat).unwrap())
+        }
+    };
+}
+
+security_regex!(re_sig_obj, r"(?s)(\d+)\s+0\s+obj\s+<<(.+?)>>\s+endobj");
+security_regex!(re_root_ref, r"/Root\s+(\d+\s+\d+\s+R)");
+security_regex!(re_info_ref, r"/Info\s+(\d+\s+\d+\s+R)");
+security_regex!(
+    re_catalog_obj,
+    r"(?s)(\d+)\s+(\d+)\s+obj\s*(<<.*?/Type\s*/Catalog.*?>>)"
+);
+security_regex!(re_acroform, r"/AcroForm\s+<<[^>]*>>");
+
 /// Apply password protection and permissions to a PDF.
 ///
 /// This function adds security settings to a PDF document, including password protection
@@ -60,194 +78,445 @@ pub fn protect_pdf(
 }
 
 /// Encrypt a PDF in memory: encrypts all stream and string objects, appends
-/// the `/Encrypt` dictionary, and rewrites the xref/trailer.
+/// the `/Encrypt` dictionary, and rebuilds the xref table and trailer.
+///
+/// Operates on raw bytes end-to-end (no UTF-8 lossy conversion), so binary
+/// streams survive intact. Documents using cross-reference streams or object
+/// streams are rejected with an error rather than silently corrupted.
 pub fn encrypt_pdf_bytes(
     pdf_bytes: &[u8],
     security: &crate::security::PdfSecurity,
 ) -> Result<Vec<u8>> {
+    let mut doc_id = [0u8; 16];
+    crate::security::random_bytes(&mut doc_id)?;
+    Ok(encrypt_pdf_bytes_with_id(pdf_bytes, security, doc_id)?.0)
+}
+
+/// Like [`encrypt_pdf_bytes`], but returns the generated file key alongside
+/// the encrypted document and accepts an explicit document `/ID`.
+pub fn encrypt_pdf_bytes_with_id(
+    pdf_bytes: &[u8],
+    security: &crate::security::PdfSecurity,
+    doc_id: [u8; 16],
+) -> Result<(Vec<u8>, crate::security::EncryptionMaterials)> {
     security.validate()?;
     if !security.is_protected() {
-        return Ok(pdf_bytes.to_vec());
+        return Ok((
+            pdf_bytes.to_vec(),
+            crate::security::EncryptionMaterials {
+                file_key: Vec::new(),
+                encrypt_dict: String::new(),
+            },
+        ));
     }
 
-    let file_key = security.generate_encryption_key()?;
-    let encrypt_dict = security.create_encryption_dict()?;
-
-    let text = String::from_utf8_lossy(pdf_bytes).to_string();
-
-    // Find all stream objects: "N G obj ... stream\n<data>\nendstream ... endobj"
-    // We encrypt stream data and string literals within objects.
-    let obj_re = regex::Regex::new(
-        r"(?s)(\d+)\s+(\d+)\s+obj\s+(.*?)(stream\r?\n(.*?)\r?\nendstream\s+)?endobj",
-    )
-    .unwrap();
-
-    let mut output = Vec::with_capacity(pdf_bytes.len() + 512);
-    let mut last_end = 0usize;
-    let mut max_obj_num = 0u32;
-
-    // First pass: find max object number
-    for caps in obj_re.captures_iter(&text) {
-        let obj_num: u32 = caps[1].parse().unwrap_or(0);
-        if obj_num > max_obj_num {
-            max_obj_num = obj_num;
+    let objects = scan_pdf_objects(pdf_bytes)?;
+    for obj in &objects {
+        let dict = obj.dict_slice(pdf_bytes);
+        if dict.windows(b"/ObjStm".len()).any(|w| w == b"/ObjStm")
+            || dict
+                .windows(b"/Type /XRef".len())
+                .any(|w| w == b"/Type /XRef")
+            || dict
+                .windows(b"/Type/XRef".len())
+                .any(|w| w == b"/Type/XRef")
+        {
+            return Err(anyhow!(
+                "encryption of documents using object streams or cross-reference streams is not supported yet"
+            ));
         }
     }
-    let encrypt_obj_num = max_obj_num + 1;
 
-    // Second pass: rewrite with encrypted streams/strings
-    for caps in obj_re.captures_iter(&text) {
-        let m = caps.get(0).unwrap();
-        output.extend_from_slice(&pdf_bytes[last_end..m.start()]);
+    let (root_ref, info_ref) = parse_trailer_refs(pdf_bytes)?;
 
-        let obj_num: u32 = caps[1].parse().unwrap_or(0);
-        let gen_num: u16 = caps[2].parse().unwrap_or(0);
+    let materials = security.generate_encryption_materials(&doc_id)?;
+    let id_hex: String = doc_id.iter().map(|b| format!("{b:02x}")).collect();
 
-        // Skip the encryption dictionary object itself (if re-encrypting)
-        // Don't encrypt object 0 (free) or the encrypt object
-        if obj_num == 0 {
-            output.extend_from_slice(m.as_str().as_bytes());
-            last_end = m.end();
+    // Rebuild the file: header, all objects (encrypted), /Encrypt object,
+    // fresh xref table, and a new trailer.
+    let mut max_obj = 0u32;
+    for obj in &objects {
+        max_obj = max_obj.max(obj.num);
+    }
+    let encrypt_obj_num = max_obj + 1;
+
+    let header_end = objects.first().map(|o| o.header_start).unwrap_or(0);
+    let mut out = Vec::with_capacity(pdf_bytes.len() + 1024);
+    out.extend_from_slice(&pdf_bytes[..header_end]);
+    if !out.is_empty() && out.last() != Some(&b'\n') {
+        out.push(b'\n');
+    }
+
+    let mut offsets: std::collections::BTreeMap<u32, u64> = std::collections::BTreeMap::new();
+    for obj in &objects {
+        if obj.num == 0 {
+            continue;
+        }
+        offsets.insert(obj.num, out.len() as u64);
+        out.extend_from_slice(format!("{} {} obj", obj.num, obj.generation).as_bytes());
+        match obj.stream {
+            None => {
+                let dict_bytes = &pdf_bytes[obj.header_end..obj.body_end - 6];
+                let encrypted = encrypt_strings_in_dict(
+                    dict_bytes,
+                    security,
+                    &materials.file_key,
+                    obj.num,
+                    obj.generation,
+                )?;
+                out.extend_from_slice(&encrypted);
+                out.extend_from_slice(b"endobj\n");
+            }
+            Some(ref stream) => {
+                let dict_bytes = &pdf_bytes[obj.header_end..stream.keyword_start];
+                let raw_stream = &pdf_bytes[stream.data_start..stream.data_end];
+                let encrypted = security.encrypt_data(
+                    raw_stream,
+                    &materials.file_key,
+                    obj.num,
+                    obj.generation,
+                )?;
+                let mut dict = rewrite_stream_length(dict_bytes, encrypted.len());
+                if dict.last() != Some(&b'\n') && dict.last() != Some(&b' ') {
+                    dict.push(b'\n');
+                }
+                out.extend_from_slice(&dict);
+                out.extend_from_slice(b"stream\n");
+                out.extend_from_slice(&encrypted);
+                out.extend_from_slice(b"\nendstream\nendobj\n");
+            }
+        }
+    }
+
+    offsets.insert(encrypt_obj_num, out.len() as u64);
+    out.extend_from_slice(
+        format!(
+            "{} 0 obj\n{}\nendobj\n",
+            encrypt_obj_num, materials.encrypt_dict
+        )
+        .as_bytes(),
+    );
+
+    // xref table with contiguous subsections; holes become free entries.
+    let xref_start = out.len() as u64;
+    let mut xref = String::from("xref\n0 1\n0000000000 65535 f \n");
+    let mut nums: Vec<u32> = offsets.keys().copied().collect();
+    nums.sort_unstable();
+    let mut i = 0;
+    while i < nums.len() {
+        let run_start = nums[i];
+        let mut j = i;
+        while j + 1 < nums.len() && nums[j + 1] == nums[j] + 1 {
+            j += 1;
+        }
+        let count = nums[j] - run_start + 1;
+        xref.push_str(&format!("{run_start} {count}\n"));
+        for n in run_start..=nums[j] {
+            match offsets.get(&n) {
+                Some(&off) => xref.push_str(&format!("{off:010} 00000 n \n")),
+                None => xref.push_str("0000000000 65535 f \n"),
+            }
+        }
+        i = j + 1;
+    }
+    out.extend_from_slice(xref.as_bytes());
+
+    let size = encrypt_obj_num + 1;
+    let mut trailer =
+        format!("trailer\n<< /Size {size}\n/Encrypt {encrypt_obj_num} 0 R\n/Root {root_ref}");
+    if let Some(ref info) = info_ref {
+        trailer.push_str(&format!("\n/Info {info}"));
+    }
+    trailer.push_str(&format!(
+        "\n/ID <{id_hex}> <{id_hex}>\n>>\nstartxref\n{xref_start}\n%%EOF\n"
+    ));
+    out.extend_from_slice(trailer.as_bytes());
+
+    Ok((out, materials))
+}
+
+/// A scanned `N G obj ... endobj` object with byte-precise extents.
+struct RawObject {
+    num: u32,
+    generation: u16,
+    header_start: usize,
+    /// Just after the `obj` keyword.
+    header_end: usize,
+    /// Just after `endobj`.
+    body_end: usize,
+    stream: Option<StreamSpan>,
+}
+
+struct StreamSpan {
+    /// Position of the `stream` keyword.
+    keyword_start: usize,
+    data_start: usize,
+    data_end: usize,
+}
+
+impl RawObject {
+    fn dict_slice<'a>(&self, bytes: &'a [u8]) -> &'a [u8] {
+        match self.stream {
+            Some(ref s) => &bytes[self.header_end..s.keyword_start],
+            None => &bytes[self.header_end..self.body_end],
+        }
+    }
+}
+
+fn find_from(bytes: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    if from >= bytes.len() {
+        return None;
+    }
+    bytes[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| p + from)
+}
+
+/// Scan `N G obj ... endobj` objects sequentially, using direct `/Length`
+/// values to locate stream boundaries in binary data.
+fn scan_pdf_objects(bytes: &[u8]) -> Result<Vec<RawObject>> {
+    let header_re = regex::bytes::Regex::new(r"(\d+)[\x20\t\r\n]+(\d+)[\x20\t\r\n]+obj").unwrap();
+    let mut objects = Vec::new();
+    let mut pos = 0usize;
+    while pos < bytes.len() {
+        let Some(m) = header_re.find_at(bytes, pos) else {
+            break;
+        };
+        let whole = &bytes[m.start()..m.end()];
+        let fields: Vec<&[u8]> = whole
+            .split(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
+            .filter(|f| !f.is_empty())
+            .collect();
+        if fields.len() < 3 {
+            pos = m.end();
+            continue;
+        }
+        let num: u32 = std::str::from_utf8(fields[0])
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0);
+        let generation: u16 = std::str::from_utf8(fields[1])
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0);
+        if num == 0 {
+            pos = m.end();
             continue;
         }
 
-        if let Some(stream_data) = caps.get(5) {
-            // This object has a stream — encrypt the stream data
-            let dict_part = &caps[3];
-            let raw_stream = stream_data.as_str();
+        let endobj = find_from(bytes, b"endobj", m.end());
+        let stream_kw = find_standalone_stream_kw(bytes, m.end());
 
-            let stream_bytes = raw_stream.as_bytes().to_vec();
+        let (stream, body_end) = match (endobj, stream_kw) {
+            (Some(eo), Some(sk)) if sk < eo => {
+                let dict = &bytes[m.end()..sk];
+                let mut data_start = sk + 6;
+                if bytes.get(data_start) == Some(&b'\r') {
+                    data_start += 1;
+                }
+                if bytes.get(data_start) == Some(&b'\n') {
+                    data_start += 1;
+                }
+                let data_end = match stream_data_end_via_length(bytes, dict, data_start) {
+                    Some(end) => end,
+                    None => {
+                        let es = find_from(bytes, b"endstream", data_start)
+                            .ok_or_else(|| anyhow!("unterminated stream in object {num}"))?;
+                        strip_trailing_eol(bytes, es)
+                    }
+                };
+                let after_data = find_from(bytes, b"endstream", data_end)
+                    .ok_or_else(|| anyhow!("missing endstream in object {num}"))?;
+                let end = find_from(bytes, b"endobj", after_data)
+                    .ok_or_else(|| anyhow!("missing endobj for object {num}"))?
+                    + 6;
+                (
+                    Some(StreamSpan {
+                        keyword_start: sk,
+                        data_start,
+                        data_end,
+                    }),
+                    end,
+                )
+            }
+            (Some(eo), _) => (None, eo + 6),
+            (None, _) => {
+                return Err(anyhow!("unterminated object near offset {}", m.start()));
+            }
+        };
 
-            let encrypted = security.encrypt_data(&stream_bytes, &file_key, obj_num, gen_num)?;
-
-            // Rebuild the object with encrypted stream
-            let new_obj = format!(
-                "{} {} obj{}stream\n",
-                obj_num, gen_num, dict_part
-            );
-            output.extend_from_slice(new_obj.as_bytes());
-            output.extend_from_slice(&encrypted);
-            output.extend_from_slice(b"\nendstream\nendobj");
-        } else {
-            // No stream — encrypt string literals in the dictionary
-            let dict_text = &caps[3];
-            let encrypted_dict = encrypt_strings_in_dict(dict_text, security, &file_key, obj_num, gen_num);
-            let new_obj = format!("{} {} obj{}endobj", obj_num, gen_num, encrypted_dict);
-            output.extend_from_slice(new_obj.as_bytes());
-        }
-
-        last_end = m.end();
+        objects.push(RawObject {
+            num,
+            generation,
+            header_start: m.start(),
+            header_end: m.end(),
+            body_end,
+            stream,
+        });
+        pos = body_end;
     }
-    output.extend_from_slice(&pdf_bytes[last_end..]);
-
-    // Now append the /Encrypt object and rewrite trailer
-    // Find the trailer and add /Encrypt reference
-    let output_str = String::from_utf8_lossy(&output).to_string();
-
-    // Find startxref position
-    let startxref_idx = output_str.rfind("startxref").unwrap_or(output.len());
-    let xref_offset_pos = output_str[..startxref_idx]
-        .rfind("xref")
-        .unwrap_or(0);
-
-    // Build the encrypt object
-    let encrypt_obj = format!(
-        "{} 0 obj\n{}\nendobj\n",
-        encrypt_obj_num, encrypt_dict
-    );
-
-    // Insert encrypt object before xref
-    let mut final_output = Vec::new();
-    final_output.extend_from_slice(&output[..xref_offset_pos]);
-    final_output.extend_from_slice(encrypt_obj.as_bytes());
-
-    // Rewrite xref to include the new object
-    let trailer_part = &output_str[xref_offset_pos..];
-    let xref_end = trailer_part.find("trailer").unwrap_or(trailer_part.len());
-
-    // Add /Encrypt to trailer
-    let trailer_start = xref_offset_pos + xref_end;
-    let trailer_text = &output_str[trailer_start..];
-
-    // Insert /Encrypt reference into trailer dict
-    let mut new_trailer = trailer_text.replacen(
-        "<<",
-        &format!("<< /Encrypt {} 0 R", encrypt_obj_num),
-        1,
-    );
-
-    // Update /Size in trailer
-    let size_re = regex::Regex::new(r"/Size\s+(\d+)").unwrap();
-    if let Some(size_cap) = size_re.captures(&new_trailer) {
-        let old_size: u32 = size_cap[1].parse().unwrap_or(0);
-        let new_size = old_size.max(encrypt_obj_num + 1);
-        new_trailer = new_trailer.replacen(
-            &format!("/Size {}", old_size),
-            &format!("/Size {}", new_size),
-            1,
-        );
-    }
-
-    final_output.extend_from_slice(&output[xref_offset_pos..trailer_start]);
-    final_output.extend_from_slice(new_trailer.as_bytes());
-
-    Ok(final_output)
+    Ok(objects)
 }
 
-/// Encrypt PDF string literals `(text)` within a dictionary.
+/// Find the next `stream` keyword that stands alone (whitespace before,
+/// end-of-line after) — avoids matching the word inside stream data.
+fn find_standalone_stream_kw(bytes: &[u8], from: usize) -> Option<usize> {
+    let mut search = from;
+    while let Some(p) = find_from(bytes, b"stream", search) {
+        let before_ok = p > 0 && bytes[p - 1].is_ascii_whitespace();
+        let after = p + 6;
+        let after_ok = matches!(bytes.get(after), Some(b'\r') | Some(b'\n'));
+        if before_ok && after_ok {
+            return Some(p);
+        }
+        search = p + 6;
+    }
+    None
+}
+
+/// Resolve the stream data end using a direct `/Length` integer, verifying
+/// that `endstream` actually follows. Returns `None` to fall back to a scan.
+fn stream_data_end_via_length(bytes: &[u8], dict: &[u8], data_start: usize) -> Option<usize> {
+    let re = regex::bytes::Regex::new(r"/Length\s+(\d+)").ok()?;
+    let caps = re.captures(dict)?;
+    let len: usize = std::str::from_utf8(&caps[1]).ok()?.parse().ok()?;
+    let end = data_start.checked_add(len)?;
+    let after = &bytes[end.min(bytes.len())..];
+    let ws = after
+        .iter()
+        .take_while(|&&b| b == b'\r' || b == b'\n')
+        .count();
+    if after[ws..].starts_with(b"endstream") {
+        Some(end)
+    } else {
+        None
+    }
+}
+
+fn strip_trailing_eol(bytes: &[u8], endstream_pos: usize) -> usize {
+    let mut end = endstream_pos;
+    if end > 0 && bytes[end - 1] == b'\n' {
+        end -= 1;
+    }
+    if end > 0 && bytes[end - 1] == b'\r' {
+        end -= 1;
+    }
+    end
+}
+
+/// Extract `/Root` and `/Info` references from a classic `trailer` dict.
+fn parse_trailer_refs(bytes: &[u8]) -> Result<(String, Option<String>)> {
+    let sx = find_from(bytes, b"startxref", 0)
+        .ok_or_else(|| anyhow!("no startxref found in document"))?;
+    let trailer_kw = find_from(bytes, b"trailer", 0)
+        .filter(|&t| t < sx)
+        .ok_or_else(|| anyhow!("no trailer dictionary found (cross-reference stream document?)"))?;
+    let dict_re = regex::bytes::Regex::new(r"(?s)<<(.+?)>>").unwrap();
+    let region = &bytes[trailer_kw..sx];
+    let dict = dict_re
+        .captures(region)
+        .map(|c| c[1].to_vec())
+        .ok_or_else(|| anyhow!("malformed trailer dictionary"))?;
+    let dict_text = String::from_utf8_lossy(&dict).to_string();
+    let root_re = re_root_ref();
+    let root = root_re
+        .captures(&dict_text)
+        .map(|c| c[1].to_string())
+        .ok_or_else(|| anyhow!("trailer has no /Root reference"))?;
+    let info_re = re_info_ref();
+    let info = info_re.captures(&dict_text).map(|c| c[1].to_string());
+    Ok((root, info))
+}
+
+/// Replace a stream dictionary `/Length` entry with a new direct value.
+fn rewrite_stream_length(dict: &[u8], new_len: usize) -> Vec<u8> {
+    let re = regex::bytes::Regex::new(r"(/Length\s+)\d+(?:\s+\d+\s+R)?").unwrap();
+    re.replace_all(dict, format!("${{1}}{new_len}").as_bytes())
+        .into_owned()
+}
+
+/// Encrypt PDF literal string `(...)` values within an object dictionary,
+/// re-emitting them as hex strings. Handles escape sequences and nesting.
 fn encrypt_strings_in_dict(
-    dict: &str,
+    dict: &[u8],
     security: &crate::security::PdfSecurity,
     file_key: &[u8],
     obj_num: u32,
     gen_num: u16,
-) -> String {
-    let mut result = String::with_capacity(dict.len());
-    let mut chars = dict.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '(' {
-            // Find matching close paren
-            let start = result.len();
-            result.push('(');
-            let mut depth = 1;
-            let mut string_content = String::new();
-            while let Some(&next) = chars.peek() {
-                if next == '(' && !string_content.ends_with('\\') {
-                    depth += 1;
-                } else if next == ')' && !string_content.ends_with('\\') {
-                    depth -= 1;
-                    if depth == 0 {
-                        chars.next();
-                        break;
-                    }
-                }
-                string_content.push(next);
-                chars.next();
-            }
-
-            // Encrypt the string content
-            if security.is_protected() {
-                if let Ok(encrypted) = security.encrypt_data(string_content.as_bytes(), file_key, obj_num, gen_num) {
-                    // Write as hex string <...> for binary safety
-                    result.truncate(start);
-                    result.push('<');
-                    for b in &encrypted {
-                        result.push_str(&format!("{:02x}", b));
-                    }
-                    result.push('>');
-                } else {
-                    result.push_str(&string_content);
-                    result.push(')');
-                }
-            } else {
-                result.push_str(&string_content);
-                result.push(')');
-            }
-        } else {
-            result.push(c);
+) -> Result<Vec<u8>> {
+    let mut out = Vec::with_capacity(dict.len());
+    let mut i = 0usize;
+    while i < dict.len() {
+        if dict[i] != b'(' {
+            out.push(dict[i]);
+            i += 1;
+            continue;
         }
+        // Scan the literal string, decoding escapes into raw bytes.
+        let mut depth = 1usize;
+        let mut raw = Vec::new();
+        i += 1;
+        while i < dict.len() && depth > 0 {
+            let c = dict[i];
+            if c == b'\\' && i + 1 < dict.len() {
+                let n = dict[i + 1];
+                match n {
+                    b'n' => raw.push(b'\n'),
+                    b'r' => raw.push(b'\r'),
+                    b't' => raw.push(b'\t'),
+                    b'b' => raw.push(0x08),
+                    b'f' => raw.push(0x0C),
+                    b'(' => raw.push(b'('),
+                    b')' => raw.push(b')'),
+                    b'\\' => raw.push(b'\\'),
+                    b'0'..=b'7' => {
+                        let mut val = 0u32;
+                        let mut used = 0;
+                        let mut j = i + 1;
+                        while used < 3 && j < dict.len() && (b'0'..=b'7').contains(&dict[j]) {
+                            val = val * 8 + u32::from(dict[j] - b'0');
+                            j += 1;
+                            used += 1;
+                        }
+                        raw.push((val & 0xFF) as u8);
+                        i = j - 2;
+                    }
+                    b'\r' => {
+                        if dict.get(i + 2) == Some(&b'\n') {
+                            i += 1;
+                        }
+                    }
+                    b'\n' => {}
+                    other => raw.push(other),
+                }
+                i += 2;
+            } else if c == b'(' {
+                depth += 1;
+                raw.push(c);
+                i += 1;
+            } else if c == b')' {
+                depth -= 1;
+                if depth > 0 {
+                    raw.push(c);
+                }
+                i += 1;
+            } else {
+                raw.push(c);
+                i += 1;
+            }
+        }
+        if depth != 0 {
+            return Err(anyhow!("unbalanced string literal in object {obj_num}"));
+        }
+        let encrypted = security.encrypt_data(&raw, file_key, obj_num, gen_num)?;
+        out.push(b'<');
+        for b in &encrypted {
+            out.extend_from_slice(format!("{b:02x}").as_bytes());
+        }
+        out.push(b'>');
     }
-    result
+    Ok(out)
 }
 
 /// Add a digital signature to a PDF document.
@@ -279,6 +548,11 @@ pub fn sign_pdf(
 }
 
 /// Sign a PDF and optionally embed an X.509 certificate in the signature dictionary.
+///
+/// Builds a proper incremental update: new objects are numbered past the
+/// document's maximum, the original catalog is re-emitted with `/AcroForm`
+/// added, and the new xref/trailer chain back via `/Prev`. The digest and
+/// `/ByteRange` use fixed-width values so splicing never shifts offsets.
 pub fn sign_pdf_with_certificate(
     input_file: &str,
     output_file: &str,
@@ -286,39 +560,97 @@ pub fn sign_pdf_with_certificate(
     certificate: Option<&crate::security::SigningCertificate>,
 ) -> Result<()> {
     let pdf_bytes = fs::read(input_file)?;
+    let signed = sign_pdf_bytes(&pdf_bytes, signature, certificate)?;
+    fs::write(output_file, signed)?;
+    println!(
+        "[sign] Signed {input_file} -> {output_file} (signer: {})",
+        signature.signer_name
+    );
+    Ok(())
+}
 
-    // Build incremental update with signature objects
-    let sig = signature.clone();
+/// In-memory variant of [`sign_pdf_with_certificate`].
+pub fn sign_pdf_bytes(
+    pdf_bytes: &[u8],
+    signature: &crate::security::DigitalSignature,
+    certificate: Option<&crate::security::SigningCertificate>,
+) -> Result<Vec<u8>> {
+    let objects = scan_pdf_objects(pdf_bytes)?;
+    let mut max_obj = 0u32;
+    for obj in &objects {
+        max_obj = max_obj.max(obj.num);
+    }
 
-    // Placeholder for signature contents (8192 hex chars = 4096 bytes)
+    // Locate the original catalog to re-emit it with /AcroForm.
+    let lossy = String::from_utf8_lossy(pdf_bytes);
+    let catalog_re = re_catalog_obj();
+    let (catalog_num, catalog_body) = catalog_re
+        .captures(&lossy)
+        .map(|c| {
+            let body = c[3].trim().to_string();
+            (c[1].parse::<u32>().unwrap_or(1), body)
+        })
+        .ok_or_else(|| anyhow!("no /Catalog object found in document"))?;
+
+    // Original xref offset (for /Prev).
+    let last_eof =
+        find_from(pdf_bytes, b"%%EOF", 0).ok_or_else(|| anyhow!("document has no %%EOF marker"))?;
+    let sx = find_from(pdf_bytes, b"startxref", 0)
+        .filter(|&p| p < last_eof)
+        .ok_or_else(|| anyhow!("document has no startxref marker"))?;
+    let after_sx = &pdf_bytes[sx + 9..last_eof];
+    let num_end = after_sx
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .map(|ws| {
+            after_sx[ws..]
+                .iter()
+                .position(|b| !b.is_ascii_digit())
+                .map(|d| ws + d)
+                .unwrap_or(after_sx.len())
+        })
+        .unwrap_or(0);
+    let prev_xref: usize = std::str::from_utf8(&after_sx[..num_end])
+        .ok()
+        .and_then(|t| t.trim().parse().ok())
+        .ok_or_else(|| anyhow!("malformed startxref offset"))?;
+
+    // Fixed-width ByteRange so later in-place splicing keeps offsets stable.
+    const BR_WIDTH: usize = 10;
+    let byte_range = format!(
+        "[0 {:0width$} {:0width$} {:0width$}]",
+        0,
+        0,
+        0,
+        width = BR_WIDTH
+    );
+
     let contents_placeholder = "0".repeat(8192);
 
-    // Build signature dictionary with placeholder
     let mut sig_dict = format!(
         "<< /Type /Sig\n\
          /Filter /Adobe.PPKLite\n\
          /SubFilter /adbe.pkcs7.detached\n\
-         /Contents <{}>\n\
-         /ByteRange [0 0 0 0]\n",
-        contents_placeholder
+         /Contents <{contents_placeholder}>\n\
+         /ByteRange {byte_range}\n"
     );
-    if let Some(ref date) = sig.date {
+    if let Some(ref date) = signature.date {
         sig_dict.push_str(&format!(" /M (D:{})\n", super::escape_pdf_meta(date)));
     }
     sig_dict.push_str(&format!(
         " /Name ({})\n",
-        super::escape_pdf_meta(&sig.signer_name)
+        super::escape_pdf_meta(&signature.signer_name)
     ));
-    if let Some(ref reason) = sig.reason {
+    if let Some(ref reason) = signature.reason {
         sig_dict.push_str(&format!(" /Reason ({})\n", super::escape_pdf_meta(reason)));
     }
-    if let Some(ref location) = sig.location {
+    if let Some(ref location) = signature.location {
         sig_dict.push_str(&format!(
             " /Location ({})\n",
             super::escape_pdf_meta(location)
         ));
     }
-    if let Some(ref contact) = sig.contact_info {
+    if let Some(ref contact) = signature.contact_info {
         sig_dict.push_str(&format!(
             " /ContactInfo ({})\n",
             super::escape_pdf_meta(contact)
@@ -330,166 +662,107 @@ pub fn sign_pdf_with_certificate(
     }
     sig_dict.push_str(">>");
 
-    // Rebuild with proper PDF objects
-    let original_len = pdf_bytes.len();
-    let mut output = pdf_bytes.clone();
+    let sig_obj_num = max_obj + 1;
+    let field_obj_num = max_obj + 2;
+    let new_catalog_num = max_obj + 3;
+    let size = new_catalog_num + 1;
 
-    // Find the last %%EOF
-    let last_eof = output.windows(5).rposition(|w| w == b"%%EOF").unwrap_or(0);
-    let startxref_pos = output[..last_eof]
-        .windows(9)
-        .rposition(|w| w == b"startxref")
-        .unwrap_or(0);
-    let xref_offset: usize = String::from_utf8_lossy(&output[startxref_pos + 9..last_eof])
-        .trim()
-        .parse()
-        .unwrap_or(0);
+    // Strip any existing /AcroForm from the copied catalog body, then add ours.
+    let acro_form = format!("<< /Fields [{field_obj_num} 0 R] /SigFlags 3 >>");
+    let catalog_inner = {
+        let body = catalog_body
+            .trim_start_matches("<<")
+            .trim_end_matches(">>")
+            .to_string();
+        let cleaned = re_acroform().replace_all(&body, "").to_string();
+        format!("<<{cleaned} /AcroForm {acro_form}>>")
+    };
 
-    // Find catalog reference in trailer
-    let trailer_end = output[startxref_pos..]
-        .iter()
-        .position(|&b| b == b'>')
-        .unwrap_or(0);
-    let trailer_text = String::from_utf8_lossy(&output[startxref_pos..startxref_pos + trailer_end]);
-    let catalog_ref = trailer_text
-        .lines()
-        .find(|l| l.contains("/Root"))
-        .and_then(|l| {
-            l.split("/Root")
-                .nth(1)?
-                .split_whitespace()
-                .next()
-                .map(|s| s.trim())
-        })
-        .unwrap_or("");
+    let update_start = pdf_bytes.len();
+    let mut update: Vec<u8> = Vec::with_capacity(16384);
 
-    // Build incremental update
-    let update_start = original_len;
-    let mut update = Vec::new();
-
-    // Signature dictionary object
-    let sig_obj_num = 999; // Use high number to avoid conflicts
-    let sig_dict_obj = format!("{} 0 obj\n{}\nendobj\n", sig_obj_num, sig_dict);
-    update.extend_from_slice(sig_dict_obj.as_bytes());
-
-    // Signature field (widget annotation + form field)
-    let field_obj_num = sig_obj_num + 1;
-    let field_dict = format!(
-        "{} 0 obj\n<< /Type /Annot\n\
+    let sig_obj = format!("{sig_obj_num} 0 obj\n{sig_dict}\nendobj\n");
+    let field_obj = format!(
+        "{field_obj_num} 0 obj\n<< /Type /Annot\n\
          /Subtype /Widget\n\
          /FT /Sig\n\
          /T (Signature1)\n\
-         /V {} 0 R\n\
-         /P 1 0 R\n\
+         /V {sig_obj_num} 0 R\n\
+         /P {catalog_num} 0 R\n\
          /Rect [0 0 0 0]\n\
          /F 132\n\
-         >>\nendobj\n",
-        field_obj_num, sig_obj_num
+         >>\nendobj\n"
     );
-    update.extend_from_slice(field_dict.as_bytes());
+    let catalog_obj = format!("{new_catalog_num} 0 obj\n{catalog_inner}\nendobj\n");
 
-    // New catalog with /AcroForm
-    let new_catalog_num = sig_obj_num + 2;
-    let new_catalog = format!(
-        "{} 0 obj\n<< /Type /Catalog\n\
-         /Pages {}\n\
-         /AcroForm << /Fields [{} 0 R] /SigFlags 3 >>\n\
-         >>\nendobj\n",
-        new_catalog_num,
-        if catalog_ref.is_empty() {
-            "1 0 R".to_string()
-        } else {
-            catalog_ref.to_string()
-        },
-        field_obj_num
+    let obj_offsets = [(sig_obj_num, update_start + update.len())];
+    update.extend_from_slice(sig_obj.as_bytes());
+    let obj_offsets = [obj_offsets[0], (field_obj_num, update_start + update.len())];
+    update.extend_from_slice(field_obj.as_bytes());
+    let obj_offsets = [
+        obj_offsets[0],
+        obj_offsets[1],
+        (new_catalog_num, update_start + update.len()),
+    ];
+    update.extend_from_slice(catalog_obj.as_bytes());
+
+    // xref for the three new objects.
+    update.extend_from_slice(
+        format!(
+            "xref\n0 1\n0000000000 65535 f \n{sig_obj_num} 3\n{:010} 00000 n \n{:010} 00000 n \n{:010} 00000 n \n",
+            obj_offsets[0].1,
+            obj_offsets[1].1,
+            obj_offsets[2].1
+        )
+        .as_bytes(),
     );
-    update.extend_from_slice(new_catalog.as_bytes());
-
-    // New trailer pointing to new catalog
-    let xref_offset_new = update_start;
-    let xref = format!(
-        "xref\n\
-         0 1\n\
-         0000000000 65535 f \n\
-         {} 3\n\
-         {:010} 00000 n \n\
-         {:010} 00000 n \n\
-         {:010} 00000 n \n",
-        sig_obj_num,
-        xref_offset_new,
-        xref_offset_new + sig_dict_obj.len(),
-        xref_offset_new + sig_dict_obj.len() + field_dict.len()
+    update.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {size} /Root {new_catalog_num} 0 R /Prev {prev_xref} >>\nstartxref\n{}\n%%EOF\n",
+            update_start
+        )
+        .as_bytes(),
     );
-    update.extend_from_slice(xref.as_bytes());
 
-    let trailer = format!(
-        "trailer\n<< /Size {} /Root {} 0 R /Prev {} >>\nstartxref\n{}\n%%EOF\n",
-        new_catalog_num + 1,
-        new_catalog_num,
-        xref_offset,
-        update_start
-    );
-    update.extend_from_slice(trailer.as_bytes());
-
-    // Append update to output
+    // Compute the real ByteRange around the /Contents value, then splice both
+    // in place — neither changes total length, so offsets stay valid.
+    let mut output = pdf_bytes.to_vec();
     output.extend_from_slice(&update);
 
-    // Now compute byte range and content hash
-    let full_output = output.clone();
-    let contents_marker = format!("Contents <{}", contents_placeholder);
-    let contents_start = full_output
-        .windows(contents_marker.len())
-        .position(|w| w == contents_marker.as_bytes())
-        .ok_or_else(|| anyhow!("Could not find signature contents placeholder"))?;
+    let contents_marker = format!("/Contents <{contents_placeholder}>");
+    let lt = find_from(&output, contents_marker.as_bytes(), 0)
+        .map(|p| p + "/Contents ".len())
+        .ok_or_else(|| anyhow!("signature contents placeholder not found"))?;
+    let gt = lt + contents_placeholder.len() + 1;
+    if output.get(gt) != Some(&b'>') {
+        return Err(anyhow!("signature contents placeholder not found"));
+    }
+    let total = output.len();
 
-    // ByteRange: [0, contents_start_of_value, contents_end_of_value, remaining]
-    let value_start = contents_start + 1; // Point to '<' in "Contents <"
-    let value_end = contents_start + contents_marker.len() + 1; // After '>'
-
-    let byte_range = [
-        0u32,
-        value_start as u32,
-        value_end as u32,
-        (full_output.len() - value_end) as u32,
-    ];
-
-    // Compute SHA-256 over the byte ranges
     let mut hasher = Sha256::new();
-    hasher.update(&full_output[0..value_start]);
-    hasher.update(&full_output[value_end..]);
+    hasher.update(&output[..lt]);
+    hasher.update(&output[gt + 1..]);
     let hash = hasher.finalize();
-    let hash_hex = hash
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>();
+    let hash_hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
 
-    // Replace placeholder with hash (pad with zeros to maintain length)
-    let padded_hash = format!("{:0<width$}", hash_hex, width = contents_placeholder.len());
-    let old_marker = format!("Contents <{}", contents_placeholder);
-    let new_marker = format!("Contents <{}", padded_hash);
-    let output_str = String::from_utf8_lossy(&full_output);
-    let final_output = output_str.replace(&old_marker, &new_marker);
+    // Splice hash into the placeholder (same width).
+    let padded_hash = format!("{hash_hex:0<8192}");
+    output[lt + 1..gt].copy_from_slice(padded_hash.as_bytes());
 
-    // Replace ByteRange placeholder
-    let final_output = final_output.replace(
-        "/ByteRange [0 0 0 0]",
-        &format!(
-            "/ByteRange [{} {} {} {}]",
-            byte_range[0], byte_range[1], byte_range[2], byte_range[3]
-        ),
+    // Splice real ByteRange values over the fixed-width zeros.
+    let br_marker = format!("/ByteRange {byte_range}");
+    let br_pos = find_from(&output, br_marker.as_bytes(), 0)
+        .ok_or_else(|| anyhow!("ByteRange placeholder not found"))?;
+    let nums_start = br_pos + "/ByteRange [0 ".len();
+    let real_br = format!(
+        "{lt:0width$} {mid:0width$} {tail:0width$}",
+        mid = gt + 1,
+        tail = total - gt - 1,
+        width = BR_WIDTH
     );
+    output[nums_start..nums_start + real_br.len()].copy_from_slice(real_br.as_bytes());
 
-    fs::write(output_file, final_output)?;
-
-    println!(
-        "[sign] Signed {} -> {} (signer: {}, hash: {})",
-        input_file,
-        output_file,
-        sig.signer_name,
-        &hash_hex[..16]
-    );
-
-    Ok(())
+    Ok(output)
 }
 
 /// Information about a detected digital signature in a PDF
@@ -527,7 +800,7 @@ pub fn verify_pdf_signature(input_file: &str) -> Result<Vec<SignatureInfo>> {
 
     // Find all "N 0 obj" blocks and check for signature dictionaries
     // Use [\s\S] instead of . to match newlines inside dictionary content
-    let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj\s+<<(.+?)>>\s+endobj").unwrap();
+    let obj_re = re_sig_obj();
     for caps in obj_re.captures_iter(&text) {
         let dict_content = &caps[2];
         if dict_content.contains("/Type /Sig") || dict_content.contains("/Type/Sig") {
@@ -564,7 +837,7 @@ pub fn extract_certificates_from_pdf_bytes(
     data: &[u8],
 ) -> Result<Vec<crate::security::SigningCertificate>> {
     let text = String::from_utf8_lossy(data);
-    let obj_re = regex::Regex::new(r"(?s)(\d+)\s+0\s+obj\s+<<(.+?)>>\s+endobj").unwrap();
+    let obj_re = re_sig_obj();
     let mut certs = Vec::new();
     let mut index = 0usize;
 

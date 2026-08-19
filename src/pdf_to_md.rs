@@ -14,7 +14,7 @@
 //! ```
 
 use crate::pdf::{PdfDocument, PdfObject};
-use crate::search::{self, FontMetrics, page_content_streams};
+use crate::search::{self, page_content_streams};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -22,11 +22,10 @@ use std::collections::HashMap;
 pub fn pdf_to_markdown_bytes(pdf_bytes: &[u8]) -> Result<String> {
     let doc = PdfDocument::load_from_bytes(pdf_bytes)?;
     let pages = search::collect_pages_from_doc(&doc, Some(pdf_bytes));
-    let fonts = search::collect_font_metrics(&doc);
     let tounicode = crate::pdf::collect_tounicode_gid_map(&doc);
 
     let mut all_spans: Vec<TextSpan> = Vec::new();
-    for (page_idx, page_id) in pages.iter().enumerate() {
+    for page_id in pages.iter() {
         let content_ids = page_content_streams(&doc, *page_id)?;
         for cid in content_ids {
             let raw = match doc.objects.get(&cid) {
@@ -35,19 +34,16 @@ pub fn pdf_to_markdown_bytes(pdf_bytes: &[u8]) -> Result<String> {
             };
             let decompressed = search::decompress_stream(&raw);
             let text = String::from_utf8_lossy(&decompressed).into_owned();
-            let mut collector = SpanCollector::new(page_idx, &fonts, &tounicode);
+            let mut collector = SpanCollector::new(&tounicode);
             walk_content_stream(&text, &mut collector);
             all_spans.extend(collector.spans);
         }
         // Insert a page-break marker span so subsequent pages start fresh lines.
         all_spans.push(TextSpan {
-            page: page_idx,
             x: f32::MAX,
             y: f32::MIN,
             text: "\n\n\\newpage\n\n".to_string(),
             font_size: 0.0,
-            is_bold: false,
-            is_italic: false,
             is_monospace: false,
         });
     }
@@ -65,22 +61,15 @@ pub fn pdf_to_markdown_file(input_pdf: &str, output_md: &str) -> Result<()> {
 // ----- Span collection ----------------------------------------------------
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // page / is_bold / is_italic retained for future rounds (per-page MD, inline emphasis)
 struct TextSpan {
-    page: usize,
     x: f32,
     y: f32,
     text: String,
     font_size: f32,
-    is_bold: bool,
-    is_italic: bool,
     is_monospace: bool,
 }
 
-#[allow(dead_code)] // fonts retained for future per-span width refinement
 struct SpanCollector<'a> {
-    page: usize,
-    fonts: &'a HashMap<String, FontMetrics>,
     tounicode: &'a HashMap<u16, char>,
     spans: Vec<TextSpan>,
     text_matrix: [f32; 6],
@@ -90,14 +79,8 @@ struct SpanCollector<'a> {
 }
 
 impl<'a> SpanCollector<'a> {
-    fn new(
-        page: usize,
-        fonts: &'a HashMap<String, FontMetrics>,
-        tounicode: &'a HashMap<u16, char>,
-    ) -> Self {
+    fn new(tounicode: &'a HashMap<u16, char>) -> Self {
         SpanCollector {
-            page,
-            fonts,
             tounicode,
             spans: Vec::new(),
             text_matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
@@ -209,17 +192,12 @@ fn emit_span(collector: &mut SpanCollector, text: &str) {
     }
     let font_name = collector.current_font_name.clone().unwrap_or_default();
     let lower = font_name.to_ascii_lowercase();
-    let is_bold = lower.contains("bold") || lower.contains("black");
-    let is_italic = lower.contains("oblique") || lower.contains("italic");
     let is_monospace = lower.contains("courier") || lower.contains("mono");
     collector.spans.push(TextSpan {
-        page: collector.page,
         x: collector.text_matrix[4],
         y: collector.text_matrix[5],
         text: text.to_string(),
         font_size: collector.font_size,
-        is_bold,
-        is_italic,
         is_monospace,
     });
 }

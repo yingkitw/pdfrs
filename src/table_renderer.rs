@@ -436,8 +436,7 @@ impl PdfTableHelper {
                             .copied()
                             .unwrap_or(1)
                             .max(1);
-                        TableCell::new(cell.clone(), alignment)
-                            .with_span(cs, rs)
+                        TableCell::new(cell.clone(), alignment).with_span(cs, rs)
                     })
                     .collect();
                 TableRow { cells }
@@ -620,9 +619,7 @@ mod tests {
     #[test]
     fn test_calculate_dimensions_with_colspan() {
         let renderer = DefaultTableRenderer;
-        let rows = vec![TableRow::new(vec![
-            TableCell::left("wide").with_span(2, 1),
-        ])];
+        let rows = vec![TableRow::new(vec![TableCell::left("wide").with_span(2, 1)])];
         let dims = renderer.calculate_dimensions(&rows, &TableStyle::default(), 12.0, 400.0);
         assert_eq!(dims.num_cols, 2);
         assert_eq!(dims.num_rows, 1);
