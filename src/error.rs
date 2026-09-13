@@ -53,7 +53,7 @@ impl PdfError {
         }
     }
 
-    /// Walks the [`Context`] chain and returns the innermost error.
+    /// Walks the [`PdfError::Context`] chain and returns the innermost error.
     pub fn root_cause(&self) -> &PdfError {
         let mut cur = self;
         while let PdfError::Context { source, .. } = cur {
