@@ -6,6 +6,10 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Encryption now accepts PDFs containing object streams or cross-reference streams. Compressed objects are expanded into regular objects and xref streams are replaced with a fresh classic xref table before the encrypted document is emitted.
+
 ### Changed (breaking)
 
 - **Typed error model** (`src/error.rs`): every fallible library API now

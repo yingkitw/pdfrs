@@ -11,6 +11,14 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ---
 
+## Codebase Score and Audit Follow-ups (2026-09-13)
+
+- [x] Score the codebase across correctness, security, maintainability, performance, documentation, and CI/portability — **8.8/10**; see [`AUDIT.md`](AUDIT.md).
+- [x] Add encrypted object-stream and xref-stream support to `encrypt_pdf_bytes` — compressed objects are expanded and xref streams are replaced with a fresh classic xref table; integration coverage added.
+- [ ] Split or optimize the all-algorithm encryption integration test; preserve coverage while reducing its 47–60 second runtime.
+- [ ] Make the WASM API worker-first or provide an async export that avoids blocking the browser main thread.
+- [ ] Keep historical audit counts and status tables aligned with the latest verification run.
+
 ## Phase 1: Core Functionality (Current Development)
 
 ### 🔴 Critical
@@ -335,7 +343,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
     `content_stream/` (6 files), `main.rs` → thin entry + `cli/` (9 files);
     public APIs unchanged
   - [ ] WASM exports: async/worker-first API to avoid main-thread blocking
-  - [ ] Object-stream / xref-stream support in `encrypt_pdf_bytes` (currently rejected with a clear error)
+  - [x] Object-stream / xref-stream support in `encrypt_pdf_bytes` — object streams are expanded and xref streams are rebuilt as classic xref tables
 
 - [x] CI/CD improvements
   - [x] Automated testing on multiple platforms — GitHub Actions matrix (ubuntu/macos/windows)
@@ -407,7 +415,7 @@ Capabilities in peer projects worth prioritizing:
 - [x] **True content-stream redaction** — `src/redact.rs` (~480 LOC); rewrites content streams to mask intersecting text; `BlackBox` and `Strip` styles; `redact-pdf` CLI with repeatable `--region page,x,y,w,h`; 5 unit tests
 - [x] **Full SVG document rendering** — extended `src/vector.rs` (~900 LOC added); `<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`; minimal XML parser; `parse_svg_transform` (translate/scale/rotate/matrix/skew); `draw-svg-file` CLI; 12 new unit tests
 - [x] **Structured PDF → Markdown** — `src/pdf_to_md.rs` (~520 LOC); headings (font-size ratios), bullets, numbered lists, code blocks (Courier detection), horizontal rules; ToUnicode-aware CID font decoding; `pdf-to-md` CLI upgraded with plain-text fallback; 10 unit tests
-- [x] **Integration tests** — `tests/capabilities_v2.rs` (7 end-to-end tests: rasterize→search→redact round trip, SVG document, PDF→MD structure, multi-page rasterize, etc.)
+- [x] **Integration tests** — `tests/capabilities_v2.rs` (8 end-to-end tests: rasterize→search→redact round trip, SVG document, PDF→MD structure, multi-page rasterize, TOC pagination, etc.)
 - [x] **Shared parsing helpers** — `search::collect_pages_from_doc` (with raw-bytes fallback for truncated `/Kids` arrays), `raw_kids_for_object`, made `collect_tounicode_gid_map` / `decode_pdf_hex_string_with_map` `pub(crate)`
 - [x] **Glyph-outline rasterization from embedded TTF** — `src/raster/`: `ttf-parser` glyph outline extraction from `/FontFile2` streams (including Type0 via `/DescendantFonts`); Bézier flattening + polygon fill; raw PDF byte scanning for font metrics; gray-rectangle fallback for base-14 fonts
 - [x] **Basic CSS support in HTML→PDF** — `src/html.rs`: `<style>` tag parsing, inline `style` attribute parsing; selectors (tag, `.class`, `tag.class`, `#id`); properties (`font-weight`, `font-style`, `text-align`, `color`, `background-color`, `font-size`, `margin`, `padding`, `border`); cascading with inline priority

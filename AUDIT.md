@@ -1,9 +1,29 @@
 # pdfrs Codebase Audit Report
 
-**Date:** 2026-08-20 (re-audit + remediation)
-**Scope:** Full re-audit of `src/`, `tests/`, `examples/`, `Cargo.toml`, root docs, CI.
-**Methodology:** Tool-verified (cargo test/clippy/fmt run this pass), source review, docs-vs-code cross-check.
-**Status:** **All Critical, High, and Medium findings from the 2026-08-18 audit are fixed.** Low items L1-L3, L5 fixed; L4 (WASM main-thread blocking) remains open by design (see below).
+**Date:** 2026-09-13 (re-audit + remediation)
+**Scope:** Full re-audit of `src/`, `tests/`, `examples/`, `Cargo.toml`, root docs, CI, and release artifacts.
+**Methodology:** Tool-verified test/doc builds, source review, docs-vs-code cross-check, and release verification.
+**Status:** Strong production baseline with a small set of explicit compatibility and performance follow-ups.
+
+## Codebase Score (2026-09-13)
+
+**Overall: 8.8/10**
+
+| Dimension | Score | Evidence / deduction |
+|---|---:|---|
+| Correctness and reliability | 9.2/10 | 508 tests pass, including round-trip and property-based coverage; some PDF feature boundaries remain explicit. |
+| Security | 9.0/10 | Encryption, redaction, sandboxing, path validation, and audit CI are covered; object/xref stream encryption now has integration coverage. |
+| Maintainability | 8.5/10 | Large modules were decomposed and typed errors were added; the 37k-line Rust surface still warrants focused ownership and profiling. |
+| Performance | 8.0/10 | Batch generation was reduced from ~69s to ~15s; the all-algorithm encryption integration test still takes about 47–60s. |
+| Documentation and release hygiene | 8.6/10 | Docs, rustdoc, tests, and crates.io publication are verified; historical audit/TODO entries need continued cleanup. |
+| CI and portability | 8.7/10 | CI covers formatting, clippy, tests, WASM, minimal features, and advisories; synchronous WASM exports remain a known limitation. |
+
+### Priority findings
+
+1. **Medium — object-stream encryption expands compressed objects** and replaces xref streams; test interoperability with external PDF readers.
+2. **Medium — encryption integration coverage is slow** because all four encryption algorithms are exercised in one long test.
+3. **Medium — WASM's synchronous public export can block the main thread**; keep the worker API as the recommended path.
+4. **Low — historical audit and TODO counts/statuses can drift**; keep one current score and verification record at the top of this file.
 
 ---
 
@@ -16,7 +36,7 @@
 | H6 anyhow-only error model | ✅ Fixed | `src/error.rs`: `PdfError` (Io/InvalidPdf/Parse/PageNotFound/Crypto/Image/Svg/InvalidInput/Unsupported/Context/Other) + `pdfrs::Result<T>`; all ~127 library `anyhow!` sites migrated; CLI/`serve()` keep `anyhow` through automatic `std::error::Error` conversion. Breaking API change, documented in CHANGELOG. |
 | Rasterizer fidelity gap | 🟡 Improved | 3× supersampled anti-aliasing (budget-capped) for fills/strokes/glyphs; base-14 text renders real letterforms from a substitute system font (`PDFRS_UNICODE_FONT_PATH` or well-known paths) with base-14 width tables. Pixel-perfect parity with PDFium/Ghostscript remains out of scope by design (see README limitations). |
 
-**Verification:** `cargo test` 507 passed / 0 failed; `cargo clippy --all-targets` 0 warnings; `cargo fmt --check` clean.
+**Verification:** `cargo test` 508 passed / 0 failed; `cargo clippy --all-targets` 0 warnings; `cargo fmt --check` clean.
 
 ---
 

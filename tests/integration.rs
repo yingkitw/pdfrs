@@ -1082,10 +1082,50 @@ fn test_encrypt_pdf_bytes_roundtrip_all_algorithms() {
 }
 
 #[test]
-fn test_encrypt_pdf_bytes_rejects_object_streams() {
-    let doc = b"%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /N 0 /First 0 /Length 0 >>\nstream\n\nendstream\nendobj\ntrailer\n<< /Root 1 0 R /Size 2 >>\nstartxref\n9\n%%EOF\n";
+fn test_encrypt_pdf_bytes_expands_object_and_xref_streams() {
+    use std::io::Write;
+
+    let first_body = b"<< /Type /Catalog >>";
+    let second_body = b"<< /Type /Pages /Count 0 >>";
+    let header = format!("2 0 3 {} ", first_body.len());
+    let mut object_stream_data = header.into_bytes();
+    object_stream_data.extend_from_slice(first_body);
+    object_stream_data.extend_from_slice(second_body);
+    let mut compressed =
+        flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    compressed.write_all(&object_stream_data).unwrap();
+    let compressed = compressed.finish().unwrap();
+    let first = object_stream_data
+        .iter()
+        .position(|byte| *byte == b'<')
+        .unwrap();
+    let mut doc = format!(
+        "%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /N 2 /First {} /Length {} >>\nstream\n",
+        first,
+        compressed.len()
+    )
+    .into_bytes();
+    doc.extend_from_slice(&compressed);
+    doc.extend_from_slice(b"\nendstream\nendobj\n5 0 obj\n<< /Type /XRef /Size 6 /W [1 4 2] /Root 2 0 R /Length 0 >>\nstream\n\nendstream\nendobj\nstartxref\n0\n%%EOF\n");
     let sec = pdfrs::security::PdfSecurity::new().with_user_password("x".to_string());
-    assert!(pdfrs::pdf_ops::encrypt_pdf_bytes(doc, &sec).is_err());
+    let encrypted = pdfrs::pdf_ops::encrypt_pdf_bytes(&doc, &sec).unwrap();
+    let text = String::from_utf8_lossy(&encrypted);
+    assert!(text.contains("2 0 obj"));
+    assert!(text.contains("3 0 obj"));
+    assert!(!text.contains("/ObjStm"));
+    assert!(!text.contains("/Type /XRef"));
+    assert!(pdfrs::pdf::PdfDocument::load_from_bytes(&encrypted).is_ok());
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_rejects_malformed_object_stream() {
+    let doc = b"%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /N 2 /First 4 /Length 4 >>\nstream\n2 0 \nendstream\nendobj\ntrailer\n<< /Root 1 0 R /Size 2 >>\nstartxref\n0\n%%EOF\n";
+    let sec = pdfrs::security::PdfSecurity::new().with_user_password("x".to_string());
+    let error = pdfrs::pdf_ops::encrypt_pdf_bytes(doc, &sec).unwrap_err();
+    assert!(
+        matches!(error, pdfrs::PdfError::Parse(ref message) if message.contains("incomplete header")),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]

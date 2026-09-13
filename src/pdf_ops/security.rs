@@ -81,8 +81,8 @@ pub fn protect_pdf(
 /// the `/Encrypt` dictionary, and rebuilds the xref table and trailer.
 ///
 /// Operates on raw bytes end-to-end (no UTF-8 lossy conversion), so binary
-/// streams survive intact. Documents using cross-reference streams or object
-/// streams are rejected with an error rather than silently corrupted.
+/// streams survive intact. Object streams are expanded and cross-reference
+/// streams are replaced by a fresh classic xref table before encryption.
 pub fn encrypt_pdf_bytes(
     pdf_bytes: &[u8],
     security: &crate::security::PdfSecurity,
@@ -110,25 +110,9 @@ pub fn encrypt_pdf_bytes_with_id(
         ));
     }
 
-    let objects = scan_pdf_objects(pdf_bytes)?;
-    for obj in &objects {
-        let dict = obj.dict_slice(pdf_bytes);
-        if dict.windows(b"/ObjStm".len()).any(|w| w == b"/ObjStm")
-            || dict
-                .windows(b"/Type /XRef".len())
-                .any(|w| w == b"/Type /XRef")
-            || dict
-                .windows(b"/Type/XRef".len())
-                .any(|w| w == b"/Type/XRef")
-        {
-            return Err(PdfError::Unsupported(
-                "encryption of documents using object streams or cross-reference streams is not supported yet"
-                    .into(),
-            ));
-        }
-    }
-
-    let (root_ref, info_ref) = parse_trailer_refs(pdf_bytes)?;
+    let mut objects = scan_pdf_objects(pdf_bytes)?;
+    expand_compressed_objects(&mut objects, pdf_bytes)?;
+    let (root_ref, info_ref) = parse_trailer_refs(pdf_bytes, &objects)?;
 
     let materials = security.generate_encryption_materials(&doc_id)?;
     let id_hex: String = doc_id.iter().map(|b| format!("{b:02x}")).collect();
@@ -150,16 +134,29 @@ pub fn encrypt_pdf_bytes_with_id(
 
     let mut offsets: std::collections::BTreeMap<u32, u64> = std::collections::BTreeMap::new();
     for obj in &objects {
-        if obj.num == 0 {
+        if obj.num == 0
+            || obj.skip
+            || obj.is_xref_stream
+            || is_xref_stream_dict(obj.dict_slice(pdf_bytes))
+        {
             continue;
         }
         offsets.insert(obj.num, out.len() as u64);
         out.extend_from_slice(format!("{} {} obj", obj.num, obj.generation).as_bytes());
         match obj.stream {
             None => {
-                let dict_bytes = &pdf_bytes[obj.header_end..obj.body_end - 6];
+                let body = if let Some(body) = obj.body_override.as_deref() {
+                    body
+                } else {
+                    let end = obj.body_end.checked_sub(6).ok_or_else(|| {
+                        PdfError::Parse(format!("object {} has an invalid body extent", obj.num))
+                    })?;
+                    pdf_bytes.get(obj.header_end..end).ok_or_else(|| {
+                        PdfError::Parse(format!("object {} has an invalid body range", obj.num))
+                    })?
+                };
                 let encrypted = encrypt_strings_in_dict(
-                    dict_bytes,
+                    body,
                     security,
                     &materials.file_key,
                     obj.num,
@@ -246,6 +243,9 @@ struct RawObject {
     /// Just after `endobj`.
     body_end: usize,
     stream: Option<StreamSpan>,
+    body_override: Option<Vec<u8>>,
+    skip: bool,
+    is_xref_stream: bool,
 }
 
 struct StreamSpan {
@@ -358,6 +358,9 @@ fn scan_pdf_objects(bytes: &[u8]) -> Result<Vec<RawObject>> {
             header_end: m.end(),
             body_end,
             stream,
+            body_override: None,
+            skip: false,
+            is_xref_stream: false,
         });
         pos = body_end;
     }
@@ -410,23 +413,150 @@ fn strip_trailing_eol(bytes: &[u8], endstream_pos: usize) -> usize {
     end
 }
 
-/// Extract `/Root` and `/Info` references from a classic `trailer` dict.
-fn parse_trailer_refs(bytes: &[u8]) -> Result<(String, Option<String>)> {
+fn is_object_stream_dict(dict: &[u8]) -> bool {
+    dict.windows(b"/Type /ObjStm".len())
+        .any(|window| window == b"/Type /ObjStm")
+        || dict
+            .windows(b"/Type/ObjStm".len())
+            .any(|window| window == b"/Type/ObjStm")
+}
+
+fn is_xref_stream_dict(dict: &[u8]) -> bool {
+    dict.windows(b"/Type /XRef".len())
+        .any(|window| window == b"/Type /XRef")
+        || dict
+            .windows(b"/Type/XRef".len())
+            .any(|window| window == b"/Type/XRef")
+}
+
+/// Expand object streams into regular objects and discard xref streams.
+///
+/// The encrypted output is rebuilt with a classic xref table, so compressed
+/// objects must be materialized before encryption. Xref stream data is metadata
+/// replaced by the newly generated classic table.
+fn expand_compressed_objects(objects: &mut Vec<RawObject>, bytes: &[u8]) -> Result<()> {
+    let mut expanded = Vec::new();
+    for obj in objects.iter_mut() {
+        let Some(stream) = obj.stream.as_ref() else {
+            continue;
+        };
+        let dict = obj.dict_slice(bytes);
+        let is_obj_stream = is_object_stream_dict(dict);
+        let is_xref_stream = is_xref_stream_dict(dict);
+        if is_xref_stream {
+            obj.is_xref_stream = true;
+            continue;
+        }
+        if !is_obj_stream {
+            continue;
+        }
+
+        let number = |name: &[u8]| -> Option<usize> {
+            let pattern = format!(r"{}\s+(\d+)", String::from_utf8_lossy(name));
+            let re = regex::bytes::Regex::new(&pattern).ok()?;
+            let captures = re.captures(dict)?;
+            std::str::from_utf8(&captures[1]).ok()?.parse().ok()
+        };
+        let n = number(b"/N")
+            .ok_or_else(|| PdfError::Parse(format!("object stream {} has no /N", obj.num)))?;
+        let first = number(b"/First")
+            .ok_or_else(|| PdfError::Parse(format!("object stream {} has no /First", obj.num)))?;
+        let raw = &bytes[stream.data_start..stream.data_end];
+        let data = crate::search::decompress_stream(raw);
+        if first > data.len() {
+            return Err(PdfError::Parse(format!(
+                "object stream {} has invalid /First",
+                obj.num
+            )));
+        }
+        let header = &data[..first];
+        let tokens: Vec<&[u8]> = header
+            .split(|byte| byte.is_ascii_whitespace())
+            .filter(|token| !token.is_empty())
+            .collect();
+        if tokens.len() < n.saturating_mul(2) {
+            return Err(PdfError::Parse(format!(
+                "object stream {} has an incomplete header",
+                obj.num
+            )));
+        }
+        let mut entries = Vec::with_capacity(n);
+        for index in 0..n {
+            let number = std::str::from_utf8(tokens[index * 2])
+                .ok()
+                .and_then(|value| value.parse::<u32>().ok())
+                .ok_or_else(|| PdfError::Parse("invalid object stream object number".into()))?;
+            let offset = std::str::from_utf8(tokens[index * 2 + 1])
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .ok_or_else(|| PdfError::Parse("invalid object stream object offset".into()))?;
+            entries.push((number, offset));
+        }
+        for (index, (number, offset)) in entries.iter().enumerate() {
+            let start = first.checked_add(*offset).ok_or_else(|| {
+                PdfError::Parse(format!("object stream {} offset overflow", obj.num))
+            })?;
+            let end = entries
+                .get(index + 1)
+                .and_then(|(_, next)| first.checked_add(*next))
+                .unwrap_or(data.len());
+            if start > end || end > data.len() {
+                return Err(PdfError::Parse(format!(
+                    "object stream {} has invalid object bounds",
+                    obj.num
+                )));
+            }
+            let body = trim_pdf_whitespace(&data[start..end]).to_vec();
+            expanded.push(RawObject {
+                num: *number,
+                generation: 0,
+                header_start: 0,
+                header_end: 0,
+                body_end: 0,
+                stream: None,
+                body_override: Some(body),
+                skip: false,
+                is_xref_stream: false,
+            });
+        }
+        obj.skip = true;
+    }
+    objects.extend(expanded);
+    Ok(())
+}
+
+fn trim_pdf_whitespace(mut bytes: &[u8]) -> &[u8] {
+    while bytes.first().is_some_and(u8::is_ascii_whitespace) {
+        bytes = &bytes[1..];
+    }
+    while bytes.last().is_some_and(u8::is_ascii_whitespace) {
+        bytes = &bytes[..bytes.len() - 1];
+    }
+    bytes
+}
+
+/// Extract `/Root` and `/Info` references from a trailer or xref-stream dict.
+fn parse_trailer_refs(bytes: &[u8], objects: &[RawObject]) -> Result<(String, Option<String>)> {
     let sx = find_from(bytes, b"startxref", 0)
         .ok_or_else(|| PdfError::InvalidPdf("no startxref found in document".into()))?;
-    let trailer_kw = find_from(bytes, b"trailer", 0)
-        .filter(|&t| t < sx)
-        .ok_or_else(|| {
-            PdfError::Unsupported(
-                "no trailer dictionary found (cross-reference stream document?)".into(),
-            )
-        })?;
-    let dict_re = regex::bytes::Regex::new(r"(?s)<<(.+?)>>").unwrap();
-    let region = &bytes[trailer_kw..sx];
-    let dict = dict_re
-        .captures(region)
-        .map(|c| c[1].to_vec())
-        .ok_or_else(|| PdfError::Parse("malformed trailer dictionary".into()))?;
+    let dict = if let Some(trailer_kw) = find_from(bytes, b"trailer", 0).filter(|&t| t < sx) {
+        let dict_re = regex::bytes::Regex::new(r"(?s)<<(.+?)>>").unwrap();
+        let region = &bytes[trailer_kw..sx];
+        dict_re
+            .captures(region)
+            .map(|c| c[1].to_vec())
+            .ok_or_else(|| PdfError::Parse("malformed trailer dictionary".into()))?
+    } else {
+        objects
+            .iter()
+            .find(|obj| obj.is_xref_stream)
+            .map(|obj| obj.dict_slice(bytes).to_vec())
+            .ok_or_else(|| {
+                PdfError::Unsupported(
+                    "no trailer dictionary or cross-reference stream found".into(),
+                )
+            })?
+    };
     let dict_text = String::from_utf8_lossy(&dict).to_string();
     let root_re = re_root_ref();
     let root = root_re

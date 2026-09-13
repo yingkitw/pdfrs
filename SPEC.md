@@ -174,7 +174,7 @@
 - **FR25.1**: `PdfSecurity` supports RC4 40-bit, RC4 128-bit, AES-128-CBC, and AES-256-CBC encryption per PDF 1.7 Standard Security Handler
 - **FR25.2**: Key derivation uses MD5 (RC4/AES-128) or SHA-256 (AES-256) with PDF standard 32-byte password padding
 - **FR25.3**: PKCS#7 padding for AES block cipher; deterministic IV derived from object number
-- **FR25.4**: `pdf_ops::security::protect_pdf` encrypts all stream and string objects byte-safely, inserts `/Encrypt`, and rebuilds the xref table and trailer (fresh `/ID`, `startxref`, `%%EOF`); documents with object/xref streams are rejected with a clear error
+- **FR25.4**: `pdf_ops::security::protect_pdf` encrypts all stream and string objects byte-safely, inserts `/Encrypt`, and rebuilds the xref table and trailer (fresh `/ID`, `startxref`, `%%EOF`); object streams are expanded and xref streams are replaced with a fresh classic xref table
 - **FR25.5**: Per-object encryption keys derived from the file encryption key + object/generation numbers
 
 #### FR26: Multi-Series Stacked Bar Charts

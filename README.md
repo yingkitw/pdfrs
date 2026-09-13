@@ -268,7 +268,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec a
 
 ## Testing
 
-~507 tests (`cargo test`), including:
+~508 tests (`cargo test`), including:
 - **396 lib tests**: Unit tests across all modules
 - **Integration crates**: `tests/integration.rs`, `capabilities_v2`, `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test`
 - **~35 doctests**: Public API examples
