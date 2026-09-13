@@ -1114,17 +1114,24 @@ fn test_complex_examples_library_api_batch() {
             elements.len()
         );
 
-        // Generate portrait (resolve images relative to examples/)
+        // Generate portrait with compression and font subsetting. The batch test
+        // covers multiple large fixtures, so avoid embedding the full Unicode font
+        // for every variant while retaining the same layout and validation checks.
         let examples_dir = format!("{}/examples", base);
-        let layout_p = pdfrs::pdf_generator::PageLayout::portrait();
-        let bytes_p = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
-            &elements,
-            "Helvetica",
-            12.0,
-            layout_p,
-            &examples_dir,
-        )
-        .unwrap_or_else(|e| panic!("{}: generate_pdf_bytes portrait failed: {}", filename, e));
+        let profile = pdfrs::optimization::OptimizationProfile::custom(
+            pdfrs::optimization::OptimizationSettings::new()
+                .with_compression(pdfrs::optimization::CompressionLevel::High)
+                .with_subset_fonts(true)
+                .with_tagged_pdf(false)
+                .with_linearize(false),
+        );
+        let bytes_p = pdfrs::optimization::OptimizedPdfGenerator::new(profile)
+            .with_font("Helvetica")
+            .with_font_size(12.0)
+            .with_layout(pdfrs::pdf_generator::PageLayout::portrait())
+            .with_image_base_dir(&examples_dir)
+            .generate_bytes(&elements)
+            .unwrap_or_else(|e| panic!("{}: generate optimized portrait failed: {}", filename, e));
 
         // Validate portrait
         let val_p = pdfrs::pdf::validate_pdf_bytes(&bytes_p);
@@ -1148,16 +1155,14 @@ fn test_complex_examples_library_api_batch() {
             val_p.object_count
         );
 
-        // Generate landscape
-        let layout_l = pdfrs::pdf_generator::PageLayout::landscape();
-        let bytes_l = pdfrs::pdf_generator::generate_pdf_bytes_with_image_base(
-            &elements,
-            "Times-Roman",
-            11.0,
-            layout_l,
-            &examples_dir,
-        )
-        .unwrap_or_else(|e| panic!("{}: generate_pdf_bytes landscape failed: {}", filename, e));
+        // Generate landscape with the same bounded test profile.
+        let bytes_l = pdfrs::optimization::OptimizedPdfGenerator::new(profile)
+            .with_font("Times-Roman")
+            .with_font_size(11.0)
+            .with_layout(pdfrs::pdf_generator::PageLayout::landscape())
+            .with_image_base_dir(&examples_dir)
+            .generate_bytes(&elements)
+            .unwrap_or_else(|e| panic!("{}: generate optimized landscape failed: {}", filename, e));
 
         // Validate landscape
         let val_l = pdfrs::pdf::validate_pdf_bytes(&bytes_l);
