@@ -4,8 +4,8 @@
 //! (enabled by default). They use data-parallel iterators to process multiple
 //! PDFs concurrently.
 
+use crate::error::{PdfError, Result};
 use crate::pdf::PdfDocument;
-use anyhow::Result;
 use rayon::prelude::*;
 use std::path::Path;
 
@@ -26,7 +26,7 @@ pub fn merge_pdfs_parallel<P: AsRef<Path> + Send + Sync>(
     output_path: P,
 ) -> Result<()> {
     if input_paths.is_empty() {
-        anyhow::bail!("No input PDFs provided");
+        return Err(PdfError::InvalidInput("No input PDFs provided".into()));
     }
 
     // Convert paths to strings for load_from_file
@@ -40,7 +40,7 @@ pub fn merge_pdfs_parallel<P: AsRef<Path> + Send + Sync>(
         .par_iter()
         .map(|path| {
             PdfDocument::load_from_file(path)
-                .map_err(|e| anyhow::anyhow!("Failed to load {}: {}", path, e))
+                .map_err(|e| PdfError::ctx(format!("Failed to load {}", path), e))
         })
         .collect();
 
@@ -79,7 +79,7 @@ pub fn extract_text_parallel<P: AsRef<Path> + Send + Sync>(
             PdfDocument::load_from_file(path_file)
                 .and_then(|doc| doc.get_text())
                 .map(|text| (path_str, text))
-                .map_err(|e| anyhow::anyhow!("Failed to process {:?}: {}", path_ref, e))
+                .map_err(|e| PdfError::ctx(format!("Failed to process {:?}", path_ref), e))
         })
         .collect()
 }
@@ -142,7 +142,7 @@ pub fn count_pages_parallel<P: AsRef<Path> + Send + Sync>(
                         .count();
                     (path_str, page_count)
                 })
-                .map_err(|e| anyhow::anyhow!("Failed to process {:?}: {}", path_ref, e))
+                .map_err(|e| PdfError::ctx(format!("Failed to process {:?}", path_ref), e))
         })
         .collect()
 }
@@ -180,7 +180,7 @@ where
             PdfDocument::load_from_file(path_file)
                 .and_then(|doc| processor(&doc))
                 .map(|result| (path_str, result))
-                .map_err(|e| anyhow::anyhow!("Failed to process {:?}: {}", path_ref, e))
+                .map_err(|e| PdfError::ctx(format!("Failed to process {:?}", path_ref), e))
         })
         .collect()
 }

@@ -26,7 +26,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-pdfrs = { version = "0.1", default-features = false }
+pdfrs = { version = "0.1.10", default-features = false }
 ```
 
 #### Feature flags

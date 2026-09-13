@@ -146,6 +146,7 @@ pub mod chart;
 pub mod comprehensive;
 pub mod compression;
 pub mod elements;
+pub mod error;
 pub mod html;
 pub mod i18n;
 pub mod image;
@@ -169,6 +170,8 @@ pub mod streaming;
 pub mod table_renderer;
 pub mod thesis;
 pub mod vector;
+
+pub use error::{PdfError, Result};
 
 #[cfg(feature = "async")]
 pub mod async_api;

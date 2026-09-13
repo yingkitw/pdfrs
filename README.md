@@ -65,6 +65,7 @@ Most PDF tools specialize in one lane: a typesetter (Typst/LaTeX), a converter t
 - **PDF validation**: `validate_pdf()` / `validate_pdf_bytes()` — structural integrity checks
 - **Rich element model**: 27 `Element` variants for document modeling
 - **Accessibility**: `StructureType` enum (35 types), `StructureElement` tree, `AccessibilityOptions`
+- **Typed errors**: every fallible API returns `pdfrs::Result<T>` with the `PdfError` enum (`Io`, `InvalidPdf`, `Parse`, `PageNotFound`, `Crypto`, `Image`, `Svg`, `InvalidInput`, `Unsupported`, `Context`, `Other`) — match on variants instead of parsing strings
 
 ### PDF Generation
 - **From scratch**: Create PDFs with custom fonts and text content
@@ -189,7 +190,7 @@ pdfcli --help                              # full command list
 
 ## Library (Rust)
 
-Add to `Cargo.toml`: `pdfrs = "0.2"`
+Add to `Cargo.toml`: `pdfrs = "0.1.10"`
 
 ```rust
 use pdfrs::{elements, pdf, pdf_generator::{generate_pdf_bytes, PageLayout}};
@@ -246,29 +247,30 @@ Details: [wasm/README.md](wasm/README.md).
 
 This tool is built with a modular architecture:
 
-- **PDF Parser** (`src/pdf.rs`): PDF parsing, text extraction, validation, xref/object stream parsing
-- **PDF Generator** (`src/pdf_generator.rs`): Creates PDFs with layout, color, alignment, accessibility, syntect highlighting
+- **PDF Parser** (`src/pdf/`): object model + loading (`objects`), parsing (`parser`), text extraction (`text_extract`), sanitization (`sandbox`), diff (`diff`), decoders (`decode`), validation (`validation`)
+- **PDF Generator** (`src/pdf_generator/`): layout, color, alignment, accessibility, syntect highlighting; `content_stream/` split into builder/elements/charts/math/page-assembly/render
+- **Typed errors** (`src/error.rs`): `PdfError` + `pdfrs::Result` across the whole library API
 - **Elements** (`src/elements.rs`): 27 structured element types and markdown parser
 - **Markdown** (`src/markdown.rs`): Markdown-to-PDF pipeline with rich formatting
 - **PDF → Markdown** (`src/pdf_to_md.rs`): Structured reconstruction (headings, lists, code blocks)
 - **Charts / thesis** (`src/chart.rs`, `src/thesis.rs`): Vector charts; TOC, folios, citations
 - **Search** (`src/search.rs`): Full-text search with bounding boxes; shared content-stream walker
 - **Redact** (`src/redact.rs`): True content-stream redaction (text removal + black overlay)
-- **Rasterizer** (`src/raster.rs`): Pure-Rust PDF → PNG with inline PNG encoder
+- **Rasterizer** (`src/raster/`): Pure-Rust anti-aliased PDF → PNG with inline PNG encoder
 - **PDF Operations** (`src/pdf_ops.rs`): Merge, split, rotate, reorder, watermark, metadata, annotations
 - **Image Handler** (`src/image.rs`): JPEG/PNG/BMP embedding with dimension parsing
 - **Linearize / incremental** (`src/linearize.rs`, `src/incremental.rs`): Fast Web View; append-only updates
 - **Plugins** (`src/plugin.rs`): Parser/generator hooks (e.g. callouts)
 - **Compression** (`src/compression.rs`): PDF stream compression (deflate)
-- **Security** (`src/security.rs`): Spec-conformant PDF encryption (RC4 40/128-bit, AES-128, AES-256 R6) with random salts/IVs, permissions, digital signatures, certificate store
+- **Security** (`src/security.rs`, `src/pdf_ops/security.rs`): Spec-conformant PDF encryption (RC4 40/128-bit, AES-128, AES-256 R6) with random salts/IVs, permissions, digital signatures, certificate store
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec and backlog: [SPEC.md](SPEC.md), [TODO.md](TODO.md).
 
 ## Testing
 
-~395 tests (`cargo test`), including:
-- **289 lib tests**: Unit tests across all modules
-- **Integration crates**: `tests/integration.rs`, `capabilities_v2` (v0.2 features), `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test`
+~507 tests (`cargo test`), including:
+- **396 lib tests**: Unit tests across all modules
+- **Integration crates**: `tests/integration.rs`, `capabilities_v2`, `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test`
 - **~35 doctests**: Public API examples
 
 Round-trip validation tests verify that content survives: generate → validate → parse → verify. The `capabilities_v2` suite exercises rasterize → search → redact end-to-end plus full SVG rendering and structured PDF → Markdown.
@@ -293,13 +295,13 @@ Extra material (contributing, validation notes) is under [`docs/`](docs/).
 
 ## Limitations
 
-- **Rasterizer is schematic**: text glyphs render as gray rectangles sized to their advance width — useful for layout preview, not pixel-perfect typography. Use PDFium or Ghostscript for that.
-- **Redaction is text-granular**: when a `Tj` string's bbox intersects a redacted region, the whole string is masked. Image XObjects under a redacted region are obscured by the overlay but not removed from the file.
+- **Rasterizer is schematic, with anti-aliased output**: pages render at 3× supersampling and are box-downsampled. Text renders from real glyph outlines when a TrueType program is available (embedded `/FontFile2`, or a substitute system font / `PDFRS_UNICODE_FONT_PATH` for base-14 names); without any font program it falls back to gray rectangles sized to advance width. Layout preview quality — not pixel-perfect typography; use PDFium or Ghostscript for that.
+- **Redaction is content-stream based**: text is removed at character granularity and image XObjects intersecting a region are removed when they are no longer referenced. Complex PDF constructs may still require external validation.
 - **PDF → Markdown** reconstruction is heuristic; very dense tables and multi-column layouts may not round-trip perfectly.
 - Text extraction works best with PDFs generated by this tool or simple Type 1 font PDFs
 - Font support is limited to standard Type 1 fonts (Helvetica, Times-Roman, Courier) unless a Unicode TTF is embedded
-- Chart fences cover bar / line / pie only (no stacked or multi-series charts yet)
-- Full tagged PDF output not yet implemented (structure types defined)
+- Chart fences cover bar / line / pie / stacked-bar; advanced chart types are not supported
+- Tagged PDF generation covers the implemented structure model; full PDF/UA conformance still requires validation
 
 ## FAQ
 

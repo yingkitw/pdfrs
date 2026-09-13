@@ -8,7 +8,7 @@
 
 ## Overview
 
-Comprehensive examples and test cases validate the unicode, math, and code conversion capabilities, plus the v0.2 feature drop (rasterize, search, redact, full SVG, structured PDF→Markdown).
+Comprehensive examples and test cases validate the unicode, math, and code conversion capabilities, plus the native rasterization, search, redaction, full SVG, and structured PDF→Markdown capabilities.
 
 ## Created Files
 

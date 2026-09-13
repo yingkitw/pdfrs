@@ -1,6 +1,6 @@
 //! Document structure detection (headings, sections) from PDF content streams.
 
-use anyhow::Result;
+use crate::error::Result;
 use serde::{Deserialize, Serialize};
 
 macro_rules! structure_regex {

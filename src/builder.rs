@@ -4,8 +4,8 @@
 //! without manually managing [`Element`] vectors.
 
 use crate::elements::Element;
+use crate::error::Result;
 use crate::pdf_generator::{PageLayout, create_pdf_from_elements_with_layout};
-use anyhow::Result;
 
 /// Fluent builder for creating PDFs with a clean, ergonomic API
 ///

@@ -1,6 +1,6 @@
 //! PDF metadata creation, extraction, and merging.
 
-use anyhow::Result;
+use crate::error::Result;
 use std::fs;
 
 use crate::pdf::{PdfDocument, PdfObject, PdfValue};

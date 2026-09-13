@@ -9,8 +9,8 @@
 //! hint tables (`/H`) are emitted as a zero-length placeholder; readers that
 //! require rich hints still benefit from the early object ordering.
 
+use crate::error::{PdfError, Result};
 use crate::pdf::{PdfDocument, PdfObject, PdfValue};
-use anyhow::{Result, anyhow};
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
 /// Returns true if the PDF begins with a `/Linearized` dictionary (Fast Web View).
@@ -40,7 +40,7 @@ pub fn linearize_pdf_file(input: &str, output: &str) -> Result<()> {
 
 fn write_linearized(doc: &PdfDocument) -> Result<Vec<u8>> {
     if doc.objects.is_empty() {
-        return Err(anyhow!("Cannot linearize an empty PDF"));
+        return Err(PdfError::InvalidPdf("Cannot linearize an empty PDF".into()));
     }
 
     let page_ids = find_page_ids(doc);

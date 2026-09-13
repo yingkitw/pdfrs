@@ -18,9 +18,9 @@
 //! }
 //! ```
 
+use crate::error::{PdfError, Result};
 use crate::optimization::OptimizationSettings;
 use crate::pdf::{PdfAValidation, PdfDocument, PdfValidation};
-use anyhow::Result;
 
 /// Load a PDF file asynchronously.
 ///
@@ -31,7 +31,7 @@ pub async fn load_pdf_async(path: &str) -> Result<PdfDocument> {
     let path = path.to_string();
     tokio::task::spawn_blocking(move || PdfDocument::load_from_bytes(&bytes))
         .await
-        .map_err(|e| anyhow::anyhow!("Task panicked: {:?}", e))?
+        .map_err(|e| PdfError::Other(format!("Task panicked: {:?}", e)))?
 }
 
 /// Generate a PDF from markdown text asynchronously.
@@ -46,7 +46,7 @@ pub async fn generate_pdf_async(markdown: &str, font: &str, font_size: f32) -> R
         crate::pdf_generator::generate_pdf_bytes(&elements, &font, font_size, layout)
     })
     .await
-    .map_err(|e| anyhow::anyhow!("Task panicked: {:?}", e))?
+    .map_err(|e| PdfError::Other(format!("Task panicked: {:?}", e)))?
 }
 
 /// Optimize a PDF asynchronously.
@@ -57,7 +57,7 @@ pub async fn optimize_pdf_async(path: &str, settings: OptimizationSettings) -> R
     let bytes = tokio::fs::read(path).await?;
     tokio::task::spawn_blocking(move || crate::optimization::optimize_pdf_bytes(&bytes, settings))
         .await
-        .map_err(|e| anyhow::anyhow!("Task panicked: {:?}", e))?
+        .map_err(|e| PdfError::Other(format!("Task panicked: {:?}", e)))?
 }
 
 /// Validate a PDF file asynchronously.
@@ -67,7 +67,7 @@ pub async fn validate_pdf_async(path: &str) -> Result<PdfValidation> {
     let bytes = tokio::fs::read(path).await?;
     tokio::task::spawn_blocking(move || Ok(crate::pdf::validate_pdf_bytes(&bytes)))
         .await
-        .map_err(|e| anyhow::anyhow!("Task panicked: {:?}", e))?
+        .map_err(|e| PdfError::Other(format!("Task panicked: {:?}", e)))?
 }
 
 /// Validate PDF/A-1b compliance asynchronously.
@@ -75,7 +75,7 @@ pub async fn validate_pdf_a_async(path: &str) -> Result<PdfAValidation> {
     let bytes = tokio::fs::read(path).await?;
     tokio::task::spawn_blocking(move || Ok(crate::pdf::validate_pdf_a_bytes(&bytes)))
         .await
-        .map_err(|e| anyhow::anyhow!("Task panicked: {:?}", e))?
+        .map_err(|e| PdfError::Other(format!("Task panicked: {:?}", e)))?
 }
 
 #[cfg(test)]

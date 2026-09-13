@@ -1,6 +1,6 @@
 //! PDF security: password protection, digital signatures, and certificate extraction.
 
-use anyhow::{Result, anyhow};
+use crate::error::{PdfError, Result};
 use std::fs;
 
 use sha2::{Digest, Sha256};
@@ -121,8 +121,9 @@ pub fn encrypt_pdf_bytes_with_id(
                 .windows(b"/Type/XRef".len())
                 .any(|w| w == b"/Type/XRef")
         {
-            return Err(anyhow!(
+            return Err(PdfError::Unsupported(
                 "encryption of documents using object streams or cross-reference streams is not supported yet"
+                    .into(),
             ));
         }
     }
@@ -321,15 +322,16 @@ fn scan_pdf_objects(bytes: &[u8]) -> Result<Vec<RawObject>> {
                 let data_end = match stream_data_end_via_length(bytes, dict, data_start) {
                     Some(end) => end,
                     None => {
-                        let es = find_from(bytes, b"endstream", data_start)
-                            .ok_or_else(|| anyhow!("unterminated stream in object {num}"))?;
+                        let es = find_from(bytes, b"endstream", data_start).ok_or_else(|| {
+                            PdfError::Parse(format!("unterminated stream in object {num}"))
+                        })?;
                         strip_trailing_eol(bytes, es)
                     }
                 };
                 let after_data = find_from(bytes, b"endstream", data_end)
-                    .ok_or_else(|| anyhow!("missing endstream in object {num}"))?;
+                    .ok_or_else(|| PdfError::Parse(format!("missing endstream in object {num}")))?;
                 let end = find_from(bytes, b"endobj", after_data)
-                    .ok_or_else(|| anyhow!("missing endobj for object {num}"))?
+                    .ok_or_else(|| PdfError::Parse(format!("missing endobj for object {num}")))?
                     + 6;
                 (
                     Some(StreamSpan {
@@ -342,7 +344,10 @@ fn scan_pdf_objects(bytes: &[u8]) -> Result<Vec<RawObject>> {
             }
             (Some(eo), _) => (None, eo + 6),
             (None, _) => {
-                return Err(anyhow!("unterminated object near offset {}", m.start()));
+                return Err(PdfError::Parse(format!(
+                    "unterminated object near offset {}",
+                    m.start()
+                )));
             }
         };
 
@@ -408,22 +413,26 @@ fn strip_trailing_eol(bytes: &[u8], endstream_pos: usize) -> usize {
 /// Extract `/Root` and `/Info` references from a classic `trailer` dict.
 fn parse_trailer_refs(bytes: &[u8]) -> Result<(String, Option<String>)> {
     let sx = find_from(bytes, b"startxref", 0)
-        .ok_or_else(|| anyhow!("no startxref found in document"))?;
+        .ok_or_else(|| PdfError::InvalidPdf("no startxref found in document".into()))?;
     let trailer_kw = find_from(bytes, b"trailer", 0)
         .filter(|&t| t < sx)
-        .ok_or_else(|| anyhow!("no trailer dictionary found (cross-reference stream document?)"))?;
+        .ok_or_else(|| {
+            PdfError::Unsupported(
+                "no trailer dictionary found (cross-reference stream document?)".into(),
+            )
+        })?;
     let dict_re = regex::bytes::Regex::new(r"(?s)<<(.+?)>>").unwrap();
     let region = &bytes[trailer_kw..sx];
     let dict = dict_re
         .captures(region)
         .map(|c| c[1].to_vec())
-        .ok_or_else(|| anyhow!("malformed trailer dictionary"))?;
+        .ok_or_else(|| PdfError::Parse("malformed trailer dictionary".into()))?;
     let dict_text = String::from_utf8_lossy(&dict).to_string();
     let root_re = re_root_ref();
     let root = root_re
         .captures(&dict_text)
         .map(|c| c[1].to_string())
-        .ok_or_else(|| anyhow!("trailer has no /Root reference"))?;
+        .ok_or_else(|| PdfError::Parse("trailer has no /Root reference".into()))?;
     let info_re = re_info_ref();
     let info = info_re.captures(&dict_text).map(|c| c[1].to_string());
     Ok((root, info))
@@ -507,7 +516,9 @@ fn encrypt_strings_in_dict(
             }
         }
         if depth != 0 {
-            return Err(anyhow!("unbalanced string literal in object {obj_num}"));
+            return Err(PdfError::Parse(format!(
+                "unbalanced string literal in object {obj_num}"
+            )));
         }
         let encrypted = security.encrypt_data(&raw, file_key, obj_num, gen_num)?;
         out.push(b'<');
@@ -590,14 +601,14 @@ pub fn sign_pdf_bytes(
             let body = c[3].trim().to_string();
             (c[1].parse::<u32>().unwrap_or(1), body)
         })
-        .ok_or_else(|| anyhow!("no /Catalog object found in document"))?;
+        .ok_or_else(|| PdfError::Parse("no /Catalog object found in document".into()))?;
 
     // Original xref offset (for /Prev).
-    let last_eof =
-        find_from(pdf_bytes, b"%%EOF", 0).ok_or_else(|| anyhow!("document has no %%EOF marker"))?;
+    let last_eof = find_from(pdf_bytes, b"%%EOF", 0)
+        .ok_or_else(|| PdfError::InvalidPdf("document has no %%EOF marker".into()))?;
     let sx = find_from(pdf_bytes, b"startxref", 0)
         .filter(|&p| p < last_eof)
-        .ok_or_else(|| anyhow!("document has no startxref marker"))?;
+        .ok_or_else(|| PdfError::InvalidPdf("document has no startxref marker".into()))?;
     let after_sx = &pdf_bytes[sx + 9..last_eof];
     let num_end = after_sx
         .iter()
@@ -613,7 +624,7 @@ pub fn sign_pdf_bytes(
     let prev_xref: usize = std::str::from_utf8(&after_sx[..num_end])
         .ok()
         .and_then(|t| t.trim().parse().ok())
-        .ok_or_else(|| anyhow!("malformed startxref offset"))?;
+        .ok_or_else(|| PdfError::InvalidPdf("malformed startxref offset".into()))?;
 
     // Fixed-width ByteRange so later in-place splicing keeps offsets stable.
     const BR_WIDTH: usize = 10;
@@ -732,10 +743,12 @@ pub fn sign_pdf_bytes(
     let contents_marker = format!("/Contents <{contents_placeholder}>");
     let lt = find_from(&output, contents_marker.as_bytes(), 0)
         .map(|p| p + "/Contents ".len())
-        .ok_or_else(|| anyhow!("signature contents placeholder not found"))?;
+        .ok_or_else(|| PdfError::Crypto("signature contents placeholder not found".into()))?;
     let gt = lt + contents_placeholder.len() + 1;
     if output.get(gt) != Some(&b'>') {
-        return Err(anyhow!("signature contents placeholder not found"));
+        return Err(PdfError::Crypto(
+            "signature contents placeholder not found".into(),
+        ));
     }
     let total = output.len();
 
@@ -752,7 +765,7 @@ pub fn sign_pdf_bytes(
     // Splice real ByteRange values over the fixed-width zeros.
     let br_marker = format!("/ByteRange {byte_range}");
     let br_pos = find_from(&output, br_marker.as_bytes(), 0)
-        .ok_or_else(|| anyhow!("ByteRange placeholder not found"))?;
+        .ok_or_else(|| PdfError::Crypto("ByteRange placeholder not found".into()))?;
     let nums_start = br_pos + "/ByteRange [0 ".len();
     let real_br = format!(
         "{lt:0width$} {mid:0width$} {tail:0width$}",
@@ -866,13 +879,14 @@ pub fn extract_certificates_from_pdf(
 fn der_hex_to_certificate(hex: &str, index: usize) -> Result<crate::security::SigningCertificate> {
     let cleaned: String = hex.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     if !cleaned.len().is_multiple_of(2) {
-        return Err(anyhow!("Invalid certificate hex length"));
+        return Err(PdfError::Crypto("Invalid certificate hex length".into()));
     }
     let der: Vec<u8> = cleaned
         .as_bytes()
         .chunks(2)
         .map(|chunk| u8::from_str_radix(std::str::from_utf8(chunk).unwrap(), 16))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| PdfError::Crypto(e.to_string()))?;
     let b64 = encode_base64(&der);
     let pem = format!("-----BEGIN CERTIFICATE-----\n{b64}\n-----END CERTIFICATE-----\n");
     crate::security::parse_certificate_pem(format!("cert-{index}"), &pem)

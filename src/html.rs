@@ -305,7 +305,7 @@ pub fn html_to_pdf(
     html: &str,
     font: &str,
     base_font_size: f32,
-) -> anyhow::Result<()> {
+) -> crate::error::Result<()> {
     let elements = parse_html(html);
     let layout = crate::pdf_generator::PageLayout::portrait();
     crate::pdf_generator::create_pdf_from_elements_with_layout(
@@ -318,7 +318,11 @@ pub fn html_to_pdf(
 }
 
 /// Convert HTML to PDF bytes in memory.
-pub fn html_to_pdf_bytes(html: &str, font: &str, base_font_size: f32) -> anyhow::Result<Vec<u8>> {
+pub fn html_to_pdf_bytes(
+    html: &str,
+    font: &str,
+    base_font_size: f32,
+) -> crate::error::Result<Vec<u8>> {
     let elements = parse_html(html);
     let layout = crate::pdf_generator::PageLayout::portrait();
     crate::pdf_generator::generate_pdf_bytes_internal(

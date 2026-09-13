@@ -18,8 +18,8 @@
 //! }
 //! ```
 
+use crate::error::{PdfError, Result};
 use crate::pdf::{PdfDocument, PdfObject, PdfValue};
-use anyhow::Result;
 use std::collections::HashMap;
 
 /// A rectangle on a PDF page (in PDF user-space points, origin bottom-left).
@@ -198,7 +198,7 @@ pub(crate) fn raw_kids_for_object(pdf_bytes: &[u8], obj_id: u32) -> Option<Vec<u
 
 pub(crate) fn page_content_streams(doc: &PdfDocument, page_id: u32) -> Result<Vec<u32>> {
     let dict = object_dict(doc, page_id)
-        .ok_or_else(|| anyhow::anyhow!("page {page_id} not a dictionary"))?;
+        .ok_or_else(|| PdfError::Parse(format!("page {page_id} not a dictionary")))?;
     let mut out = Vec::new();
     if let Some(contents) = dict.get("Contents") {
         match contents {

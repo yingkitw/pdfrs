@@ -32,9 +32,9 @@
 //! module.
 
 use crate::elements::Element;
+use crate::error::{PdfError, Result};
 use crate::image::{self, ImageInfo};
 use crate::pdf_ops::escape_pdf_meta;
-use anyhow::Result;
 use std::path::PathBuf;
 
 mod accessibility;
@@ -343,10 +343,10 @@ pub(crate) fn generate_pdf_bytes_internal_with_base(
     builder.citation_defs = citation_defs;
     render_elements_to_builder(&mut builder, &prepared, base_font_size);
     if !builder.image_errors.is_empty() {
-        return Err(anyhow::anyhow!(
+        return Err(PdfError::Image(format!(
             "Image embedding failed:\n  - {}",
             builder.image_errors.join("\n  - ")
-        ));
+        )));
     }
     let (page_streams, outlines, images) = builder.finish();
     let unicode_arg = match (&unicode_font_support, &used_chars) {
@@ -504,11 +504,7 @@ pub fn render_page_range(
     let (all_page_streams, outlines, images) = builder.finish();
 
     if range.start >= all_page_streams.len() {
-        anyhow::bail!(
-            "Start page {} exceeds total pages {}",
-            range.start,
-            all_page_streams.len()
-        );
+        return Err(PdfError::PageNotFound(range.start));
     }
     let end = range.end.min(all_page_streams.len());
     let selected = &all_page_streams[range.start..end];
@@ -570,10 +566,10 @@ fn assemble_pdf_bytes(
             }
         }
         if !embed_errors.is_empty() {
-            return Err(anyhow::anyhow!(
+            return Err(PdfError::Image(format!(
                 "Failed to embed image XObject(s):\n  - {}",
                 embed_errors.join("\n  - ")
-            ));
+            )));
         }
         if !parts.is_empty() {
             xobject_resource = format!("/XObject << {} >> ", parts.join(" "));

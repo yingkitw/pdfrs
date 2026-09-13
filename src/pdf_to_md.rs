@@ -13,9 +13,9 @@
 //! println!("{}", md);
 //! ```
 
+use crate::error::Result;
 use crate::pdf::{PdfDocument, PdfObject};
 use crate::search::{self, page_content_streams};
-use anyhow::Result;
 use std::collections::HashMap;
 
 /// Convert PDF bytes to a Markdown string with reconstructed structure.

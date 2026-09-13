@@ -7,7 +7,7 @@
 //! Pixel filters ([`ImageFilter`]) work on raw RGB (BMP, or PNG after scanline
 //! reconstruction). JPEG must be converted to BMP/PNG first.
 
-use anyhow::{Result, anyhow};
+use crate::error::{PdfError, Result};
 use std::fs;
 
 /// Detected image metadata
@@ -33,7 +33,7 @@ pub enum ImageFormat {
 /// Detect format from raw bytes
 pub fn detect_image_format(data: &[u8]) -> Result<ImageFormat> {
     if data.len() < 4 {
-        return Err(anyhow!("Image data too short"));
+        return Err(PdfError::Image("Image data too short".into()));
     }
     if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
         Ok(ImageFormat::Jpeg)
@@ -42,7 +42,7 @@ pub fn detect_image_format(data: &[u8]) -> Result<ImageFormat> {
     } else if data[0] == 0x42 && data[1] == 0x4D {
         Ok(ImageFormat::Bmp)
     } else {
-        Err(anyhow!("Unsupported image format"))
+        Err(PdfError::Unsupported("Unsupported image format".into()))
     }
 }
 
@@ -128,18 +128,18 @@ impl ImageFilter {
         if let Some(rest) = s.strip_prefix("brightness:") {
             let amount: i16 = rest
                 .parse()
-                .map_err(|_| anyhow!("Invalid brightness amount: {rest}"))?;
+                .map_err(|_| PdfError::Image(format!("Invalid brightness amount: {rest}")))?;
             return Ok(Self::Brightness(amount.clamp(-255, 255)));
         }
         if let Some(rest) = s.strip_prefix("contrast:") {
             let factor: f32 = rest
                 .parse()
-                .map_err(|_| anyhow!("Invalid contrast factor: {rest}"))?;
+                .map_err(|_| PdfError::Image(format!("Invalid contrast factor: {rest}")))?;
             return Ok(Self::Contrast(factor.max(0.0)));
         }
-        Err(anyhow!(
+        Err(PdfError::Image(format!(
             "Unknown image filter '{s}' (expected grayscale, invert, sepia, brightness:N, contrast:F)"
-        ))
+        )))
     }
 }
 
@@ -151,14 +151,14 @@ pub fn ensure_raw_rgb(info: ImageInfo) -> Result<ImageInfo> {
     match info.format {
         ImageFormat::Bmp => {
             if info.color_components != 3 {
-                return Err(anyhow!("BMP filter support requires 3-channel RGB"));
+                return Err(PdfError::Image("BMP filter support requires 3-channel RGB".into()));
             }
             Ok(info)
         }
         ImageFormat::Png => reconstruct_png_to_raw_rgb(info),
-        ImageFormat::Jpeg => Err(anyhow!(
+        ImageFormat::Jpeg => Err(PdfError::Image(
             "Image filters require BMP or PNG; JPEG is DCT-encoded and cannot be filtered without a JPEG decoder"
-        )),
+        .into())),
     }
 }
 
@@ -169,10 +169,10 @@ fn reconstruct_png_to_raw_rgb(info: ImageInfo) -> Result<ImageInfo> {
         1 | 3 => info.color_components as usize,
         // Alpha already stripped during load; treat 2/4 as RGB path errors
         _ => {
-            return Err(anyhow!(
+            return Err(PdfError::Image(format!(
                 "PNG filter support requires 1 or 3 color components (got {})",
                 info.color_components
-            ));
+            )));
         }
     };
     let row_bytes = width * components;
@@ -182,12 +182,16 @@ fn reconstruct_png_to_raw_rgb(info: ImageInfo) -> Result<ImageInfo> {
 
     for _ in 0..height {
         if i >= info.data.len() {
-            return Err(anyhow!("PNG data truncated while reconstructing scanlines"));
+            return Err(PdfError::Image(
+                "PNG data truncated while reconstructing scanlines".into(),
+            ));
         }
         let filter_type = info.data[i];
         i += 1;
         if i + row_bytes > info.data.len() {
-            return Err(anyhow!("PNG row truncated while reconstructing scanlines"));
+            return Err(PdfError::Image(
+                "PNG row truncated while reconstructing scanlines".into(),
+            ));
         }
         let mut cur = info.data[i..i + row_bytes].to_vec();
         i += row_bytes;
@@ -255,7 +259,9 @@ fn apply_png_filter(filter_type: u8, cur: &mut [u8], prev: &[u8], bpp: usize) ->
             }
             Ok(())
         }
-        other => Err(anyhow!("Unsupported PNG filter type: {other}")),
+        other => Err(PdfError::Unsupported(format!(
+            "Unsupported PNG filter type: {other}"
+        ))),
     }
 }
 
@@ -382,7 +388,7 @@ pub fn create_filtered_image_pdf(
 /// Returns (width, height, bits_per_component, color_components, decompressed_image_data)
 fn parse_png_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
     if data.len() < 24 {
-        return Err(anyhow!("PNG data too short"));
+        return Err(PdfError::Image("PNG data too short".into()));
     }
 
     // PNG header: 8 bytes
@@ -401,10 +407,19 @@ fn parse_png_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
     let (color_components, has_alpha) = match color_type {
         0 => (1, false),
         2 => (3, false),
-        3 => return Err(anyhow!("Paletted PNG (color type 3) not yet supported")),
+        3 => {
+            return Err(PdfError::Image(
+                "Paletted PNG (color type 3) not yet supported".into(),
+            ));
+        }
         4 => (2, true),
         6 => (4, true),
-        _ => return Err(anyhow!("Invalid PNG color type: {}", color_type)),
+        _ => {
+            return Err(PdfError::Image(format!(
+                "Invalid PNG color type: {}",
+                color_type
+            )));
+        }
     };
 
     // Collect all IDAT chunks and decompress
@@ -434,11 +449,11 @@ fn extract_png_idat_chunks(data: &[u8]) -> Result<Vec<u8>> {
         let chunk_data_end = chunk_data_start + chunk_length;
 
         if chunk_data_end > data.len() {
-            return Err(anyhow!("PNG chunk data extends beyond file"));
+            return Err(PdfError::Image("PNG chunk data extends beyond file".into()));
         }
 
-        let chunk_type_str =
-            std::str::from_utf8(chunk_type).map_err(|_| anyhow!("Invalid PNG chunk type"))?;
+        let chunk_type_str = std::str::from_utf8(chunk_type)
+            .map_err(|_| PdfError::Image("Invalid PNG chunk type".into()))?;
 
         if chunk_type_str == "IDAT" {
             idat_data.extend_from_slice(&data[chunk_data_start..chunk_data_end]);
@@ -451,7 +466,7 @@ fn extract_png_idat_chunks(data: &[u8]) -> Result<Vec<u8>> {
     }
 
     if idat_data.is_empty() {
-        return Err(anyhow!("No IDAT chunks found in PNG"));
+        return Err(PdfError::Image("No IDAT chunks found in PNG".into()));
     }
 
     Ok(idat_data)
@@ -477,13 +492,13 @@ fn remove_alpha_channel(data: &[u8], components: u8, width: u32, height: u32) ->
 
     for _ in 0..height {
         if i + 1 > data.len() {
-            return Err(anyhow!("PNG data truncated"));
+            return Err(PdfError::Image("PNG data truncated".into()));
         }
         let filter = data[i];
         i += 1;
 
         if i + row_size > data.len() {
-            return Err(anyhow!("PNG row data truncated"));
+            return Err(PdfError::Image("PNG row data truncated".into()));
         }
 
         // Copy filter byte
@@ -493,7 +508,7 @@ fn remove_alpha_channel(data: &[u8], components: u8, width: u32, height: u32) ->
         let mut pixel_start = i;
         for _ in 0..width as usize {
             if pixel_start + components > data.len() {
-                return Err(anyhow!("PNG pixel data truncated"));
+                return Err(PdfError::Image("PNG pixel data truncated".into()));
             }
             // Copy RGB components, skip alpha
             for c in 0..3 {
@@ -526,7 +541,7 @@ fn parse_jpeg_dimensions(data: &[u8]) -> Result<(u32, u32)> {
         // Common SOF markers: C0, C1, C2
         if marker == 0xC0 || marker == 0xC1 || marker == 0xC2 {
             if i + 7 > data.len() {
-                return Err(anyhow!("JPEG SOF marker truncated"));
+                return Err(PdfError::Image("JPEG SOF marker truncated".into()));
             }
             let height = ((data[i + 3] as u32) << 8) | (data[i + 4] as u32);
             let width = ((data[i + 5] as u32) << 8) | (data[i + 6] as u32);
@@ -540,14 +555,14 @@ fn parse_jpeg_dimensions(data: &[u8]) -> Result<(u32, u32)> {
         let seg_len = ((data[i] as usize) << 8) | (data[i + 1] as usize);
         i += seg_len;
     }
-    Err(anyhow!("Could not find JPEG SOF marker"))
+    Err(PdfError::Image("Could not find JPEG SOF marker".into()))
 }
 
 /// Parse BMP full data: extract dimensions, bit depth, and pixel data
 /// Returns (width, height, bits_per_component, color_components, pixel_data)
 fn parse_bmp_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
     if data.len() < 54 {
-        return Err(anyhow!("BMP data too short for header"));
+        return Err(PdfError::Image("BMP data too short for header".into()));
     }
 
     // BMP file header (14 bytes) + info header (40 bytes for BITMAPINFOHEADER)
@@ -562,10 +577,10 @@ fn parse_bmp_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
         24 => (3, false),
         32 => (4, true),
         _ => {
-            return Err(anyhow!(
+            return Err(PdfError::Unsupported(format!(
                 "Unsupported BMP bit depth: {} (only 24/32 supported)",
                 bits_per_pixel
-            ));
+            )));
         }
     };
 
@@ -574,7 +589,7 @@ fn parse_bmp_full(data: &[u8]) -> Result<(u32, u32, u8, u8, Vec<u8>)> {
     let pixel_data_offset = u32::from_le_bytes([data[10], data[11], data[12], data[13]]) as usize;
 
     if pixel_data_offset + row_size * height as usize > data.len() {
-        return Err(anyhow!("BMP pixel data truncated"));
+        return Err(PdfError::Image("BMP pixel data truncated".into()));
     }
 
     // Extract pixel data, flipping vertically (BMP stores bottom-to-top)

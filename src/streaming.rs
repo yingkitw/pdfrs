@@ -5,8 +5,8 @@
 //! large reports or server scenarios where early bytes can be streamed.
 
 use crate::elements::{Element, TextSegment};
+use crate::error::Result;
 use crate::pdf_generator::{Color, PageLayout, PdfGenerator, escape_pdf_string};
-use anyhow::Result;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 

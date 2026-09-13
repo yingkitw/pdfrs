@@ -6,6 +6,54 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **Typed error model** (`src/error.rs`): every fallible library API now
+  returns `pdfrs::Result<T>` (`Result<T, PdfError>`) instead of
+  `anyhow::Result<T>`. The new `PdfError` enum classifies failures by
+  domain — `Io`, `InvalidPdf`, `Parse`, `PageNotFound`, `Crypto`,
+  `Image`, `Svg`, `InvalidInput`, `Unsupported`, `Context` (wraps a
+  cause with a message; see `root_cause()`), and `Other` — and
+  implements `std::error::Error`, so `?` still converts into
+  `anyhow::Error` / `Box<dyn Error>` for callers that use them. This is
+  a breaking change for library consumers who matched on `anyhow`
+  internals; CLI behavior is unchanged. All ~127 `anyhow!` construction
+  sites in the library were migrated.
+
+### Changed
+
+- **God modules decomposed** (audit M8/M9) with identical public APIs:
+  - `src/pdf.rs` (3,038 LOC) → `src/pdf/` (`objects`, `parser`,
+    `text_extract`, `sandbox`, `diff`, `decode`, `validation`), with
+    `mod.rs` re-exporting every public item so `pdfrs::pdf::*` paths are
+    unchanged.
+  - `src/raster.rs` (2,622 LOC) → `src/raster/` (`surface`,
+    `interpreter`, `fonts`, `base14`, `png`, `pdf_access`).
+  - `src/vector.rs` (2,170 LOC) → `src/vector/` (`path`, `svg_document`,
+    `xml`, `transform`, `emit`).
+  - `src/pdf_generator/content_stream.rs` (2,415 LOC) →
+    `src/pdf_generator/content_stream/` (`builder`, `elements`,
+    `charts`, `math`, `page_assembly`, `render`).
+  - `src/main.rs` (2,113 LOC) → thin entry point plus `src/cli/`
+    (`args`, `mod` dispatch, and `commands/{generation, conversion,
+    manipulate, vector_raster, inspect, security, service}` handlers).
+    `--help` output and all command behavior are byte-identical.
+
+### Added
+
+- **Anti-aliased rasterization** (`src/raster/`): pages now render at 3×
+  (2× for very large pages, budget-capped) and are box-downsampled, so
+  fills, strokes, and glyphs get smooth edges instead of hard pixels.
+- **Base-14 letterforms in the rasterizer**: when no font is embedded,
+  the rasterizer now uses a substitute system font (or
+  `PDFRS_UNICODE_FONT_PATH`) to draw real glyph outlines for base-14
+  text, falling back to the gray glyph-block rectangles only when no
+  font can be found. Widths still come from the base-14 tables, keeping
+  layout identical.
+- 20 new tests: `error` unit tests, CLI-handler compile coverage, AA
+  edge-pixel assertion, substitute-font letterform assertion. Test
+  count: 487 → 507.
+
 ### Security
 
 - **Spec-conformant encryption** (`src/security.rs`): the Standard Security

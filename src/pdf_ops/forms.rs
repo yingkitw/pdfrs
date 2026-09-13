@@ -1,6 +1,6 @@
 //! Interactive form fields: creation, detection, and filling.
 
-use anyhow::{Result, anyhow};
+use crate::error::{PdfError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -91,7 +91,7 @@ pub fn create_pdf_with_form_fields(
     let layout = crate::pdf_generator::PageLayout::portrait();
     let page_streams = super::build_page_streams(&elements, 12.0, true, layout, None)?;
     if page_streams.is_empty() {
-        return Err(anyhow!("No page content generated"));
+        return Err(PdfError::Parse("No page content generated".into()));
     }
 
     let mut generator = crate::pdf_generator::PdfGenerator::new();

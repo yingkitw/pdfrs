@@ -6,8 +6,8 @@
 //! - Archive: Balanced compression and quality
 //! - Ebook: Mobile-optimized with moderate compression
 
+use crate::error::Result;
 use crate::pdf_generator::PageLayout;
-use anyhow::Result;
 
 /// Optimization profile for PDF generation
 ///

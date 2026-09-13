@@ -117,13 +117,13 @@
 
 #### FR20: Native Page Rasterization (PDF → PNG)
 
-- **FR20.1**: Pure-Rust page rasterizer with no external PDF/font dependencies — `src/raster.rs`, `raster::rasterize_page`, `raster::rasterize_all`
+- **FR20.1**: Pure-Rust page rasterizer with no external PDF/font dependencies — `src/raster/`, `raster::rasterize_page`, `raster::rasterize_all`
 - **FR20.2**: Inline PNG encoder (signature, IHDR, zlib-compressed IDAT via `flate2`, IEND) with built-in CRC-32
 - **FR20.3**: Renders PDF content-stream operators emitted by `pdfrs` plus common operators from other producers: `q`/`Q`, `cm`, `w`, `rg`/`RG`/`g`/`G`/`k`/`K`, `m`/`l`/`c`/`h`/`re`, `S`/`s`/`f`/`F`/`B`/`b`/`n`, `BT`/`ET`, `Tf`, `Tm`/`Td`/`TD`/`T*`, `Tj`/`TJ`/`'`/`"`
 - **FR20.4**: Base-14 PDF font width tables (Helvetica, Times-Roman, Courier) and `/W` array handling for CIDFont
 - **FR20.5**: Page size honoured via the page's `/MediaBox`; DPI parameter scales pixel dimensions
 - **FR20.6**: CLI command `rasterize-pdf` (single page → PNG file or all pages → directory)
-- **FR20.7**: Text is rendered as gray glyph-block rectangles sized to advance widths (schematic rasterizer — not pixel-perfect typography)
+- **FR20.7**: Text uses embedded or substitute TrueType glyph outlines when available, with gray glyph-block fallback when no font program is available; output is anti-aliased but not pixel-perfect typography
 
 #### FR21: Full-Text Search with Bounding Boxes
 
@@ -232,7 +232,7 @@
 
 ### Core Components
 
-#### 1. PDF Parser Module (`src/pdf.rs`)
+#### 1. PDF Parser Module (`src/pdf/`)
 
 ```
 PdfDocument
@@ -260,7 +260,7 @@ PdfObject
 - Handle compressed data
 - Process content streams for text extraction
 
-#### 2. PDF Generator Module (`src/pdf_generator.rs`)
+#### 2. PDF Generator Module (`src/pdf_generator/`)
 
 ```
 PdfGenerator
@@ -283,7 +283,7 @@ PdfObject
 - Create page tree and catalog
 - Write valid PDF format
 
-#### 3. Markdown Parser (`src/markdown.rs`)
+#### 3. Markdown Parser (`src/elements.rs`, `src/markdown.rs`)
 
 ```
 MarkdownParser
@@ -394,12 +394,36 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 
 ## Error Handling
 
+### Error Model
+
+All fallible library APIs return `pdfrs::Result<T>` — an alias for
+`Result<T, PdfError>` (`src/error.rs`). `PdfError` variants classify
+failures by domain:
+
+| Variant | Meaning |
+|---|---|
+| `Io(std::io::Error)` | Filesystem / I/O failure |
+| `InvalidPdf(String)` | Input is not a PDF (bad header, missing `%%EOF`) |
+| `Parse(String)` | Malformed xref / objects / streams / dictionaries |
+| `PageNotFound(usize)` | Requested page index does not exist |
+| `Crypto(String)` | Encryption, decryption, signing, certificate failures |
+| `Image(String)` | Image decoding / encoding / embedding failures |
+| `Svg(String)` | SVG document or path parsing failures |
+| `InvalidInput(String)` | Caller-supplied parameter is invalid |
+| `Unsupported(String)` | Valid input using an unsupported feature |
+| `Context { message, source }` | Wrapped cause with extra context (`root_cause()` unwraps) |
+| `Other(String)` | Anything else (task panics, …) |
+
+`PdfError` implements `std::error::Error` (+ `Send`/`Sync`), so `?`
+converts into `anyhow::Error` or `Box<dyn Error>` transparently. The
+CLI layer keeps `anyhow::Result` and relies on that conversion.
+
 ### Error Types
 
-1. **Parse Errors**: Malformed PDF structure
-2. **IO Errors**: File access issues
-3. **Format Errors**: Unsupported content
-4. **Encoding Errors**: Invalid character encodings
+1. **Parse Errors**: Malformed PDF structure → `InvalidPdf` / `Parse`
+2. **IO Errors**: File access issues → `Io`
+3. **Format Errors**: Unsupported content → `Unsupported`
+4. **Encoding Errors**: Invalid character encodings → `Parse` / `InvalidInput`
 
 ### Error Recovery
 
@@ -473,7 +497,7 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 - Security (password protection, permissions)
 - Library API (in-memory generation, validation)
 - 27 element types with round-trip validation
-- ~395 tests (`cargo test`: 289 lib + integration crates + ~35 doctests)
+- ~507 tests (`cargo test`, including unit, integration, and doctest coverage)
 - Charts, multi-column layout, thesis TOC/citations, linearized + incremental PDF
 - WebAssembly (`wasm` feature) + canvas viewer demo
 - Native PDF → PNG rasterizer (no external renderer dependency)
@@ -484,11 +508,8 @@ Markdown File → Markdown Parser → Text Processor → PDF Generator → PDF F
 
 ### Remaining Features
 
-- Real PDF encryption (crypto currently gated to refuse fake protection)
-- Full tagged PDF output for accessibility
-- Pixel-perfect font-outline rasterization (current rasterizer is schematic — gray glyph blocks)
-- Partial-string redaction (current implementation masks whole `Tj` spans)
-- Image XObject removal during redaction (currently obscured by overlay only)
+- Pixel-perfect PDF rendering parity with PDFium/Ghostscript
+- Object-stream and xref-stream support in `encrypt_pdf_bytes` (currently rejected with a clear error)
 - Digital signature verification / richer signing UX
 - Expanded rustdoc API examples
 

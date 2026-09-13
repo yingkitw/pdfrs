@@ -1,6 +1,6 @@
 //! PDF annotation types: text, link, highlight, and 3D (U3D).
 
-use anyhow::{Result, anyhow};
+use crate::error::{PdfError, Result};
 use std::fs;
 
 /// A text annotation to be placed on a PDF page
@@ -90,7 +90,7 @@ pub fn create_pdf_with_3d_annotation_bytes(
     annot: &ThreeDAnnotation,
 ) -> Result<Vec<u8>> {
     if u3d_data.is_empty() {
-        return Err(anyhow!("U3D data must not be empty"));
+        return Err(PdfError::InvalidInput("U3D data must not be empty".into()));
     }
 
     let layout = crate::pdf_generator::PageLayout::portrait();
@@ -190,7 +190,7 @@ pub fn create_pdf_with_all_annotations(
     let layout = crate::pdf_generator::PageLayout::portrait();
     let page_streams = super::build_page_streams(&elements, 12.0, true, layout, None)?;
     if page_streams.is_empty() {
-        return Err(anyhow!("No page content generated"));
+        return Err(PdfError::Parse("No page content generated".into()));
     }
 
     let mut generator = crate::pdf_generator::PdfGenerator::new();
@@ -308,7 +308,7 @@ pub fn create_pdf_with_annotations(
     // Build page content
     let page_streams = super::build_page_streams(&elements, 12.0, true, layout, None)?;
     if page_streams.is_empty() {
-        return Err(anyhow!("No page content generated"));
+        return Err(PdfError::Parse("No page content generated".into()));
     }
 
     let mut generator = crate::pdf_generator::PdfGenerator::new();

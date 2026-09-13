@@ -4,13 +4,13 @@
 //! (or any Markdown string) using callout plugins, subset fonts, and optional
 //! linearization.
 
+use crate::error::Result;
 use crate::linearize;
 use crate::optimization::{
     CompressionLevel, OptimizationProfile, OptimizationSettings, OptimizedPdfGenerator,
 };
 use crate::pdf_generator::PageLayout;
 use crate::plugin::{PluginRegistry, parse_markdown_with_plugins};
-use anyhow::Result;
 
 /// Options for [`generate_comprehensive_pdf`].
 #[derive(Debug, Clone)]

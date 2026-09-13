@@ -3,8 +3,8 @@
 //! This module provides password protection and permission management for PDF documents.
 //! Implements the PDF Standard Security Handler (RC4 40/128-bit and AES-128/256-bit).
 
+use crate::error::{PdfError, Result};
 use crate::pdf_generator::escape_pdf_string;
-use anyhow::{Result, anyhow};
 use md5::Md5;
 use sha2::{Digest, Sha256};
 
@@ -246,12 +246,16 @@ impl PdfSecurity {
         if let Some(ref pw) = self.user_password
             && pw.is_empty()
         {
-            return Err(anyhow!("User password cannot be empty"));
+            return Err(PdfError::InvalidInput(
+                "User password cannot be empty".into(),
+            ));
         }
         if let Some(ref pw) = self.owner_password
             && pw.is_empty()
         {
-            return Err(anyhow!("Owner password cannot be empty"));
+            return Err(PdfError::InvalidInput(
+                "Owner password cannot be empty".into(),
+            ));
         }
         Ok(())
     }
@@ -493,7 +497,7 @@ impl PdfSecurity {
 /// Returns an error if `key` is empty (RC4 is undefined for empty keys).
 pub fn rc4_encrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     if key.is_empty() {
-        return Err(anyhow!("RC4 key must not be empty"));
+        return Err(PdfError::Crypto("RC4 key must not be empty".into()));
     }
     let mut s: [u8; 256] = core::array::from_fn(|i| i as u8);
     let mut j = 0u8;
@@ -525,14 +529,15 @@ pub fn rc4_encrypt(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 pub fn random_bytes(buf: &mut [u8]) -> Result<()> {
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
-        getrandom::fill(buf).map_err(|e| anyhow!("secure RNG unavailable: {e}"))?;
+        getrandom::fill(buf)
+            .map_err(|e| PdfError::Crypto(format!("secure RNG unavailable: {e}")))?;
         Ok(())
     }
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         let _ = buf;
-        Err(anyhow!(
-            "secure randomness is not available in this WASM build"
+        Err(PdfError::Crypto(
+            "secure randomness is not available in this WASM build".into(),
         ))
     }
 }
@@ -715,7 +720,9 @@ fn hash_r6(password: &[u8], salt: &[u8], user_bytes: &[u8]) -> Result<Vec<u8>> {
             break;
         }
         if round > 192 {
-            return Err(anyhow!("Algorithm 2.B hash failed to converge"));
+            return Err(PdfError::Crypto(
+                "Algorithm 2.B hash failed to converge".into(),
+            ));
         }
     }
     k.truncate(32);
@@ -728,7 +735,9 @@ fn aes256_cbc_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
 
     if !data.len().is_multiple_of(16) {
-        return Err(anyhow!("AES-256 no-padding input must be block-aligned"));
+        return Err(PdfError::Crypto(
+            "AES-256 no-padding input must be block-aligned".into(),
+        ));
     }
     let cipher = aes::Aes256::new(GenericArray::from_slice(key));
     let mut prev = [0u8; 16];
@@ -793,29 +802,32 @@ fn aes_cbc_encrypt(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
     match key.len() {
         16 => {
             let encryptor = Aes128CbcEnc::new_from_slices(key, &iv)
-                .map_err(|_| anyhow!("Invalid AES-128 key/IV length"))?;
+                .map_err(|_| PdfError::Crypto("Invalid AES-128 key/IV length".into()))?;
             let mut buf = plaintext.to_vec();
             buf.resize(plaintext.len() + 16, 0u8);
             let ct = encryptor
                 .encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len())
-                .map_err(|_| anyhow!("AES-128 encryption failed"))?;
+                .map_err(|_| PdfError::Crypto("AES-128 encryption failed".into()))?;
             let mut output = iv.to_vec();
             output.extend_from_slice(ct);
             Ok(output)
         }
         32 => {
             let encryptor = Aes256CbcEnc::new_from_slices(key, &iv)
-                .map_err(|_| anyhow!("Invalid AES-256 key/IV length"))?;
+                .map_err(|_| PdfError::Crypto("Invalid AES-256 key/IV length".into()))?;
             let mut buf = plaintext.to_vec();
             buf.resize(plaintext.len() + 16, 0u8);
             let ct = encryptor
                 .encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len())
-                .map_err(|_| anyhow!("AES-256 encryption failed"))?;
+                .map_err(|_| PdfError::Crypto("AES-256 encryption failed".into()))?;
             let mut output = iv.to_vec();
             output.extend_from_slice(ct);
             Ok(output)
         }
-        _ => Err(anyhow!("Unsupported AES key length: {}", key.len())),
+        _ => Err(PdfError::Crypto(format!(
+            "Unsupported AES key length: {}",
+            key.len()
+        ))),
     }
 }
 
@@ -826,7 +838,7 @@ fn aes_cbc_decrypt(key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
     type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
     if ciphertext.len() < 16 {
-        return Err(anyhow!("Ciphertext too short for IV"));
+        return Err(PdfError::Crypto("Ciphertext too short for IV".into()));
     }
     let iv = &ciphertext[..16];
     let ct = &ciphertext[16..];
@@ -834,23 +846,34 @@ fn aes_cbc_decrypt(key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
     match key.len() {
         16 => {
             let decryptor = Aes128CbcDec::new_from_slices(key, iv)
-                .map_err(|_| anyhow!("Invalid AES-128 key/IV length"))?;
+                .map_err(|_| PdfError::Crypto("Invalid AES-128 key/IV length".into()))?;
             let mut buf = ct.to_vec();
             let pt = decryptor
                 .decrypt_padded_mut::<Pkcs7>(&mut buf)
-                .map_err(|_| anyhow!("AES-128 decryption failed (wrong key or corrupted data)"))?;
+                .map_err(|_| {
+                    PdfError::Crypto(
+                        "AES-128 decryption failed (wrong key or corrupted data)".into(),
+                    )
+                })?;
             Ok(pt.to_vec())
         }
         32 => {
             let decryptor = Aes256CbcDec::new_from_slices(key, iv)
-                .map_err(|_| anyhow!("Invalid AES-256 key/IV length"))?;
+                .map_err(|_| PdfError::Crypto("Invalid AES-256 key/IV length".into()))?;
             let mut buf = ct.to_vec();
             let pt = decryptor
                 .decrypt_padded_mut::<Pkcs7>(&mut buf)
-                .map_err(|_| anyhow!("AES-256 decryption failed (wrong key or corrupted data)"))?;
+                .map_err(|_| {
+                    PdfError::Crypto(
+                        "AES-256 decryption failed (wrong key or corrupted data)".into(),
+                    )
+                })?;
             Ok(pt.to_vec())
         }
-        _ => Err(anyhow!("Unsupported AES key length: {}", key.len())),
+        _ => Err(PdfError::Crypto(format!(
+            "Unsupported AES key length: {}",
+            key.len()
+        ))),
     }
 }
 
@@ -1095,11 +1118,14 @@ impl CertificateStore {
 /// Validate that a certificate store ID is safe (no path traversal, no empty).
 fn validate_cert_id(id: &str) -> Result<()> {
     if id.is_empty() {
-        return Err(anyhow!("Certificate ID cannot be empty"));
+        return Err(PdfError::InvalidInput(
+            "Certificate ID cannot be empty".into(),
+        ));
     }
     if id.contains('/') || id.contains('\\') || id.contains("..") {
-        return Err(anyhow!(
+        return Err(PdfError::InvalidInput(
             "Certificate ID contains invalid characters (path separators or traversal sequences)"
+                .into(),
         ));
     }
     Ok(())
@@ -1115,7 +1141,9 @@ pub fn load_certificate_pem(id: impl Into<String>, path: &str) -> Result<Signing
 pub fn parse_certificate_pem(id: impl Into<String>, pem: &str) -> Result<SigningCertificate> {
     let id = id.into();
     if !pem.contains("-----BEGIN CERTIFICATE-----") {
-        return Err(anyhow!("File does not contain a PEM certificate block"));
+        return Err(PdfError::Crypto(
+            "File does not contain a PEM certificate block".into(),
+        ));
     }
 
     let der = pem_to_der(pem)?;
@@ -1184,7 +1212,9 @@ fn decode_base64(input: &str) -> Result<Vec<u8>> {
         }
         let val = TABLE[byte as usize];
         if val == 255 {
-            return Err(anyhow!("Invalid base64 character in PEM certificate"));
+            return Err(PdfError::Crypto(
+                "Invalid base64 character in PEM certificate".into(),
+            ));
         }
         buf = (buf << 6) | u32::from(val);
         bits += 6;

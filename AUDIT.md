@@ -7,6 +7,19 @@
 
 ---
 
+## Remediation Update (2026-09-13)
+
+| Finding | Status | Resolution |
+|---------|--------|------------|
+| M8 god modules | ✅ Fixed | `pdf.rs` → `pdf/` (objects, parser, text_extract, sandbox, diff, decode, validation); `raster.rs` → `raster/` (surface, interpreter, fonts, base14, png, pdf_access); `vector.rs` → `vector/` (path, svg_document, xml, transform, emit); `content_stream.rs` → `content_stream/` (builder, elements, charts, math, page_assembly, render). Public APIs re-exported unchanged. |
+| M9 `main.rs` monolith | ✅ Fixed | Thin entry point + `src/cli/` (`args.rs`, dispatch `mod.rs`, `commands/{generation,conversion,manipulate,vector_raster,inspect,security,service}.rs`). `--help` verified byte-identical. |
+| H6 anyhow-only error model | ✅ Fixed | `src/error.rs`: `PdfError` (Io/InvalidPdf/Parse/PageNotFound/Crypto/Image/Svg/InvalidInput/Unsupported/Context/Other) + `pdfrs::Result<T>`; all ~127 library `anyhow!` sites migrated; CLI/`serve()` keep `anyhow` through automatic `std::error::Error` conversion. Breaking API change, documented in CHANGELOG. |
+| Rasterizer fidelity gap | 🟡 Improved | 3× supersampled anti-aliasing (budget-capped) for fills/strokes/glyphs; base-14 text renders real letterforms from a substitute system font (`PDFRS_UNICODE_FONT_PATH` or well-known paths) with base-14 width tables. Pixel-perfect parity with PDFium/Ghostscript remains out of scope by design (see README limitations). |
+
+**Verification:** `cargo test` 507 passed / 0 failed; `cargo clippy --all-targets` 0 warnings; `cargo fmt --check` clean.
+
+---
+
 ## Remediation Summary (2026-08-20)
 
 | Finding | Status | Resolution |

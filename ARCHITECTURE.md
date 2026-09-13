@@ -28,9 +28,19 @@
 
 ## Module Architecture
 
-### 1. CLI Module (`src/main.rs`)
+### 1. CLI Module (`src/main.rs` + `src/cli/`)
 
 **Purpose**: Command-line interface and application orchestration
+
+**Layout**: `src/main.rs` is a thin entry point (`fn main() { cli::run(); }`).
+The interface lives in `src/cli/`:
+
+- `src/cli/args.rs` — `Cli` struct and `Commands` enum (clap derive)
+- `src/cli/mod.rs` — `run()` dispatch over ~49 subcommands plus shared
+  helpers (`resolve_locale`, `build_plugin_registry`,
+  `parse_optimization_profile`)
+- `src/cli/commands/{generation,conversion,manipulate,vector_raster,inspect,security,service}.rs` —
+  one handler per subcommand, grouped by domain
 
 **Responsibilities**:
 
@@ -40,11 +50,28 @@
 - Handle application-level error reporting (optionally localized via `i18n`)
 
 **Key commands** (non-exhaustive): `create`, `md-to-pdf`, `html-to-pdf`, `pdf-to-md`, `extract`, `merge`, `split`, `rotate`, `add-image`, `filter-image`, `draw-vector`, `draw-svg`, `embed-3d`, `generate-comprehensive`, `linearize-pdf`, `incremental-update`, `optimize-pdf`, `validate`, …
-### 2. PDF Core Engine (`src/pdf.rs`)
+
+### 2. PDF Core Engine (`src/pdf/`)
 
 **Purpose**: PDF parsing and text extraction
 
 **Architecture Pattern**: Document Object Model (DOM) parser
+
+**Internal Submodules**:
+
+- `src/pdf/mod.rs` — facade: shared regex cache (`pdf_regex!`), public
+  re-exports, module tests
+- `src/pdf/objects.rs` — `PdfDocument`/`PdfObject`/`PdfValue` model,
+  loading, serialization, reference rewriting, object deduplication,
+  embedded-file attachment
+- `src/pdf/parser.rs` — object/xref/object-stream parsing, `decompress_stream`,
+  `LazyPdfDocument` (stream-indexing lazy loader)
+- `src/pdf/text_extract.rs` — `get_text`, ToUnicode CMap handling,
+  glyph-ID reverse mapping
+- `src/pdf/sandbox.rs` — sanitization and JavaScript sandboxing
+- `src/pdf/diff.rs` — structural document diff
+- `src/pdf/decode.rs` — WinAnsi/MacRoman decoders, PDF string/hex/UTF-16 decoding
+- `src/pdf/validation.rs` — PDF / PDF-A / PDF-UA / screen-reader validation
 
 **Key Classes**:
 
@@ -91,7 +118,12 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 **Internal Submodules**:
 
 - `src/pdf_generator/mod.rs` — `PdfGenerator` object model, PDF assembly, font resources, outline tree, tagged PDF, public API entry points
-- `src/pdf_generator/content_stream.rs` — `ContentStreamBuilder` (cursor, page breaks, font switches), element-to-stream rendering, `prepare_elements_for_render`, `render_elements_to_builder`
+- `src/pdf_generator/content_stream/` — `ContentStreamBuilder` split by concern:
+  `builder` (cursor, page breaks, font switches, operator emission),
+  `elements` (element rendering), `charts` (vector chart emission),
+  `math` (display/inline math layout), `page_assembly` (page furniture),
+  `render` (render loop, TOC expansion, bibliography);
+  plus `prepare_elements_for_render` / `render_elements_to_builder`
 - `src/pdf_generator/layout.rs` — `PageLayout`, `PageOrientation`, `PdfVersion`, `Color`, `TextAlign`, font-size / text-width helpers
 - `src/pdf_generator/code_highlight.rs` — syntect-based syntax highlighting for code blocks
 - `src/pdf_generator/math_layout.rs` — math layout helpers
@@ -312,16 +344,27 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `incremental_add_text_annotation` — append a text note + catalog override
 - `is_incremental_pdf` — detect multiple `%%EOF` markers
 
-### 15. Streaming / optimization / vector / security
+### 15. Streaming / optimization / vector / security / errors
 
 - `src/streaming.rs` — memory-efficient streaming generation
 - `src/optimization.rs` — web/print/archive/ebook profiles
-- `src/vector.rs` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`)
+- `src/error.rs` — typed error model: `PdfError` (Io, InvalidPdf, Parse,
+  PageNotFound, Crypto, Image, Svg, InvalidInput, Unsupported, Context, Other)
+  and `pdfrs::Result<T>`; returned by every fallible library API. Implements
+  `std::error::Error`, so `?` converts into `anyhow::Error` /
+  `Box<dyn Error>` for callers that use them
+- `src/vector/` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`); submodules: `path` (SVG path parser), `svg_document` (document model + renderer), `xml` (minimal XML parser), `transform` (matrix transforms), `emit` (content-stream emission + entry points)
 - `src/security.rs` — PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass
 
-### 15b. Rasterization (`src/raster.rs`)
+### 15b. Rasterization (`src/raster/`)
 
 **Purpose**: Pure-Rust PDF page rasterization (PDF → PNG) with no external renderer dependency.
+
+**Internal Submodules**: `mod` (entry points + supersampled compositing),
+`surface` (pixel buffer, fills, strokes, Bézier flattening, glyph outline
+builder), `interpreter` (content-stream walker), `fonts` (width tables +
+embedded/substitute TTF extraction), `base14` (base-14 width tables),
+`png` (inline PNG encoder), `pdf_access` (page/media-box accessors).
 
 **Key Functions**:
 
@@ -329,7 +372,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 - `rasterize_all(pdf_bytes, dpi) -> Vec<RasterPage>`
 - `RasterPage::to_png() -> Vec<u8>` (inline PNG encoder: signature + IHDR + zlib IDAT via `flate2` + IEND, built-in CRC-32)
 
-**Scope**: renders the operators emitted by `pdfrs` plus the common content-stream subset from other producers (`q`/`Q`, `cm`, color ops, path construction, path painting, `BT`/`ET`, `Tf`, text-positioning ops, `Tj`/`TJ`). Text is rendered as **gray glyph-block rectangles** sized to advance widths (schematic rasterizer — not pixel-perfect typography).
+**Scope**: renders the operators emitted by `pdfrs` plus the common content-stream subset from other producers (`q`/`Q`, `cm`, color ops, path construction, path painting, `BT`/`ET`, `Tf`, text-positioning ops, `Tj`/`TJ`). Output is **anti-aliased** via 3× supersampling (budget-capped 2× for very large pages). Text renders from real glyph outlines when a TrueType program is available — embedded `/FontFile2` streams, or a substitute system font (`PDFRS_UNICODE_FONT_PATH`) for base-14 names; without any font program, text falls back to gray glyph-block rectangles sized to advance widths (schematic rasterizer — not pixel-perfect typography).
 
 ### 15c. Search (`src/search.rs`)
 
@@ -561,7 +604,7 @@ tests/
 ├── comprehensive_pdf.rs
 ├── roundtrip_test.rs
 ├── capability_validation.rs
-├── capabilities_v2.rs             # v0.2 features: rasterize/search/redact/SVG/PDF→MD
+├── capabilities_v2.rs             # rasterize/search/redact/SVG/PDF→MD integration coverage
 ├── unicode_integration_test.rs
 └── fixtures/          # markdown, sample.png, certs
 benches/

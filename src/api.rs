@@ -396,7 +396,7 @@ async fn extract_text(State(_state): State<AppState>, Json(req): Json<ExtractReq
         let doc = crate::pdf::PdfDocument::load_from_bytes(&pdf)?;
         let text = doc.get_text().unwrap_or_default();
         let pages = crate::search::collect_pages_from_doc(&doc, None).len();
-        Ok::<_, anyhow::Error>(ExtractResponse { text, pages })
+        Ok::<_, crate::error::PdfError>(ExtractResponse { text, pages })
     })
     .await;
     match result {

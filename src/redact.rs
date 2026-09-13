@@ -32,9 +32,9 @@
 //! ```
 
 use crate::compression::compress_deflate;
+use crate::error::{PdfError, Result};
 use crate::pdf::{PdfDocument, PdfObject, PdfValue};
 use crate::search::Rect;
-use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
 /// A rectangle on a page in PDF user-space points to redact.
@@ -89,18 +89,14 @@ pub fn redact_pdf_bytes_with_style(
     let mut doc = PdfDocument::load_from_bytes(pdf_bytes)?;
     let pages = crate::search::collect_pages_from_doc(&doc, Some(pdf_bytes));
     if pages.is_empty() {
-        return Err(anyhow!("PDF has no pages"));
+        return Err(PdfError::InvalidPdf("PDF has no pages".into()));
     }
 
     // Bucket regions by page for O(1) lookup.
     let mut by_page: HashMap<usize, Vec<Rect>> = HashMap::new();
     for r in regions {
         if r.page >= pages.len() {
-            return Err(anyhow!(
-                "redaction region refers to page {} but document has {} pages",
-                r.page,
-                pages.len()
-            ));
+            return Err(PdfError::PageNotFound(r.page));
         }
         by_page.entry(r.page).or_default().push(r.rect());
     }

@@ -19,7 +19,7 @@ pub use security::*;
 pub use structure::*;
 pub use tables::*;
 
-use anyhow::{Result, anyhow};
+use crate::error::{PdfError, Result};
 use std::fs;
 
 /// Merge multiple PDF files into a single output PDF.
@@ -55,7 +55,9 @@ use std::fs;
 /// - No page content is found in any input file
 pub fn merge_pdfs(input_files: &[&str], output_file: &str) -> Result<()> {
     if input_files.is_empty() {
-        return Err(anyhow!("No input files provided for merge"));
+        return Err(PdfError::InvalidInput(
+            "No input files provided for merge".into(),
+        ));
     }
 
     let mut all_page_streams: Vec<Vec<u8>> = Vec::new();
@@ -70,7 +72,9 @@ pub fn merge_pdfs(input_files: &[&str], output_file: &str) -> Result<()> {
     }
 
     if all_page_streams.is_empty() {
-        return Err(anyhow!("No page content found in any input file"));
+        return Err(PdfError::Parse(
+            "No page content found in any input file".into(),
+        ));
     }
 
     let layout = crate::pdf_generator::PageLayout::portrait();
@@ -89,7 +93,9 @@ pub fn merge_pdfs(input_files: &[&str], output_file: &str) -> Result<()> {
 /// Each entry in `pdf_bytes` is a complete PDF file. Returns the merged PDF bytes.
 pub fn merge_pdfs_from_bytes(pdf_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
     if pdf_bytes.is_empty() {
-        return Err(anyhow!("No input PDFs provided for merge"));
+        return Err(PdfError::InvalidInput(
+            "No input PDFs provided for merge".into(),
+        ));
     }
     let mut all_page_streams: Vec<Vec<u8>> = Vec::new();
     for (i, bytes) in pdf_bytes.iter().enumerate() {
@@ -101,7 +107,9 @@ pub fn merge_pdfs_from_bytes(pdf_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         all_page_streams.extend(streams);
     }
     if all_page_streams.is_empty() {
-        return Err(anyhow!("No page content found in any input PDF"));
+        return Err(PdfError::Parse(
+            "No page content found in any input PDF".into(),
+        ));
     }
     let layout = crate::pdf_generator::PageLayout::portrait();
     assemble_merged_pdf_bytes(&all_page_streams, "Helvetica", &layout)
@@ -112,7 +120,7 @@ pub fn split_pdf_from_bytes(pdf_bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
     let doc = crate::pdf::PdfDocument::load_from_bytes(pdf_bytes)?;
     let all_streams = extract_page_streams(&doc);
     if all_streams.is_empty() {
-        return Err(anyhow!("No pages found in input PDF"));
+        return Err(PdfError::Parse("No pages found in input PDF".into()));
     }
     let layout = crate::pdf_generator::PageLayout::portrait();
     let mut results = Vec::with_capacity(all_streams.len());
@@ -267,7 +275,9 @@ pub fn merge_pdfs_sequential(
     output_file: &str,
 ) -> Result<()> {
     if documents.is_empty() {
-        return Err(anyhow!("No documents provided for merge"));
+        return Err(PdfError::InvalidInput(
+            "No documents provided for merge".into(),
+        ));
     }
 
     let mut all_page_streams: Vec<Vec<u8>> = Vec::new();
@@ -281,7 +291,9 @@ pub fn merge_pdfs_sequential(
     }
 
     if all_page_streams.is_empty() {
-        return Err(anyhow!("No page content found in any document"));
+        return Err(PdfError::Parse(
+            "No page content found in any document".into(),
+        ));
     }
 
     let layout = crate::pdf_generator::PageLayout::portrait();
@@ -322,11 +334,10 @@ pub fn merge_pdfs_sequential(
 /// ```
 pub fn split_pdf(input_file: &str, output_file: &str, start: usize, end: usize) -> Result<()> {
     if start == 0 || end == 0 || start > end {
-        return Err(anyhow!(
+        return Err(PdfError::InvalidInput(format!(
             "Invalid page range: start={} end={} (1-indexed, inclusive)",
-            start,
-            end
-        ));
+            start, end
+        )));
     }
 
     let doc = crate::pdf::PdfDocument::load_from_file(input_file)?;
@@ -334,14 +345,10 @@ pub fn split_pdf(input_file: &str, output_file: &str, start: usize, end: usize) 
     let total = all_streams.len();
 
     if total == 0 {
-        return Err(anyhow!("No pages found in {}", input_file));
+        return Err(PdfError::Parse(format!("No pages found in {}", input_file)));
     }
     if start > total {
-        return Err(anyhow!(
-            "Start page {} exceeds total pages {}",
-            start,
-            total
-        ));
+        return Err(PdfError::PageNotFound(start));
     }
 
     let actual_end = end.min(total);
@@ -452,7 +459,9 @@ pub(super) fn build_page_streams(
     let doc = crate::pdf::PdfDocument::load_from_bytes(&bytes)?;
     let streams = extract_page_streams(&doc);
     if streams.is_empty() {
-        return Err(anyhow!("No page content streams produced from elements"));
+        return Err(PdfError::Parse(
+            "No page content streams produced from elements".into(),
+        ));
     }
     Ok(streams)
 }
@@ -473,17 +482,17 @@ fn assemble_merged_pdf(
 /// `rotation` must be 0, 90, 180, or 270.
 pub fn rotate_pdf(input_file: &str, output_file: &str, rotation: u32) -> Result<()> {
     if rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270 {
-        return Err(anyhow!(
+        return Err(PdfError::InvalidInput(format!(
             "Invalid rotation: {}. Must be 0, 90, 180, or 270.",
             rotation
-        ));
+        )));
     }
 
     let doc = crate::pdf::PdfDocument::load_from_file(input_file)?;
     let all_streams = extract_page_streams(&doc);
 
     if all_streams.is_empty() {
-        return Err(anyhow!("No pages found in {}", input_file));
+        return Err(PdfError::Parse(format!("No pages found in {}", input_file)));
     }
 
     let layout = crate::pdf_generator::PageLayout::portrait();
@@ -555,7 +564,7 @@ pub fn create_pdf_with_images(
     images: &[(String, f32, f32, f32, f32)], // (path, x, y, width, height)
 ) -> Result<()> {
     if images.is_empty() {
-        return Err(anyhow!("No images provided"));
+        return Err(PdfError::InvalidInput("No images provided".into()));
     }
 
     let mut generator = crate::pdf_generator::PdfGenerator::new();
@@ -656,7 +665,7 @@ pub fn watermark_pdf(
     let all_streams = extract_page_streams(&doc);
 
     if all_streams.is_empty() {
-        return Err(anyhow!("No pages found in {}", input_file));
+        return Err(PdfError::Parse(format!("No pages found in {}", input_file)));
     }
 
     let layout = crate::pdf_generator::PageLayout::portrait();
@@ -773,7 +782,7 @@ pub fn overlay_image_on_pdf(
     let all_streams = extract_page_streams(&doc);
 
     if all_streams.is_empty() {
-        return Err(anyhow!("No pages found in {}", input_file));
+        return Err(PdfError::Parse(format!("No pages found in {}", input_file)));
     }
 
     // Load the image
@@ -897,7 +906,7 @@ pub fn watermark_pdf_advanced(
     let all_streams = extract_page_streams(&doc);
 
     if all_streams.is_empty() {
-        return Err(anyhow!("No pages found in {}", input_file));
+        return Err(PdfError::Parse(format!("No pages found in {}", input_file)));
     }
 
     let layout = crate::pdf_generator::PageLayout::portrait();
@@ -1035,7 +1044,7 @@ fn build_image_watermark_stream(
 /// Example: `[3, 1, 2]` puts page 3 first, then page 1, then page 2.
 pub fn reorder_pages(input_file: &str, output_file: &str, page_order: &[usize]) -> Result<()> {
     if page_order.is_empty() {
-        return Err(anyhow!("Page order list is empty"));
+        return Err(PdfError::InvalidInput("Page order list is empty".into()));
     }
 
     let doc = crate::pdf::PdfDocument::load_from_file(input_file)?;
@@ -1043,17 +1052,13 @@ pub fn reorder_pages(input_file: &str, output_file: &str, page_order: &[usize]) 
     let total = all_streams.len();
 
     if total == 0 {
-        return Err(anyhow!("No pages found in {}", input_file));
+        return Err(PdfError::Parse(format!("No pages found in {}", input_file)));
     }
 
     // Validate all page numbers
     for &p in page_order {
         if p == 0 || p > total {
-            return Err(anyhow!(
-                "Invalid page number {} (document has {} pages)",
-                p,
-                total
-            ));
+            return Err(PdfError::PageNotFound(p));
         }
     }
 

@@ -326,9 +326,14 @@ This document tracks the planned features, improvements, and tasks for the **pdf
   - [x] Memory safety verification — no `unsafe` blocks in codebase; renamed misleading `flatten_cubic_into_unsafe` → `flatten_cubic_into_segments`; PDF parsing is iterative (not recursive) so no stack overflow risk on deeply nested input
   - [x] Security audit — path traversal vulnerability in `CertificateStore` fixed (`validate_cert_id` rejects `/`, `\`, `..`, empty IDs); encrypt/decrypt stubs properly return `Err`; sanitization/sandboxing modules verified; regression test added (425 tests total)
   - [x] Full security remediation (2026-08-20 audit) — spec-conformant encryption (Alg 2/3.3/3.4/3.5 + R6 2.A-2.F with `getrandom`), byte-safe `encrypt_pdf_bytes` with xref rebuild, true image-object redaction, redaction of Form XObjects / annotation `/AP` streams / text outside `BT…ET`, byte-level signature splicing, API hardening (body limit, `spawn_blocking`, opt-in CORS), raster/`/W` DoS guards, HTML recursion cap (487 tests total)
-- [ ] Remaining audit deferrals
-  - [ ] Typed error enum to replace `anyhow`-only model (106 sites; breaking API change)
-  - [ ] Split god modules (`pdf.rs` 3,041 LOC, `raster.rs`, `content_stream.rs`, `vector.rs`, `main.rs`)
+- [x] Remaining audit deferrals
+  - [x] Typed error enum to replace `anyhow`-only model — shipped `src/error.rs`
+    (`PdfError` + `pdfrs::Result`); all ~127 library `anyhow!` sites migrated;
+    CLI keeps `anyhow` via `std::error::Error` auto-conversion
+  - [x] Split god modules — `pdf.rs` → `pdf/` (7 files), `raster.rs` → `raster/`
+    (6 files), `vector.rs` → `vector/` (5 files), `content_stream.rs` →
+    `content_stream/` (6 files), `main.rs` → thin entry + `cli/` (9 files);
+    public APIs unchanged
   - [ ] WASM exports: async/worker-first API to avoid main-thread blocking
   - [ ] Object-stream / xref-stream support in `encrypt_pdf_bytes` (currently rejected with a clear error)
 
@@ -371,7 +376,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 Capabilities in peer projects worth prioritizing:
 
-- ~~**Native page rasterization**~~ — shipped: `src/raster.rs` + `rasterize-pdf` CLI (pure Rust PNG output, schematic glyph blocks, base-14 font widths)
+- ~~**Native page rasterization**~~ — shipped: `src/raster/` + `rasterize-pdf` CLI (pure Rust PNG output, anti-aliased rendering, TrueType glyph outlines when available, base-14 width tables)
 - ~~**Full-text search with highlight boxes**~~ — shipped: `src/search.rs` + `search-pdf` CLI (per-hit `Rect` bboxes, case-insensitive, JSON output)
 - ~~**Office/HTML round-trip conversion**~~ — shipped: `src/html.rs` (~1,050 LOC); lightweight HTML parser → `Element` pipeline; `html-to-pdf` CLI; `parse_html()`, `html_to_pdf()`, `html_to_pdf_bytes()` API; 25 unit tests
 - ~~**True redaction**~~ — shipped: `src/redact.rs` + `redact-pdf` CLI (content-stream rewrite; `BlackBox` and `Strip` styles)
@@ -389,20 +394,24 @@ Capabilities in peer projects worth prioritizing:
 - **Web Worker offloading** (MantisPDF) — ✅ shipped: `wasm/worker.js` + `wasm/worker-client.js` for off-main-thread PDF generation
 - **IndexedDB WASM module caching** (PDFNova) — ✅ shipped: `wasm/cache.js` with version-keyed cache for instant reloads
 - **Multi-language bindings** (PDF Oxide) — Python/JS/Go/C# from same Rust core
+- **Rasterizer parity items** (PDFium/Ghostscript gap, deferred from the 2026-09-13
+  AA/substitute-font work): clipping paths (`W n`), ExtGState soft masks
+  (`ca`/`CA` alpha), text render modes (`Tr`), tiling/shading patterns, and
+  image XObject drawing in the rasterizer
 - ~~**Plugin hooks for Element → PDF**~~ — shipped: `ParserPlugin` / `GeneratorPlugin` + `CalloutPlugin`
 
-### Capability Drop (2026-07-26) — v0.2 features
+### Capability Drop (2026-07-26) — native raster/search/redaction/SVG features
 
-- [x] **Native PDF → PNG rasterization** — `src/raster.rs` (~1700 LOC); pure-Rust PNG encoder with CRC-32; base-14 font width tables; cubic Bézier flattening; `rasterize_page` / `rasterize_all` APIs; `rasterize-pdf` CLI; 8 unit tests
+- [x] **Native PDF → PNG rasterization** — `src/raster/`; pure-Rust PNG encoder with CRC-32; base-14 font width tables; cubic Bézier flattening; `rasterize_page` / `rasterize_all` APIs; `rasterize-pdf` CLI; 8 unit tests
 - [x] **Full-text search with bounding boxes** — `src/search.rs` (~1240 LOC); shared content-stream walker (re-used by raster/redact/pdf_to_md); `SearchHit { page, text, snippet, bbox }`; case-insensitive matching; `search-pdf` CLI with `--json` output; 7 unit tests
 - [x] **True content-stream redaction** — `src/redact.rs` (~480 LOC); rewrites content streams to mask intersecting text; `BlackBox` and `Strip` styles; `redact-pdf` CLI with repeatable `--region page,x,y,w,h`; 5 unit tests
 - [x] **Full SVG document rendering** — extended `src/vector.rs` (~900 LOC added); `<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`; minimal XML parser; `parse_svg_transform` (translate/scale/rotate/matrix/skew); `draw-svg-file` CLI; 12 new unit tests
 - [x] **Structured PDF → Markdown** — `src/pdf_to_md.rs` (~520 LOC); headings (font-size ratios), bullets, numbered lists, code blocks (Courier detection), horizontal rules; ToUnicode-aware CID font decoding; `pdf-to-md` CLI upgraded with plain-text fallback; 10 unit tests
 - [x] **Integration tests** — `tests/capabilities_v2.rs` (7 end-to-end tests: rasterize→search→redact round trip, SVG document, PDF→MD structure, multi-page rasterize, etc.)
 - [x] **Shared parsing helpers** — `search::collect_pages_from_doc` (with raw-bytes fallback for truncated `/Kids` arrays), `raw_kids_for_object`, made `collect_tounicode_gid_map` / `decode_pdf_hex_string_with_map` `pub(crate)`
-- [x] **Glyph-outline rasterization from embedded TTF** — `src/raster.rs`: `ttf-parser` glyph outline extraction from `/FontFile2` streams (including Type0 via `/DescendantFonts`); Bézier flattening + polygon fill; raw PDF byte scanning for font metrics; gray-rectangle fallback for base-14 fonts
+- [x] **Glyph-outline rasterization from embedded TTF** — `src/raster/`: `ttf-parser` glyph outline extraction from `/FontFile2` streams (including Type0 via `/DescendantFonts`); Bézier flattening + polygon fill; raw PDF byte scanning for font metrics; gray-rectangle fallback for base-14 fonts
 - [x] **Basic CSS support in HTML→PDF** — `src/html.rs`: `<style>` tag parsing, inline `style` attribute parsing; selectors (tag, `.class`, `tag.class`, `#id`); properties (`font-weight`, `font-style`, `text-align`, `color`, `background-color`, `font-size`, `margin`, `padding`, `border`); cascading with inline priority
-- **Test count**: 348 lib + 7 + 5 + 3 + 24 + 22 + 10 + 36 = **455 passing tests**; `cargo build --no-default-features --features wasm` succeeds
+- **Historical test count**: 455 passing tests at the 2026-07-26 capability drop; run `cargo test` for the current count
 
 ---
 

@@ -1,6 +1,6 @@
 //! PDF portfolio (collection) creation.
 
-use anyhow::{Result, anyhow};
+use crate::error::{PdfError, Result};
 use std::collections::HashMap;
 use std::fs;
 
@@ -44,7 +44,8 @@ pub fn create_portfolio_pdf(
     // Embed each file
     let mut file_specs: Vec<(String, u32)> = Vec::new(); // (filename, file_spec_object_id)
     for (path, _desc) in files {
-        let data = std::fs::read(path).map_err(|e| anyhow!("Cannot read {}: {}", path, e))?;
+        let data =
+            std::fs::read(path).map_err(|e| PdfError::ctx(format!("Cannot read {path}"), e))?;
         let filename = std::path::Path::new(path)
             .file_name()
             .and_then(|n| n.to_str())

@@ -1,6 +1,6 @@
 //! Table extraction from PDF content streams via position heuristics.
 
-use anyhow::Result;
+use crate::error::Result;
 
 macro_rules! tables_regex {
     ($name:ident, $pat:literal) => {

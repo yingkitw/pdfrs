@@ -15,7 +15,7 @@
 //! assert!(is_incremental_pdf(&updated));
 //! ```
 
-use anyhow::{Result, anyhow};
+use crate::error::{PdfError, Result};
 
 macro_rules! incremental_regex {
     ($name:ident, $pat:literal) => {
@@ -39,11 +39,11 @@ pub fn find_last_xref_offset(data: &[u8]) -> Result<usize> {
     let last_eof = data
         .windows(5)
         .rposition(|w| w == b"%%EOF")
-        .ok_or_else(|| anyhow!("PDF missing %%EOF"))?;
+        .ok_or_else(|| PdfError::InvalidPdf("PDF missing %%EOF".into()))?;
     let startxref_pos = data[..last_eof]
         .windows(9)
         .rposition(|w| w == b"startxref")
-        .ok_or_else(|| anyhow!("PDF missing startxref"))?;
+        .ok_or_else(|| PdfError::InvalidPdf("PDF missing startxref".into()))?;
     let after = &data[startxref_pos + 9..last_eof];
     let s = String::from_utf8_lossy(after);
     let num: usize = s
@@ -51,7 +51,7 @@ pub fn find_last_xref_offset(data: &[u8]) -> Result<usize> {
         .lines()
         .next()
         .and_then(|l| l.trim().parse().ok())
-        .ok_or_else(|| anyhow!("Could not parse startxref offset"))?;
+        .ok_or_else(|| PdfError::Parse("Could not parse startxref offset".into()))?;
     Ok(num)
 }
 
@@ -60,11 +60,11 @@ fn parse_last_trailer(data: &[u8]) -> Result<(u32, u32)> {
     let last_eof = data
         .windows(5)
         .rposition(|w| w == b"%%EOF")
-        .ok_or_else(|| anyhow!("PDF missing %%EOF"))?;
+        .ok_or_else(|| PdfError::InvalidPdf("PDF missing %%EOF".into()))?;
     let startxref_pos = data[..last_eof]
         .windows(9)
         .rposition(|w| w == b"startxref")
-        .ok_or_else(|| anyhow!("PDF missing startxref"))?;
+        .ok_or_else(|| PdfError::InvalidPdf("PDF missing startxref".into()))?;
     // Trailer usually sits just before startxref
     let search_from = startxref_pos.saturating_sub(512);
     let window = String::from_utf8_lossy(&data[search_from..startxref_pos]);
@@ -94,7 +94,7 @@ pub fn incremental_append_objects(
         return Ok(original.to_vec());
     }
     if !original.starts_with(b"%PDF") {
-        return Err(anyhow!("Not a PDF"));
+        return Err(PdfError::InvalidPdf("Not a PDF".into()));
     }
 
     let prev_xref = find_last_xref_offset(original)?;

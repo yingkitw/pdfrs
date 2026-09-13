@@ -10,8 +10,8 @@
 //! - [`PdfUaValidation`] — PDF/UA-1 accessibility checks
 //! - [`ScreenReaderComplianceReport`] — combined PDF/UA + text-extraction audit
 
+use crate::error::Result;
 use crate::pdf::PdfDocument;
-use anyhow::Result;
 use std::fs::File;
 use std::io::Read;
 

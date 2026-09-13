@@ -3,7 +3,7 @@
 //! Wraps `flate2` for zlib/Deflate compression used in PDF streams.
 //! Provides [`compress_deflate`] for writing and [`decompress_deflate`] for reading.
 
-use anyhow::Result;
+use crate::error::{PdfError, Result};
 use flate2::Compression;
 use flate2::bufread::ZlibDecoder;
 use flate2::write::ZlibEncoder;
@@ -38,7 +38,7 @@ pub fn decode_hex_string(hex_str: &str) -> Result<Vec<u8>> {
         if i + 1 < hex_str.len() {
             let byte_str = &hex_str[i..i + 2];
             let byte = u8::from_str_radix(byte_str, 16)
-                .map_err(|_| anyhow::anyhow!("Invalid hex string: {}", byte_str))?;
+                .map_err(|_| PdfError::InvalidInput(format!("Invalid hex string: {}", byte_str)))?;
             result.push(byte);
         }
     }
