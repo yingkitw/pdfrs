@@ -23,6 +23,7 @@
 - **FR2.3**: Handle compressed streams (deflate/zlib)
 - **FR2.4**: Process PDF content streams and text operators
 - **FR2.5**: Detect and handle different PDF encodings
+- **FR2.6**: Preserve U+00AD (soft hyphen) through extraction so break points survive parsing
 
 #### FR3: Markdown Integration
 
@@ -36,6 +37,7 @@
 - **FR3.8**: Definition lists (`term` / `: definition`)
 - **FR3.9**: Table alignment parsing (`:---`, `:---:`, `---:`)
 - **FR3.10**: Inline math parsing inside regular paragraphs (`$...$` in mixed text lines)
+- **FR3.11**: Preserve U+00AD (soft hyphen) in Markdown elements and emit it in generated PDFs so line-break hints survive the Markdown → PDF → Markdown loop
 
 #### FR4: Image Support
 

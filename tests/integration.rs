@@ -1019,9 +1019,15 @@ fn parse_startxref(pdf: &[u8]) -> Option<usize> {
     std::str::from_utf8(&digits).ok()?.parse().ok()
 }
 
-#[test]
-fn test_encrypt_pdf_bytes_roundtrip_all_algorithms() {
-    use pdfrs::security::{EncryptionAlgorithm, PdfSecurity};
+/// Full encryption round-trip for a single algorithm. Splitting the per-algorithm
+/// checks into separate `#[test]` functions below lets `cargo test`'s default
+/// parallel runner execute them concurrently, cutting wall-time for the
+/// previously-serial 41+ second all-algorithms test (mostly AES-256 R6 key
+/// derivation in debug mode) to roughly the slowest single case (~16s on this
+/// host). Coverage is preserved because each algorithm runs the same
+/// checks the serial loop did.
+fn round_trip_encrypt_one_algorithm(alg: pdfrs::security::EncryptionAlgorithm) {
+    use pdfrs::security::PdfSecurity;
 
     let elements = vec![pdfrs::elements::Element::Paragraph {
         text: "encrypt me — binary-safe? \u{00e9}\u{4f60}\u{597d}".to_string(),
@@ -1034,51 +1040,68 @@ fn test_encrypt_pdf_bytes_roundtrip_all_algorithms() {
     )
     .unwrap();
 
-    for alg in [
-        EncryptionAlgorithm::Rc4_40,
-        EncryptionAlgorithm::Rc4_128,
-        EncryptionAlgorithm::Aes128,
-        EncryptionAlgorithm::Aes256,
-    ] {
-        let sec = PdfSecurity::new()
-            .with_user_password("user-pw".to_string())
-            .with_owner_password("owner-pw".to_string())
-            .with_encryption(alg);
-        let (protected, materials) =
-            pdfrs::pdf_ops::encrypt_pdf_bytes_with_id(&plain, &sec, [9u8; 16]).unwrap();
+    let sec = PdfSecurity::new()
+        .with_user_password("user-pw".to_string())
+        .with_owner_password("owner-pw".to_string())
+        .with_encryption(alg);
+    let (protected, materials) =
+        pdfrs::pdf_ops::encrypt_pdf_bytes_with_id(&plain, &sec, [9u8; 16]).unwrap();
 
-        // Structure: trailer references /Encrypt, fresh /ID, proper EOF chain.
-        let text = String::from_utf8_lossy(&protected);
-        assert!(text.contains("/Encrypt"), "{alg:?}");
-        assert!(text.contains("/ID <"), "{alg:?}");
-        assert!(protected.ends_with(b"%%EOF\n"), "{alg:?}");
-        let sx = parse_startxref(&protected).expect("startxref");
-        assert!(
-            protected[sx..].starts_with(b"xref"),
-            "{alg:?}: startxref must point at the xref table"
-        );
+    // Structure: trailer references /Encrypt, fresh /ID, proper EOF chain.
+    let text = String::from_utf8_lossy(&protected);
+    assert!(text.contains("/Encrypt"), "{alg:?}");
+    assert!(text.contains("/ID <"), "{alg:?}");
+    assert!(protected.ends_with(b"%%EOF\n"), "{alg:?}");
+    let sx = parse_startxref(&protected).expect("startxref");
+    assert!(
+        protected[sx..].starts_with(b"xref"),
+        "{alg:?}: startxref must point at the xref table"
+    );
 
-        // The structure still loads in our own parser.
-        let doc = PdfDocument::load_from_bytes(&protected).unwrap();
-        assert!(!doc.objects.is_empty(), "{alg:?}");
+    // The structure still loads in our own parser.
+    let doc = PdfDocument::load_from_bytes(&protected).unwrap();
+    assert!(!doc.objects.is_empty(), "{alg:?}");
 
-        // Stream data is actually encrypted and decrypts back exactly.
-        let orig = PdfDocument::load_from_bytes(&plain).unwrap();
-        let mut checked = 0;
-        for (num, obj) in orig.objects.iter() {
-            if let pdfrs::pdf::PdfObject::Stream { data, .. } = obj {
-                let enc = extract_stream_object(&protected, *num)
-                    .unwrap_or_else(|| panic!("{alg:?}: stream object {num} missing"));
-                assert_ne!(enc, *data, "{alg:?}: stream {num} not encrypted");
-                let dec = sec
-                    .decrypt_data(&enc, &materials.file_key, *num, 0)
-                    .unwrap();
-                assert_eq!(dec, *data, "{alg:?}: stream {num} roundtrip");
-                checked += 1;
-            }
+    // Stream data is actually encrypted and decrypts back exactly.
+    let orig = PdfDocument::load_from_bytes(&plain).unwrap();
+    let mut checked = 0;
+    for (num, obj) in orig.objects.iter() {
+        if let pdfrs::pdf::PdfObject::Stream { data, .. } = obj {
+            let enc = extract_stream_object(&protected, *num)
+                .unwrap_or_else(|| panic!("{alg:?}: stream object {num} missing"));
+            assert_ne!(enc, *data, "{alg:?}: stream {num} not encrypted");
+            let dec = sec
+                .decrypt_data(&enc, &materials.file_key, *num, 0)
+                .unwrap();
+            assert_eq!(dec, *data, "{alg:?}: stream {num} roundtrip");
+            checked += 1;
         }
-        assert!(checked >= 2, "{alg:?}: expected multiple streams");
     }
+    assert!(checked >= 2, "{alg:?}: expected multiple streams");
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_roundtrip_rc4_40() {
+    use pdfrs::security::EncryptionAlgorithm;
+    round_trip_encrypt_one_algorithm(EncryptionAlgorithm::Rc4_40);
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_roundtrip_rc4_128() {
+    use pdfrs::security::EncryptionAlgorithm;
+    round_trip_encrypt_one_algorithm(EncryptionAlgorithm::Rc4_128);
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_roundtrip_aes_128() {
+    use pdfrs::security::EncryptionAlgorithm;
+    round_trip_encrypt_one_algorithm(EncryptionAlgorithm::Aes128);
+}
+
+#[test]
+fn test_encrypt_pdf_bytes_roundtrip_aes_256() {
+    use pdfrs::security::EncryptionAlgorithm;
+    round_trip_encrypt_one_algorithm(EncryptionAlgorithm::Aes256);
 }
 
 #[test]

@@ -551,4 +551,39 @@ mod tests {
             assert!(md.contains(word), "missing word '{}': {}", word, md);
         }
     }
+
+    #[test]
+    fn preserves_soft_hyphen_round_trip() {
+        // U+00AD must survive the full Markdown → PDF → Markdown loop so that
+        // hand-crafted break points stay intact for downstream tools.
+        let original = "co\u{00AD}operate and hy\u{00AD}phen\u{00AD}ation";
+        let pdf = make_pdf(original);
+        let md = pdf_to_markdown_bytes(&pdf).unwrap();
+        let sh_count = md.matches('\u{00AD}').count();
+        assert_eq!(
+            sh_count, 3,
+            "all three soft hyphens must survive round trip, got {sh_count} in: {md:?}"
+        );
+        assert!(
+            md.contains("co\u{00AD}operate"),
+            "soft-hyphen-bearing word must stay intact, got: {md:?}"
+        );
+        assert!(md.contains("hy\u{00AD}phen\u{00AD}ation"), "got: {md:?}");
+    }
+
+    #[test]
+    fn extract_text_preserves_soft_hyphen() {
+        // Belt-and-braces: the lower-level extraction path used by search/redact
+        // also needs to keep U+00AD.
+        let original = "co\u{00AD}op";
+        let pdf = make_pdf(original);
+        let tmp = std::env::temp_dir().join("pdfrs_soft_hyphen.pdf");
+        std::fs::write(&tmp, &pdf).unwrap();
+        let extracted = crate::pdf::extract_text(tmp.to_str().unwrap()).unwrap();
+        assert!(
+            extracted.contains('\u{00AD}'),
+            "extract_text must preserve U+00AD, got: {extracted:?}"
+        );
+        let _ = std::fs::remove_file(&tmp);
+    }
 }

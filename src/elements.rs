@@ -1356,6 +1356,20 @@ See [@smith2020].\n\
     fn test_has_inline_formatting_detects_math() {
         assert!(has_inline_formatting("A math example: $a^2 + b^2 = c^2$"));
     }
+
+    #[test]
+    fn test_parse_markdown_preserves_soft_hyphen() {
+        let md = "co\u{00AD}operate is one word.";
+        let elements = parse_markdown(md);
+        let text = match &elements[0] {
+            Element::Paragraph { text } => text,
+            _ => panic!("expected Paragraph, got {:?}", elements[0]),
+        };
+        assert!(
+            text.contains('\u{00AD}'),
+            "soft hyphen must survive parse_markdown: {text:?}"
+        );
+    }
 }
 
 #[cfg(test)]

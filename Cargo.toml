@@ -1,6 +1,6 @@
 [package]
 name = "pdfrs"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2024"
 description = "Pure Rust PDF toolkit: Markdown to PDF, merge/split/validate, search/redact, rasterize, full SVG, Unicode/CJK, charts, thesis layout, CLI (pdfcli) and WASM — no Poppler, PDFium, or LaTeX"
 authors = ["Ying Kit WONG"]
@@ -30,6 +30,7 @@ syntect = { version = "5.0", default-features = false, features = ["default-fanc
 rayon = { version = "1.10", optional = true }
 ttf-parser = "0.25"
 wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 subsetter = "0.2"
 flate2 = "1.0"
 sha2 = "0.10"
@@ -55,7 +56,7 @@ getrandom = "0.3"
 default = ["parallel", "cli"]
 async = ["tokio"]
 parallel = ["rayon"]
-wasm = ["wasm-bindgen"]
+wasm = ["wasm-bindgen", "dep:wasm-bindgen-futures"]
 cli = ["dep:clap", "dep:serde_json"]
 api = ["dep:axum", "dep:tower-http", "dep:base64", "dep:serde_json", "tokio/net"]
 

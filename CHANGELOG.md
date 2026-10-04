@@ -8,7 +8,12 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ### Added
 
+- Soft hyphen (U+00AD) round-trip support: the Markdown parser, PDF text encoder, base-14 fallback, and `pdf_to_markdown_bytes` extractor all preserve U+00AD so hand-crafted break points survive the Markdown → PDF → Markdown loop. `encode_pdf_text` now emits UTF-16BE hex (with BOM) for strings containing U+00AD, and `normalize_for_base14_font` (used by `PDFRS_BASE14_NORMALIZE`) renders U+00AD as a visible `-`.
 - Encryption now accepts PDFs containing object streams or cross-reference streams. Compressed objects are expanded into regular objects and xref streams are replaced with a fresh classic xref table before the encrypted document is emitted.
+
+### Changed
+
+- All-algorithm encryption round-trip integration test split into 4 per-algorithm `#[test]` functions (`tests/integration.rs`) so `cargo test`'s parallel runner executes them concurrently. Wall time for the encryption round-trip drops from ~41s to ~16s in debug mode (AES-256 R6 key derivation dominates); coverage is identical to the previous serial loop.
 
 ### Changed (breaking)
 

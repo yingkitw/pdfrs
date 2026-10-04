@@ -268,9 +268,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec a
 
 ## Testing
 
-~508 tests (`cargo test`), including:
-- **396 lib tests**: Unit tests across all modules
-- **Integration crates**: `tests/integration.rs`, `capabilities_v2`, `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test`
+~518 tests (`cargo test`), including:
+- **404 lib tests**: Unit tests across all modules (includes 7 new soft-hyphen round-trip tests)
+- **Integration crates**: `tests/integration.rs`, `capabilities_v2`, `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test` (the all-algorithm encryption test is now split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
 - **~35 doctests**: Public API examples
 
 Round-trip validation tests verify that content survives: generate → validate → parse → verify. The `capabilities_v2` suite exercises rasterize → search → redact end-to-end plus full SVG rendering and structured PDF → Markdown.

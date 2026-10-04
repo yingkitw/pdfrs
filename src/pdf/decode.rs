@@ -274,6 +274,15 @@ mod tests {
     }
 
     #[test]
+    fn test_decode_hex_string_utf16be_preserves_soft_hyphen() {
+        // U+00AD is BMP; UTF-16BE with BOM should decode it intact.
+        assert_eq!(
+            decode_pdf_hex_string("FEFF0063006F00AD006F007000650072006100740065"),
+            "co\u{00AD}operate"
+        );
+    }
+
+    #[test]
     fn test_decode_hex_string_unicode_symbols() {
         assert_eq!(decode_pdf_hex_string("FEFF03B103B203B3"), "αβγ");
         assert_eq!(decode_pdf_hex_string("FEFF221E2211222B"), "∞∑∫");
