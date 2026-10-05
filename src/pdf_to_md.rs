@@ -577,7 +577,8 @@ mod tests {
         // also needs to keep U+00AD.
         let original = "co\u{00AD}op";
         let pdf = make_pdf(original);
-        let tmp = std::env::temp_dir().join("pdfrs_soft_hyphen.pdf");
+        let tmp =
+            std::env::temp_dir().join(format!("pdfrs_soft_hyphen_{}.pdf", std::process::id()));
         std::fs::write(&tmp, &pdf).unwrap();
         let extracted = crate::pdf::extract_text(tmp.to_str().unwrap()).unwrap();
         assert!(
