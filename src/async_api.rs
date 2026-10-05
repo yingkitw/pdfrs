@@ -11,7 +11,7 @@
 //! use pdfrs::async_api::load_pdf_async;
 //!
 //! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let doc = load_pdf_async("input.pdf").await?;
 //!     println!("Loaded {} objects", doc.objects.len());
 //!     Ok(())
@@ -28,7 +28,6 @@ use crate::pdf::{PdfAValidation, PdfDocument, PdfValidation};
 /// on a blocking thread pool so the runtime stays responsive.
 pub async fn load_pdf_async(path: &str) -> Result<PdfDocument> {
     let bytes = tokio::fs::read(path).await?;
-    let path = path.to_string();
     tokio::task::spawn_blocking(move || PdfDocument::load_from_bytes(&bytes))
         .await
         .map_err(|e| PdfError::Other(format!("Task panicked: {:?}", e)))?

@@ -1,6 +1,6 @@
 use pdfrs::pdf_ops::watermark_pdf;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = "examples/output/basic.pdf";
     let output = "examples/output/watermarked.pdf";
 

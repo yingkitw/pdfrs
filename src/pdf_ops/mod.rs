@@ -268,7 +268,7 @@ fn assemble_merged_pdf_bytes(
 /// let docs = vec![doc1, doc2];
 ///
 /// pdf_ops::merge_pdfs_sequential(&docs, "merged.pdf")?;
-/// # Ok::<(), anyhow::Error>(())
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn merge_pdfs_sequential(
     documents: &[crate::pdf::PdfDocument],

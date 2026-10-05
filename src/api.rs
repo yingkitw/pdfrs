@@ -457,11 +457,11 @@ pub fn router_with_cors(state: AppState, cors: CorsLayer) -> Router {
 /// pdfrs::api::serve("0.0.0.0", 8080).await.unwrap();
 /// # }
 /// ```
-pub async fn serve(host: &str, port: u16) -> anyhow::Result<()> {
+pub async fn serve(host: &str, port: u16) -> std::io::Result<()> {
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     println!("pdfrs API listening on http://{addr}");
-    Ok(axum::serve(listener, router()).await?)
+    axum::serve(listener, router()).await
 }
 
 #[cfg(test)]

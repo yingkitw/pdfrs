@@ -122,7 +122,7 @@ pub(crate) fn cmd_md_to_pdf(
         }
         .with_rtl(rtl)
         .with_columns(columns);
-        let result = (|| -> anyhow::Result<()> {
+        let result = (|| -> Result<(), Box<dyn std::error::Error>> {
             let content = std::fs::read_to_string(&input)?;
             let registry = build_plugin_registry(&plugins);
             let elements = if registry.has_parsers() || registry.has_generators() {
@@ -231,7 +231,7 @@ pub(crate) fn cmd_html_to_pdf(
         }
         .with_rtl(rtl)
         .with_columns(columns);
-        let result = (|| -> anyhow::Result<()> {
+        let result = (|| -> Result<(), Box<dyn std::error::Error>> {
             let content = std::fs::read_to_string(&input)?;
             let elements = html::parse_html(&content);
             let mut generator = optimization::OptimizedPdfGenerator::new(profile)

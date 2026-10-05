@@ -2,7 +2,7 @@ use pdfrs::elements;
 use pdfrs::pdf_generator::{PageLayout, generate_pdf_bytes};
 use std::fs;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let markdown = r#"# Hello PDF
 
 This is a basic example of generating a PDF from Markdown using the **pdfrs** library.

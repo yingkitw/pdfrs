@@ -1,7 +1,7 @@
 use pdfrs::optimization::{OptimizationProfile, optimize_pdf_bytes};
 use std::fs;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_path = "examples/output/basic.pdf";
     let output_path = "examples/output/optimized_web.pdf";
 

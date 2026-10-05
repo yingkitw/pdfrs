@@ -1,5 +1,41 @@
 # pdfrs Codebase Audit Report
 
+## Current Audit — 2026-10-06
+
+**Scope:** Rust source, public API, security paths, tests, CI, dependency metadata, and project documentation.
+**Method:** Source review plus `cargo fmt --check` and `cargo audit`; `cargo test`, all-features Clippy, and `cargo doc` were started but could not acquire Cargo's package-cache lock because another user `cargo update`/`cargo test` process was still running. `cargo audit` completed with three unmaintained-crate warnings. No code fixes were made during this audit.
+
+### Anti-Patterns Verdict
+
+**Pass for this Rust/CLI scope.** The repository is not a frontend, so the UI-specific audit criteria (contrast, ARIA, touch targets, and visual AI-slop patterns) do not apply. The CLI entry point is thin and the previously reported god modules have been decomposed.
+
+### Executive Summary
+
+**Current score: 8.7/10 pending a clean verification run.** The codebase has strong feature breadth, typed library errors, request-body limits, worker offloading in the API, secure randomness for encryption, and CI coverage. The main remaining risks are misleading signature semantics, one API error path that silently returns success, deployment hardening assumptions, and documentation drift.
+
+### Priority Findings
+
+1. **High — digital signing is not cryptographic signing.** `sign_pdf_bytes` explicitly emits a placeholder PKCS#7/CMS container, while `verify_pdf_signature` always reports `valid: false`. The public surface still presents this as signing/verification, so consumers can mistake a structurally signed PDF for an authenticated document. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/pdf_ops/security.rs" lines="663-668" /> <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/pdf_ops/security.rs" lines="932-936" />
+2. **Medium — search task failures are converted into a successful empty response.** The handler uses `.unwrap_or_default()` on `spawn_blocking`; a worker panic or join error becomes HTTP 200 with zero hits instead of an error. This hides operational failures and can produce incorrect results. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/api.rs" lines="304-308" />
+3. **Medium — API exposure is intentionally unauthenticated and rate-limit-free.** The server example binds `0.0.0.0`, while routes perform CPU- and memory-intensive PDF operations. The module documents deployment behind a reverse proxy, but the library does not enforce authentication, concurrency limits, or rate limiting. Treat direct internet exposure as unsafe unless the deployment supplies those controls. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/api.rs" lines="1-5" /> <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/api.rs" lines="452-465" />
+4. **Low — binary-to-text parsing remains lossy in security paths.** Catalog and signature discovery use `String::from_utf8_lossy` over complete PDF bytes. This is acceptable for best-effort inspection but is brittle for malformed/binary-heavy PDFs and should not be treated as a general PDF parser. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/pdf_ops/security.rs" lines="719-734" />
+5. **Low — dependency maintenance warnings.** `cargo audit` completed and found three unmaintained crates: direct dependency `ttf-parser 0.25.1` (RUSTSEC-2026-0192), plus transitive `bincode 1.3.3` (RUSTSEC-2025-0141) and `yaml-rust 0.4.5` (RUSTSEC-2024-0320) through `syntect`. No reported vulnerability was shown, but replacement or an explicit risk decision is warranted before treating the dependency graph as fully release-ready.
+6. **Low — audit metadata is stale/inconsistent.** The report header says 2026-09-13 while the score says 2026-09-27; `TODO.md` still records 8.8/10, and historical test totals differ across `AUDIT.md`, `README.md`, and `CHANGELOG.md`. Reconcile these after the blocked verification commands complete.
+
+### Positive Findings
+
+- `cargo fmt --check` passed.
+- Request bodies are capped with `RequestBodyLimitLayer`, and API CPU-heavy work is generally moved to `spawn_blocking`. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/api.rs" lines="431-445" />
+- Encryption uses OS-backed secure randomness and fails closed on unsupported browser WASM targets. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/security.rs" lines="522-542" />
+- CI includes formatting, strict Clippy, multi-platform tests, API tests, WASM builds, minimal-feature builds, and a scheduled RustSec audit. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/.github/workflows/ci.yml" lines="12-76" /> <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/.github/workflows/audit.yml" lines="11-19" />
+
+### Minimal Next Steps
+
+1. Rename/document the current signature feature as structural placeholder generation, or integrate a real CMS/PKCS#7 signer and cryptographic verifier.
+2. Return an explicit 5xx response for search worker failures.
+3. Keep authentication, rate limiting, concurrency limits, and TLS at the deployment boundary; document that requirement prominently.
+4. Once the existing Cargo processes finish, rerun `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo doc --no-deps`, and `cargo audit`, then reconcile the score and counts.
+
 **Date:** 2026-09-13 (re-audit + remediation)
 **Scope:** Full re-audit of `src/`, `tests/`, `examples/`, `Cargo.toml`, root docs, CI, and release artifacts.
 **Methodology:** Tool-verified test/doc builds, source review, docs-vs-code cross-check, and release verification.
