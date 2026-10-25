@@ -402,7 +402,7 @@ decoding and painting), `jpeg` (baseline JPEG decoder for `DCTDecode`).
 - `rasterize_all(pdf_bytes, dpi) -> Vec<RasterPage>`
 - `RasterPage::to_png() -> Vec<u8>` (inline PNG encoder: signature + IHDR + zlib IDAT via `flate2` + IEND, built-in CRC-32)
 
-**Scope**: renders the operators emitted by `pdfrs` plus the common content-stream subset from other producers (`q`/`Q`, `cm`, color ops, path construction, path painting, `W`/`W*` clipping paths, `gs` constant alpha, `BT`/`ET`, `Tf`, text-positioning ops, `Tj`/`TJ`, `Tr` text rendering modes, `Do` image XObjects). Output is **anti-aliased** via 3× supersampling (budget-capped 2× for very large pages). Text renders from real glyph outlines when a TrueType program is available — embedded `/FontFile2` streams, or a substitute system font (`PDFRS_UNICODE_FONT_PATH`) for base-14 names; without any font program, text falls back to gray glyph-block rectangles sized to advance widths (schematic rasterizer — not pixel-perfect typography).
+**Scope**: renders the operators emitted by `pdfrs` plus the common content-stream subset from other producers (`q`/`Q`, `cm`, color ops, path construction, path painting, `W`/`W*` clipping paths, `gs` constant alpha, `BT`/`ET`, `Tf`, text-positioning ops, `Tj`/`TJ`, `Tr` text rendering modes, `Do` image and Form XObjects). Output is **anti-aliased** via 3× supersampling (budget-capped 2× for very large pages). Text renders from real glyph outlines when a TrueType program is available — embedded `/FontFile2` streams, or a substitute system font (`PDFRS_UNICODE_FONT_PATH`) for base-14 names; without any font program, text falls back to gray glyph-block rectangles sized to advance widths (schematic rasterizer — not pixel-perfect typography).
 
 **Resource resolution**: the crate's general-purpose dictionary parser is
 whitespace-tokenised and flattens nested dictionaries, so the rasterizer
@@ -410,13 +410,19 @@ resolves `/Resources` from the **original PDF bytes** with the small
 nesting-aware parser in `raw.rs`. Binary stream payloads are likewise read
 from the original bytes, never through a lossy UTF-8 conversion.
 
+**Form XObjects**: a `/Subtype /Form` object invoked with `Do` is rendered
+with its `/Matrix` composed onto the current transformation matrix, clipped to
+its `/BBox`, and resolved against its own `/Resources` (fonts, nested XObjects,
+`/ExtGState`). The caller's graphics state is restored when the form returns,
+and nesting is limited to 8 levels.
+
 **Images**: image XObjects are decoded from `FlateDecode` (with PNG/TIFF
 predictors), `DCTDecode` (baseline JPEG, built-in decoder), `ASCIIHexDecode`,
 `ASCII85Decode` and `RunLengthDecode` payloads, in `/DeviceGray`,
 `/DeviceRGB`, `/DeviceCMYK`, `/Indexed` and `/ICCBased` colour spaces at 1, 2,
 4, 8 and 16 bits per component, with `/SMask` soft masks and `/ImageMask`
-stencils. Progressive and arithmetic-coded JPEGs, Form XObjects, tiling and
-shading patterns, and transparency groups are not rendered.
+stencils. Progressive and arithmetic-coded JPEGs, tiling and shading patterns,
+and transparency groups are not rendered.
 
 ### 15c. Search (`src/search/`)
 
@@ -680,7 +686,7 @@ cargo doc --no-deps
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Latest fully verified run: **2026-10-25** (553 tests passed, 1 ignored doctest; all gates green) —
+Latest fully verified run: **2026-10-25** (559 tests passed, 1 ignored doctest; all gates green) —
 see `AUDIT.md` for the evidence record. `rust-toolchain.toml` still pins the
 stable toolchain with rustfmt and clippy components.
 

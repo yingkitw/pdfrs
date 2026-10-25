@@ -411,3 +411,168 @@ fn image_embedded_by_the_crate_is_rasterized() {
         "expected the red image, got ({r}, {g}, {b})"
     );
 }
+
+/// Build a one-page PDF whose content invokes the Form XObject `Fm1`.
+fn form_xobject_pdf(form_dict: &str, form_content: &str, page_content: &str) -> Vec<u8> {
+    let objects: Vec<(u32, Vec<u8>)> = vec![
+        (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+        (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
+        (
+            3,
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /XObject << /Fm1 5 0 R >> >> >>".to_vec(),
+        ),
+        (
+            4,
+            format!(
+                "<< /Length {} >>\nstream\n{page_content}\nendstream",
+                page_content.len()
+            )
+            .into_bytes(),
+        ),
+        (
+            5,
+            format!("{form_dict}\nstream\n{form_content}\nendstream").into_bytes(),
+        ),
+    ];
+
+    let mut out: Vec<u8> = Vec::from("%PDF-1.4\n");
+    let mut offsets: Vec<(u32, usize)> = Vec::new();
+    for (id, body) in &objects {
+        offsets.push((*id, out.len()));
+        out.extend_from_slice(format!("{id} 0 obj\n").as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let xref_pos = out.len();
+    let max_id = objects.iter().map(|(id, _)| *id).max().unwrap_or(0);
+    out.extend_from_slice(format!("xref\n0 {}\n", max_id + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
+    for id in 1..=max_id {
+        let offset = offsets
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map(|(_, o)| *o)
+            .unwrap_or(0);
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+            max_id + 1,
+            xref_pos
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+#[test]
+fn form_xobject_paints_inside_the_page() {
+    // The form paints a red square over user space 20..60.
+    let form_dict = "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Length 0 >>";
+    let form_content = "1 0 0 1 0 0 cm\n1 0 0 rg\n20 20 40 40 re\nf\n";
+    let pdf = form_xobject_pdf(form_dict, form_content, "q\n/Fm1 Do\nQ\n");
+
+    let page = rasterize_page(&pdf, 0, 72).expect("rasterize");
+    // The device Y axis is flipped, so user-space rows 20..60 land on
+    // device rows 140..180.
+    assert_eq!(
+        pixel(&page, 40, 160),
+        (255, 0, 0),
+        "the form should paint red"
+    );
+    assert_eq!(
+        pixel(&page, 100, 50),
+        (255, 255, 255),
+        "outside stays white"
+    );
+}
+
+#[test]
+fn form_xobject_matrix_positions_its_content() {
+    // The form's /Matrix translates its content by (30, 40), so the square
+    // moves from 20..60 to 50..90 in user space (device rows 110..150).
+    let form_dict =
+        "<< /Type /XObject /Subtype /Form /Matrix [1 0 0 1 30 40] /BBox [0 0 100 100] /Length 0 >>";
+    let form_content = "1 0 0 1 0 0 cm\n1 0 0 rg\n20 20 40 40 re\nf\n";
+    let pdf = form_xobject_pdf(form_dict, form_content, "q\n/Fm1 Do\nQ\n");
+
+    let page = rasterize_page(&pdf, 0, 72).expect("rasterize");
+    assert_eq!(
+        pixel(&page, 60, 130),
+        (255, 0, 0),
+        "the translated square should be painted"
+    );
+    assert_eq!(
+        pixel(&page, 40, 160),
+        (255, 255, 255),
+        "the untranslated position should stay white"
+    );
+}
+
+#[test]
+fn form_xobject_content_is_clipped_to_its_bbox() {
+    // The form paints across its whole BBox; content outside the BBox must
+    // be clipped away.
+    let form_dict = "<< /Type /XObject /Subtype /Form /BBox [10 10 50 50] /Length 0 >>";
+    let form_content = "1 0 0 1 0 0 cm\n1 0 0 rg\n0 0 100 100 re\nf\n";
+    let pdf = form_xobject_pdf(form_dict, form_content, "q\n/Fm1 Do\nQ\n");
+
+    let page = rasterize_page(&pdf, 0, 72).expect("rasterize");
+    // Inside the BBox (user 10..50 → device rows 150..190): painted.
+    assert_eq!(pixel(&page, 30, 170), (255, 0, 0));
+    // Outside the BBox but inside the painted rectangle: clipped away.
+    assert_eq!(pixel(&page, 80, 120), (255, 255, 255));
+}
+
+#[test]
+fn form_xobject_uses_its_own_font_resources() {
+    // The form references /F1, which exists only in the form's own
+    // /Resources — the page does not define it.
+    let form_dict = "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F1 6 0 R >> >> /Length 0 >>";
+    let form_content = "BT\n/F1 24 Tf\n20 100 Td\n(Form) Tj\nET\n";
+    let objects: Vec<(u32, Vec<u8>)> = vec![
+        (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+        (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
+        (
+            3,
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /XObject << /Fm1 5 0 R >> >> >>".to_vec(),
+        ),
+        (
+            4,
+            b"<< /Length 45 >>\nstream\nq\n/Fm1 Do\nQ\nendstream".to_vec(),
+        ),
+        (
+            5,
+            format!("{form_dict}\nstream\n{form_content}\nendstream").into_bytes(),
+        ),
+        // A base-14 Helvetica font object for the form to reference.
+        (
+            6,
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        ),
+    ];
+
+    let mut out: Vec<u8> = Vec::from("%PDF-1.4\n");
+    let mut offsets: Vec<(u32, usize)> = Vec::new();
+    for (id, body) in &objects {
+        offsets.push((*id, out.len()));
+        out.extend_from_slice(format!("{id} 0 obj\n").as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let xref_pos = out.len();
+    out.extend_from_slice(b"xref\n0 7\n0000000000 65535 f \n");
+    for (_, offset) in &offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n").as_bytes(),
+    );
+
+    let page = rasterize_page(&out, 0, 72).expect("rasterize");
+    assert!(
+        painted(&page) > 0,
+        "the form's own font resources should be used"
+    );
+}

@@ -34,6 +34,7 @@
 //! | `Tj` / `TJ` / `'` / `"` | Show text | ✅ |
 //! | `Tr` | Text rendering mode (fill/stroke/invisible) | ✅ |
 //! | `Do` | Image XObject (Flate, DCT/JPEG, ASCIIHex, ASCII85, RunLength) | ✅ |
+//! | `Do` | Form XObject (`/Matrix`, `/BBox`, own resources) | ✅ |
 //!
 //! ## Limits
 //!
@@ -50,14 +51,19 @@
 //!   16 bits per component, with `/SMask` soft masks and `/ImageMask`
 //!   stencils. `DCTDecode` payloads are decoded by a built-in baseline JPEG
 //!   decoder; progressive and arithmetic-coded JPEGs are skipped.
-//! - Type 3 fonts, Form XObjects, tiling/shading patterns, transparency
-//!   groups and soft masks (`/SMask` as a luminosity mask) are not rendered.
+//! - Form XObjects are rendered with their `/Matrix` composed onto the
+//!   current transformation matrix, clipped to their `/BBox`, using their own
+//!   `/Resources` (fonts, nested XObjects, `/ExtGState`); nesting is limited to
+//!   8 levels.
+//! - Type 3 fonts, tiling/shading patterns, transparency groups and soft
+//!   masks (`/SMask` as a luminosity mask) are not rendered.
 //!
 //! [`flate2`]: https://docs.rs/flate2
 
 mod base14;
 mod clip;
 mod fonts;
+mod forms;
 mod images;
 mod interpreter;
 mod jpeg;
@@ -141,6 +147,7 @@ pub fn rasterize_page(pdf_bytes: &[u8], page_index: usize, dpi: u32) -> Result<R
     surface.transform = [aa_scale, 0.0, 0.0, -aa_scale, 0.0, height_pt * aa_scale];
 
     let mut image_cache = std::collections::HashMap::new();
+    let mut form_cache = std::collections::HashMap::new();
     for cid in content_ids {
         let raw = match doc.objects.get(&cid) {
             Some(PdfObject::Stream { data, .. }) => data.clone(),
@@ -152,7 +159,11 @@ pub fn rasterize_page(pdf_bytes: &[u8], page_index: usize, dpi: u32) -> Result<R
             fonts: &font_metrics,
             resources: &page_resources,
             pdf_bytes,
+            doc: &doc,
             images: &mut image_cache,
+            forms: &mut form_cache,
+            scopes: Vec::new(),
+            depth: 0,
         };
         render_content_stream(&mut surface, &text, &mut ctx);
     }

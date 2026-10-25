@@ -132,6 +132,7 @@
 - **FR20.11**: Image XObjects (`Do`) are decoded and painted through the current transformation matrix: `FlateDecode` (with PNG/TIFF predictors), `DCTDecode` (baseline JPEG via a built-in decoder), `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode`; colour spaces `/DeviceGray`, `/DeviceRGB`, `/DeviceCMYK`, `/Indexed` and `/ICCBased` at 1/2/4/8/16 bits per component; `/SMask` soft masks and `/ImageMask` stencils are supported. Progressive and arithmetic-coded JPEGs, Form XObjects, tiling/shading patterns and transparency groups are not rendered
 - **FR20.12**: Resources and binary stream payloads are read from the original PDF bytes with a nesting-aware scanner, so nested `/Resources` dictionaries and binary image data are read correctly
 - **FR20.13**: Glyph outlines are flattened with the standard Anti-Grain Geometry flatness test (a curve is split until its control points lie within tolerance of the chord), and all contours of a glyph are filled together with the non-zero winding rule — so counters stay hollow and curved glyphs are not collapsed into straight chords
+- **FR20.14**: Form XObjects (`Do` on a `/Subtype /Form` object) are rendered: the form's `/Matrix` is composed onto the current transformation matrix, its `/BBox` clips its content, it uses its own `/Resources` (fonts, nested XObjects, `/ExtGState`), and the caller's graphics state is restored when the form returns. Nesting is limited to 8 levels
 
 #### FR21: Full-Text Search with Bounding Boxes
 
@@ -506,7 +507,7 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 - Security (password protection, permissions)
 - Library API (in-memory generation, validation)
 - 27 element types with round-trip validation
-- ~554 tests (`cargo test`, including unit, integration, and doctest coverage)
+- ~560 tests (`cargo test`, including unit, integration, and doctest coverage)
 - Charts, multi-column layout, thesis TOC/citations, linearized + incremental PDF
 - WebAssembly (`wasm` feature) + canvas viewer demo
 - Native PDF → PNG rasterizer (no external renderer dependency)

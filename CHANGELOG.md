@@ -33,6 +33,17 @@ All notable changes to **pdfrs** are documented here. The format follows
   resources and binary stream payloads are now read from the original PDF
   bytes instead of a lossy UTF-8 conversion.
 
+### Added
+
+- **Form XObject rendering in the native rasterizer.** A `/Subtype /Form`
+  object invoked with `Do` is now rendered instead of being skipped: its
+  `/Matrix` is composed onto the current transformation matrix, its `/BBox`
+  clips its content, and it resolves against its own `/Resources` (fonts,
+  nested XObjects and `/ExtGState`). The caller's graphics state is restored
+  when the form returns, and nesting is limited to 8 levels. Form XObjects are
+  common in real-world PDFs (letterheads, logos, repeated furniture), so this
+  closes a visible gap in `pdfcli rasterize-pdf` output.
+
 ### Fixed
 
 - **Curved glyphs are no longer collapsed into straight chords.** The Bézier

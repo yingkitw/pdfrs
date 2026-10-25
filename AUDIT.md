@@ -1,6 +1,42 @@
 # pdfrs Codebase Audit Report
 
-## Current Audit — 2026-10-25 (fifth pass: remaining large-file modularization)
+## Current Audit — 2026-10-25 (sixth pass: rasterizer Form XObjects)
+
+**Scope:** Rasterizer Form XObject support — the last of the four rasterizer
+parity gaps tracked since the 2026-09-13 audit.
+**Method:** Full tool verification on final source: `cargo fmt --check` (clean),
+`cargo test` (**559 passed / 0 failed**, 1 ignored doctest: 424 lib + 99
+integration + 37 doc), `cargo test --no-default-features` (green), `cargo test
+--features api` (green), `cargo build --lib --no-default-features --features
+wasm --target wasm32-unknown-unknown` (green, 0 warnings), `cargo doc --no-deps`
+(0 warnings), `cargo clippy --all-targets --all-features -- -D warnings`
+(0 warnings).
+
+### Changes
+
+- **Form XObjects are rendered.** A `/Subtype /Form` object invoked with `Do`
+  was previously skipped entirely. It is now rendered with its `/Matrix`
+  composed onto the current transformation matrix, its `/BBox` clipping its
+  content, and its own `/Resources` (fonts, nested XObjects, `/ExtGState`)
+  resolving inside the form. The caller's graphics state is restored when the
+  form returns, and nesting is limited to 8 levels.
+- **Scope-aware resource lookup.** `RenderContext` now keeps a stack of
+  enclosing forms' resources; `Tf`, `gs` and `Do` resolve against the
+  innermost scope first and fall back to the page's resources.
+- 2 new unit tests (matrix composition) and 4 new integration tests (form
+  painting, `/Matrix` placement, `/BBox` clipping, own font resources). The
+  tests were verified to fail when form rendering is disabled.
+
+### Score
+
+Unchanged at **9.1/10** overall; correctness holds at **9.7/10** (the
+remaining rasterizer gaps are now limited to tiling/shading patterns,
+transparency groups and progressive/arithmetic-coded JPEGs). Verification
+evidence above supersedes the fifth pass's method line.
+
+---
+
+## Audit — 2026-10-25 (fifth pass: remaining large-file modularization)
 
 **Scope:** Structural maintainability pass — the five remaining files over
 1,000 LOC were split into cohesive submodules (public APIs unchanged), and the

@@ -4,20 +4,30 @@ use std::collections::HashMap;
 
 use super::clip::ClipMask;
 use super::fonts::FontMetrics;
+use super::forms::{self, FormData};
 use super::images::{self, RasterImage};
-use super::resources::PageResources;
+use super::resources::{ExtGState, PageResources};
 use super::surface::{Color, GlyphOutlineBuilder, PathSegment, Surface, fill_polygons_raw};
+use crate::pdf::PdfDocument;
 
 /// Everything the content-stream interpreter needs beyond the surface.
 pub(super) struct RenderContext<'a> {
-    /// Font metrics by resource name.
+    /// Page font metrics by resource name.
     pub fonts: &'a HashMap<String, FontMetrics>,
     /// Page resources (`/ExtGState`, `/XObject`).
     pub resources: &'a PageResources,
-    /// Original PDF bytes, used to decode image XObjects.
+    /// Original PDF bytes, used to decode image XObjects and Form XObjects.
     pub pdf_bytes: &'a [u8],
+    /// Parsed document, used to resolve Form XObject resources.
+    pub doc: &'a PdfDocument,
     /// Cache of decoded images, keyed by XObject number.
     pub images: &'a mut HashMap<u32, Option<RasterImage>>,
+    /// Cache of decoded Form XObjects.
+    pub forms: &'a mut HashMap<u32, Option<FormData>>,
+    /// Stack of enclosing Form XObjects' resources, innermost last.
+    pub scopes: Vec<(HashMap<String, FontMetrics>, PageResources)>,
+    /// Current Form XObject nesting depth.
+    pub depth: usize,
 }
 
 impl RenderContext<'_> {
@@ -29,6 +39,36 @@ impl RenderContext<'_> {
         let decoded = images::decode_image_xobject(self.pdf_bytes, obj_id);
         self.images.insert(obj_id, decoded.clone());
         decoded
+    }
+
+    /// Resolve a font by resource name, innermost Form XObject first.
+    fn font(&self, name: &str) -> Option<FontMetrics> {
+        for (fonts, _) in self.scopes.iter().rev() {
+            if let Some(metrics) = fonts.get(name) {
+                return Some(metrics.clone());
+            }
+        }
+        self.fonts.get(name).cloned()
+    }
+
+    /// Resolve an `/ExtGState` by resource name, innermost Form XObject first.
+    fn ext_gstate(&self, name: &str) -> Option<&ExtGState> {
+        for (_, resources) in self.scopes.iter().rev() {
+            if let Some(gs) = resources.ext_gstate(name) {
+                return Some(gs);
+            }
+        }
+        self.resources.ext_gstate(name)
+    }
+
+    /// Resolve an XObject object number by resource name, innermost first.
+    fn xobject(&self, name: &str) -> Option<u32> {
+        for (_, resources) in self.scopes.iter().rev() {
+            if let Some(id) = resources.xobjects.get(name) {
+                return Some(*id);
+            }
+        }
+        self.resources.xobjects.get(name).copied()
     }
 }
 
@@ -92,7 +132,7 @@ pub(super) fn render_content_stream(surface: &mut Surface, src: &str, ctx: &mut 
             }
             "gs" => {
                 if let Some(name) = extract_name_before(&tokens, i)
-                    && let Some(gs) = ctx.resources.ext_gstate(&name)
+                    && let Some(gs) = ctx.ext_gstate(&name)
                 {
                     if let Some(ca) = gs.fill_alpha {
                         surface.state.fill_alpha = ca.clamp(0.0, 1.0);
@@ -232,7 +272,7 @@ pub(super) fn render_content_stream(surface: &mut Surface, src: &str, ctx: &mut 
                 if i >= 2
                     && let Some(name) = extract_font_name(&tokens, i)
                 {
-                    surface.font_metrics = ctx.fonts.get(&name).cloned();
+                    surface.font_metrics = ctx.font(&name);
                 }
             }
             "Tm" => {
@@ -312,14 +352,16 @@ pub(super) fn render_content_stream(surface: &mut Surface, src: &str, ctx: &mut 
             }
             "Do" => {
                 if let Some(name) = extract_name_before(&tokens, i)
-                    && let Some(obj_id) = ctx.resources.xobjects.get(&name).copied()
+                    && let Some(obj_id) = ctx.xobject(&name)
                 {
-                    // Only image XObjects are painted; Form XObjects carry their
-                    // own content stream and are not rendered here.
-                    if images::object_subtype(ctx.pdf_bytes, obj_id).as_deref() == Some("Image")
-                        && let Some(image) = ctx.image(obj_id)
-                    {
-                        images::draw_image(surface, &image);
+                    match images::object_subtype(ctx.pdf_bytes, obj_id).as_deref() {
+                        Some("Image") => {
+                            if let Some(image) = ctx.image(obj_id) {
+                                images::draw_image(surface, &image);
+                            }
+                        }
+                        Some("Form") => forms::render_form(surface, ctx, obj_id),
+                        _ => {}
                     }
                 }
             }

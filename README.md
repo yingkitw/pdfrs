@@ -255,7 +255,7 @@ This tool is built with a modular architecture:
 - **Charts / thesis** (`src/chart.rs`, `src/thesis.rs`): Vector charts; TOC, folios, citations
 - **Search** (`src/search/`): Full-text search with bounding boxes; shared content-stream walker
 - **Redact** (`src/redact.rs`): True content-stream redaction (text removal + black overlay)
-- **Rasterizer** (`src/raster/`): Pure-Rust anti-aliased PDF → PNG with inline PNG encoder; renders image XObjects (Flate/JPEG/ASCIIHex/ASCII85/RunLength), clipping paths, `/ExtGState` constant alpha and text rendering modes
+- **Rasterizer** (`src/raster/`): Pure-Rust anti-aliased PDF → PNG with inline PNG encoder; renders image XObjects (Flate/JPEG/ASCIIHex/ASCII85/RunLength), Form XObjects, clipping paths, `/ExtGState` constant alpha and text rendering modes
 - **PDF Operations** (`src/pdf_ops.rs`): Merge, split, rotate, reorder, watermark, metadata, annotations
 - **Image Handler** (`src/image.rs`): JPEG/PNG/BMP embedding with dimension parsing
 - **Linearize / incremental** (`src/linearize.rs`, `src/incremental.rs`): Fast Web View; append-only updates
@@ -267,9 +267,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec a
 
 ## Testing
 
-554 tests (`cargo test`), including:
-- **422 lib tests**: Unit tests across all modules (includes soft-hyphen round-trip, API endpoint, PKCS#7/CMS signing, and rasterizer parity tests)
-- **95 integration tests**: `tests/integration.rs`, `capabilities_v2`, `capability_validation`, `comprehensive_pdf`, `pkcs7_signing`, `raster_parity`, `roundtrip_test`, `unicode_integration_test` (the all-algorithm encryption test is split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
+560 tests (`cargo test`), including:
+- **424 lib tests**: Unit tests across all modules (includes soft-hyphen round-trip, API endpoint, PKCS#7/CMS signing, and rasterizer parity tests)
+- **99 integration tests**: `tests/integration.rs`, `capabilities_v2`, `capability_validation`, `comprehensive_pdf`, `pkcs7_signing`, `raster_parity`, `roundtrip_test`, `unicode_integration_test` (the all-algorithm encryption test is split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
 - **37 doctests**: Public API examples
 
 Round-trip validation tests verify that content survives: generate → validate → parse → verify. The `capabilities_v2` suite exercises rasterize → search → redact end-to-end plus full SVG rendering and structured PDF → Markdown.

@@ -20,6 +20,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 - [x] **Resolve the High audit finding: real cryptographic signing.** CMS `SignedData` builder + parser (`src/pdf_ops/signing.rs`), RSA/ECDSA P-256 PKCS#8 keys, `/ByteRange`-digest verification with honest `valid` flag, `pdfcli sign --key`; fixed latent sign-time digest bug (digest was computed before the `/ByteRange` splice, so it covered placeholder bytes); restored wasm32 build via getrandom 0.2 `js` backend for rand_core 0.6; fixed `cli`-without-`parallel` build. 13 new tests. (2026-10-25)
 - [x] **Modularize the five largest source files** (public APIs unchanged): `security.rs` → `security/` (encryption/signature/certificates), `html.rs` → `html/` (tokenizer/css/convert), `elements.rs` → `elements/` (types/inline/parser), `search.rs` → `search/` (pages/metrics/walker), `pdf_ops/mod.rs` → `pdf_ops/` (manipulate/imaging). (2026-10-25)
 - [x] **Rasterizer parity batch.** The native rasterizer now renders clipping paths (`W` / `W*`), `/ExtGState` constant alpha and line width, text rendering modes (`Tr`), and image XObjects (`Do`) — including a built-in baseline JPEG decoder for `DCTDecode`, PNG/TIFF predictors, `/Indexed` and `/ICCBased` colour spaces, `/SMask` soft masks and `/ImageMask` stencils. Resources and binary payloads are read from the original PDF bytes with a new nesting-aware scanner (`src/raster/raw.rs`), fixing nested `/Resources` resolution and binary image corruption. (2026-10-25)
+- [x] **Rasterizer Form XObject support.** A `/Subtype /Form` object invoked with `Do` is rendered: `/Matrix` composed onto the CTM, `/BBox` clipping, own `/Resources` (fonts, nested XObjects, `/ExtGState`), caller graphics state restored on return, nesting limited to 8 levels. 2 new unit + 4 new integration tests. (2026-10-25)
 - [x] **Rasterizer glyph-rendering correctness.** Fixed four pre-existing rendering defects found by rendering the project's own `comprehensive.pdf`: (1) the Bézier flatness test went negative for curves bulging away from their chord, collapsing every curve to a straight chord — replaced with the Anti-Grain Geometry flatness test; (2) each glyph contour was filled separately, filling letter counters solid — now filled together with the non-zero winding rule; (3) translucent strokes compounded to opaque through overlapping brush stamps — coverage is now accumulated per pixel and blended once; (4) binary stream payloads were corrupted by a lossy UTF-8 conversion — now read from the original bytes. Glyph outlines are also scaled to the PDF's declared advance width so they cannot overlap. 25 new unit + 9 new integration tests. (2026-10-25)
 - [x] **Modularize the remaining large files** (public APIs unchanged; re-exported exactly as before):
   - `pdf_generator/mod.rs` (1,350) → `objects` (`PdfGenerator`/`PdfObj`), `fonts` (shared font resources), `pipeline` (all `generate_pdf_bytes*` entry points + `render_page_range`), `assembly` (PDF object assembly, outlines, catalog)
@@ -325,7 +326,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ### 🔴 Critical
 
-- [x] Comprehensive test suite (554 tests as of 2026-10-25: 422 lib + 95 integration + 37 doc-tests, 1 doc-test ignored; 14 byte-identical duplicate tests removed when the `pdf` test module was co-located with its owning submodules)
+- [x] Comprehensive test suite (560 tests as of 2026-10-25: 424 lib + 99 integration + 37 doc-tests, 1 doc-test ignored; 14 byte-identical duplicate tests removed when the `pdf` test module was co-located with its owning submodules)
   - [x] Unit tests for all modules (pdf, pdf_generator, pdf_ops, elements, markdown, image, compression)
   - [x] Integration tests for workflows (roundtrip, merge, split, rotate, watermark, reorder, metadata)
   - [x] Round-trip validation tests (generate → validate → parse → verify all element types)
@@ -423,9 +424,10 @@ Capabilities in peer projects worth prioritizing:
   built-in baseline JPEG decoder for `DCTDecode` payloads, PNG/TIFF predictors,
   `/Indexed` and `/ICCBased` colour spaces, `/SMask` soft masks and `/ImageMask`
   stencils. Resources and binary payloads are now read from the original PDF
-  bytes with a nesting-aware scanner (`src/raster/raw.rs`). Still open: Form
-  XObjects, tiling/shading patterns, transparency groups, and progressive or
-  arithmetic-coded JPEGs.
+  bytes with a nesting-aware scanner (`src/raster/raw.rs`), and **Form XObject
+  rendering** (`/Matrix` composed onto the CTM, `/BBox` clipping, own
+  `/Resources`, depth-limited to 8 levels). Still open: tiling/shading
+  patterns, transparency groups, and progressive or arithmetic-coded JPEGs.
 - ~~**Plugin hooks for Element → PDF**~~ — shipped: `ParserPlugin` / `GeneratorPlugin` + `CalloutPlugin`
 
 ### Capability Drop (2026-07-26) — native raster/search/redaction/SVG features
