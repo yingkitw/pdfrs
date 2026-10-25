@@ -1,7 +1,9 @@
 use pdfrs::builder::PdfBuilder;
-use pdfrs::parallel;
 use pdfrs::pdf::PdfDocument;
 use std::path::Path;
+
+#[cfg(feature = "parallel")]
+use pdfrs::parallel;
 
 fn create_test_pdf(path: &str, title: &str) {
     let elements = vec![
@@ -23,6 +25,7 @@ fn create_test_pdf(path: &str, title: &str) {
     .unwrap();
 }
 
+#[cfg(feature = "parallel")]
 #[test]
 fn test_parallel_merge_pdfs() {
     let pdf1 = "tests/output/int_merge1.pdf";

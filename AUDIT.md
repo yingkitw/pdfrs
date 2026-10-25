@@ -1,6 +1,179 @@
 # pdfrs Codebase Audit Report
 
-## Current Audit — 2026-10-06
+## Current Audit — 2026-10-25 (fourth pass: rasterizer parity)
+
+**Scope:** Native rasterizer capability and correctness batch (images, clipping
+paths, transparency, text rendering modes) plus the resource-parsing rework it
+required.
+**Method:** Full tool verification on final source: `cargo fmt --check` (clean),
+`cargo test` (**567 passed / 0 failed**, 1 ignored doctest: 436 lib + 95
+integration incl. 9 new `raster_parity` + 37 doc), `cargo test
+--no-default-features` (green), `cargo test --features api` (green), `cargo
+build --lib --no-default-features --features wasm --target
+wasm32-unknown-unknown` (green), `cargo doc --no-deps` (0 warnings), `cargo
+clippy --all-targets --all-features -- -D warnings` (0 warnings).
+
+### Executive Summary
+
+**Current score: 9.1/10.** The rasterizer — the crate's clearest differentiator
+against Ghostscript/PDFium wrappers — had a substantive capability gap: it
+rendered **no images at all**, ignored clipping paths, ignored `/ExtGState`
+alpha, and painted invisible (`Tr 3`) OCR text as visible glyph blocks. That gap
+is now closed: image XObjects (including a new built-in baseline JPEG decoder),
+clipping paths, constant alpha and text rendering modes all render correctly.
+
+Rendering the project's own `comprehensive.pdf` exposed four further defects
+in the pre-existing rasterizer, all now fixed: an invalid Bézier flatness test
+that collapsed every curve to straight chords (glyphs rendered as blobs),
+per-contour glyph filling that filled letter counters solid, translucent strokes
+compounding to opaque, and binary stream payloads being corrupted by a lossy
+UTF-8 conversion. Nested `/Resources` dictionaries were also unresolvable. The
+rasterizer now produces clean, accurate letterforms.
+
+### Score Detail
+
+| Dimension | Score | Evidence / deduction |
+|---|---:|---|
+| Correctness and reliability | 9.7/10 | 567 tests pass, including pixel-level assertions for image placement, clip containment, alpha blending and render-mode invisibility, plus a JPEG fixture decoded to correct RGB values. Four rasterizer defects were found and fixed by the new tests and by rendering the project's own `comprehensive.pdf`: curve flattening (glyph blobs), per-contour glyph filling (solid counters), stroke translucency compounding, and binary payload corruption. |
+| Security | 9.3/10 | Unchanged: real CMS signing + verification shipped earlier; API boundary and search-error fixes hold. The rasterizer decodes untrusted binary payloads (JPEG, image streams) — dimensions are capped, buffers are bounds-checked, and the JPEG decoder rejects progressive/arithmetic streams rather than mis-decoding them. |
+| Maintainability | 8.8/10 | The rasterizer grew from 7 to 13 cohesive files (`raw`, `resources`, `clip`, `images`, `jpeg` added); each has a narrow, documented responsibility and unit tests. Deduction: the hand-rolled JPEG and PDF-dictionary parsers are re-implementations of spec-defined algorithms. |
+| Performance | 8.5/10 | Stroke rasterization was rewritten from per-sample brush stamping to per-pixel coverage accumulation: asymptotically cheaper for long segments (O(r·L) vs O(r²·L)) and correct for translucency. Image decoding is cached per XObject. Deduction: image decoding and the IDCT are not SIMD-accelerated. |
+| Documentation and release hygiene | 9.0/10 | SPEC FR20.3 and FR20.8–FR20.13 added, ARCHITECTURE rasterizer section rewritten, README limits updated, CHANGELOG and TODO updated, test counts reconciled at 568. |
+| CI and portability | 8.4/10 | All gates verified locally; the wasm32 target still builds (the new code is dependency-free pure Rust). CI itself remains intentionally absent. |
+
+### Findings resolved this pass (2026-10-25, fourth pass)
+
+1. **(Medium → fixed) The rasterizer rendered no images.** `Do` was an unhandled operator, so every PDF containing an image rasterized with the image missing — including PDFs produced by `pdfrs` itself from Markdown `![alt](photo.jpg)`. The rasterizer now decodes and paints image XObjects.
+2. **(Medium → fixed) Clipping paths were ignored.** `W` / `W*` were unhandled, so clipped content bled outside its region. Clipping is now rasterized into device-space coverage masks with both the non-zero and even-odd fill rules, and the clip is part of the graphics state (`q` / `Q`).
+3. **(Medium → fixed) `/ExtGState` was ignored.** `/ca` and `/CA` constant alpha had no effect, so watermarks and other translucent content rendered fully opaque. Now applied to fill and stroke.
+4. **(Medium → fixed) Text rendering mode 3 painted visible glyph blocks.** Invisible text (the standard OCR text layer) was rendered as visible gray rectangles — a correctness bug, not just a missing feature. Modes 0/1/2/3 are now honoured.
+5. **(High → fixed) Curved glyphs were collapsed into straight chords.** The Bézier flattening used a "control-polygon length minus chord length" flatness test, which goes negative for a curve bulging away from its chord, so whole curve halves were emitted as single straight segments. Every rounded letterform was therefore a crude polygon, and glyphs rendered as blobs with stray marks. The flattening now uses the standard Anti-Grain Geometry flatness test and emits the subdivided halves in path order.
+6. **(High → fixed) Glyph counters were filled solid.** Each contour of a glyph was filled separately, so the hole in an "o", "e" or "p" was filled black. All contours are now filled together with the non-zero winding rule.
+7. **(Low → fixed) Translucent strokes compounded to opaque.** The stroke rasterizer stamped a round brush at each sample point along the path; overlapping stamps blended repeatedly, so a 50 %-alpha stroke converged to 100 %. Coverage is now accumulated per pixel (maximum over segments) and blended exactly once.
+8. **(Low → fixed) Binary stream payloads were corrupted.** Image data was read from a lossy UTF-8 conversion of the whole PDF, replacing every non-UTF-8 byte with U+FFFD. Stream payloads are now read from the original bytes at byte-accurate offsets.
+9. **(Low → fixed) Nested `/Resources` dictionaries were unresolvable.** The crate's dictionary parser is whitespace-tokenised and flattens nesting, so `/Resources << /XObject << /Im1 7 0 R >> >>` could not be read. The rasterizer now uses a small nesting-aware scanner over the original bytes.
+
+### Remaining priority findings
+
+1. **Medium — signature trust chain.** Verification proves the signature matches the embedded certificate and the covered bytes; it does not build a CA chain or check revocation. Documented in SPEC "Remaining Features".
+2. **Medium — API exposure is intentionally unauthenticated and rate-limit-free.** Deployment-boundary requirement documented; enforcement belongs at the reverse proxy.
+3. **Low — rasterizer gaps that remain.** Form XObjects, tiling/shading patterns, transparency groups, soft masks used as luminosity masks, and progressive/arithmetic-coded JPEGs are not rendered; such images are skipped rather than mis-rendered.
+4. **Low — binary-to-text parsing remains lossy in security paths.** Unchanged; acceptable for best-effort inspection.
+5. **Low — unmaintained crates.** Direct `ttf-parser 0.25.1`, transitive `bincode`/`yaml-rust`. Replacement or explicit risk decision pending.
+6. **Low — no CI workflows in-repo (intentional).** Local gate documented; keep running it before releases.
+
+---
+
+## Audit — 2026-10-25 (third pass: large-file modularization)
+
+**Scope:** Structural maintainability pass — the five largest source files were
+split into cohesive submodules (public APIs unchanged).
+**Method:** Full tool verification on final source: `cargo fmt --check` (clean),
+`cargo test` (**532 passed / 0 failed**), `cargo test --no-default-features`
+(green), `cargo build --no-default-features --features cli` (green),
+`cargo build --features wasm --target wasm32-unknown-unknown` (green),
+`cargo doc --no-deps` (0 warnings), `cargo clippy --all-targets --all-features
+-- -D warnings` (0 warnings).
+
+### Changes
+
+| Was | Now | Split |
+|---|---|---|
+| `src/security.rs` (1,678) | `src/security/` | `encryption` (standard security handler + key derivation), `signature` (`DigitalSignature`), `certificates` (PEM store, `/Cert` hex) |
+| `src/html.rs` (1,648) | `src/html/` | `tokenizer` (DOM), `css` (selectors/cascade), `convert` (DOM → `Element`, public API) |
+| `src/elements.rs` (1,462) | `src/elements/` | `types` (element model), `inline` (inline formatting), `parser` (block parser) |
+| `src/search.rs` (1,393) | `src/search/` | `pages` (page/object helpers), `metrics` (font widths), `walker` (content-stream walker) |
+| `src/pdf_ops/mod.rs` (1,366) | `src/pdf_ops/` | `manipulate` (merge/split/rotate/reorder), `imaging` (watermarks/overlays/extract) |
+
+Every previously public path (`pdfrs::security::*`, `pdfrs::html::*`,
+`pdfrs::elements::*`, `pdfrs::search::*`, `pdfrs::pdf_ops::*`) resolves
+unchanged — the new `mod.rs` files re-export their submodules' items, so the
+split is source-compatible for downstream users.
+
+### Score
+
+Unchanged at **8.9/10** overall; maintainability moves 8.6 → **8.8/10**
+(the largest files are now bounded modules rather than mixed-concern files;
+the remaining >1,000-LOC files are tracked in `TODO.md`). Verification evidence
+above supersedes the second pass's method line.
+
+---
+
+## Audit — 2026-10-25 (second pass, same day)
+
+**Scope:** High-priority finding remediation (cryptographic signing) plus portability gates.
+**Method:** Full tool verification on final source: `cargo fmt --check` (clean), `cargo test` (**532 passed / 0 failed**: 411 lib + 86 integration incl. 6 new `pkcs7_signing` + 35 doc), `cargo test --no-default-features` (green, `sign` feature off), `cargo build --no-default-features --features cli` (green), `cargo build --features wasm --target wasm32-unknown-unknown` (green), `cargo doc --no-deps` (0 warnings), `cargo clippy --all-targets --all-features -- -D warnings` (0 warnings).
+
+### Executive Summary
+
+**Current score: 8.9/10.** The High finding — "digital signing is not cryptographic signing" — is now resolved: pdfrs produces real detached CMS `SignedData` signatures (RSA PKCS#1 v1.5 and ECDSA P-256, SHA-256, embedded certificate) and `verify_pdf_signature` cryptographically validates them with an honest `valid` flag. Two latent build-gate bugs surfaced during the work were fixed, including a genuine signing-correctness bug (digest computed before the `/ByteRange` splice). Remaining findings are Medium-and-below by design or external dependency.
+
+### Score Detail
+
+| Dimension | Score | Evidence / deduction |
+|---|---:|---|
+| Correctness and reliability | 9.5/10 | 532 tests pass, including ECDSA/RSA sign→verify round-trips with tamper detection; the sign-path digest bug (hash over pre-splice bytes) was caught by the new round-trip test and fixed. |
+| Security | 9.3/10 | Real signing + verification shipped; structural placeholder clearly documented; verification is digest+signature only (no trust chain/revocation — documented). API boundary and search-error fixes from the first pass hold. |
+| Maintainability | 8.6/10 | New signing module is self-contained with a hand-rolled DER reader/writer restricted to the fixed `SignedData` shape (documented); reuses shared incremental-update scaffolding. |
+| Performance | 8.3/10 | No regressions; suite runtime unchanged (~70s full). |
+| Documentation and release hygiene | 8.8/10 | SPEC FR19.3 rewritten, README/CHANGELOG/TODO updated; test counts aligned at 532. |
+| CI and portability | 8.4/10 | All gates verified locally; wasm32 restored via getrandom 0.2 `js` backend (required by rand_core 0.6); `cli`-without-`parallel` build fixed. CI itself remains intentionally absent. |
+
+### Findings resolved this pass (2026-10-25, second pass)
+
+1. **(was #1, High) Digital signing is now cryptographic.** `sign_pdf_cms`/`sign_pdf_cms_bytes` + `pdfcli sign --key` build detached CMS `SignedData` with RSA or ECDSA P-256 keys; `verify_pdf_signature` validates digest + signature against the embedded certificate and reports `valid` honestly (still no trust-chain evaluation — now the documented remaining gap). Legacy `sign_pdf` placeholder unchanged, clearly marked.
+2. **Signing-correctness bug (found by the new tests):** the sign path hashed the output *before* splicing the real `/ByteRange` values, so the signature covered placeholder bytes while verification hashed final bytes. Fixed by splicing `/ByteRange` before digesting; round-trip + tamper tests lock the behavior in.
+3. **Portability:** wasm32 build broke via `p256` → `elliptic-curve` → `rand_core 0.6` (whose `std` feature hard-depends on getrandom 0.2) — restored with a target-gated getrandom 0.2 `js` dependency; `p256` default features trimmed; `cli`-without-`parallel` unconditional `pdfrs::parallel` import fixed.
+
+### Remaining priority findings
+
+1. **Medium — signature trust chain.** Verification proves the signature matches the embedded certificate and the covered bytes; it does not build a CA chain or check revocation. Documented in SPEC "Remaining Features".
+2. **Medium — API exposure is intentionally unauthenticated and rate-limit-free.** Deployment-boundary requirement documented; enforcement belongs at the reverse proxy.
+3. **Low — binary-to-text parsing remains lossy in security paths.** Unchanged; acceptable for best-effort inspection.
+4. **Low — unmaintained crates.** Direct `ttf-parser 0.25.1`, transitive `bincode`/`yaml-rust`. Replacement or explicit risk decision pending.
+5. **Low — no CI workflows in-repo (intentional).** Local gate documented; keep running it before releases.
+
+---
+
+## Audit — 2026-10-25 (first pass: search API, portability gates, metadata)
+
+**Scope:** Rust source, public API, security paths, tests, docs cross-check, and portability gates.
+**Method:** Full tool verification on final source: `cargo fmt --check` (clean), `cargo test` (**519 passed / 0 failed**, 1 ignored doctest), `cargo doc --no-deps` (clean), `cargo clippy --all-targets --all-features -- -D warnings` (0 warnings), `cargo test --no-default-features` (green after fix), `cargo build --features wasm --target wasm32-unknown-unknown` (green after fix). This completes the verification that was blocked by a Cargo lock in the 2026-10-06 audit.
+
+### Executive Summary
+
+**Current score: 8.8/10.** All verification gates are now tool-verified green. The 2026-10-06 Medium finding on the search API is fixed, two silent portability-gate regressions were found and fixed, signature placeholder semantics are now prominently documented, and metadata drift across README/SPEC/TODO/AUDIT is reconciled. The top remaining item is that digital signing is still structural placeholder generation, not cryptographic signing.
+
+### Score Detail
+
+| Dimension | Score | Evidence / deduction |
+|---|---:|---|
+| Correctness and reliability | 9.4/10 | 519 tests pass (404 lib + 80 integration + 35 doc), including round-trip and property coverage; search-API worker failures are no longer reported as empty success. |
+| Security | 9.0/10 | Encryption, redaction, sandboxing, body limits, opt-in CORS verified; deployment-boundary requirement now documented prominently in `src/api.rs` module docs and SPEC FR27.11; signature placeholder semantics now carry explicit warnings. Open: placeholder signing itself. |
+| Maintainability | 8.5/10 | Typed errors, decomposed modules, consistent handler error pattern; large Rust surface still warrants focused profiling ownership. |
+| Performance | 8.3/10 | Per-algorithm parallel encryption tests; batch fast paths; no regressions observed this run. |
+| Documentation and release hygiene | 8.8/10 | Test counts (519) and scores aligned across README/SPEC/TODO/CHANGELOG/AUDIT; WASM worker-first TODO closed as shipped; CHANGELOG updated. |
+| CI and portability | 8.2/10 | Portability gates verified locally and fixed this run (`--no-default-features`, wasm32). GitHub Actions workflows are intentionally removed (project decision, 2026-10); verification is the documented local gate in ARCHITECTURE.md. |
+
+### Findings resolved this run (2026-10-25)
+
+1. **(2026-10-06 #2, Medium) Search API masked worker failures.** `POST /api/v1/search` used `.unwrap_or_default()` on `spawn_blocking`, turning panics/join errors into HTTP 200 with zero hits. The handler now matches the established pattern and returns `500` with a `worker task failed` message. Three new endpoint tests (hit results, malformed-PDF graceful zero hits, invalid base64).
+2. **Portability regression: `cargo test --no-default-features` failed to compile.** `tests/integration.rs` imported `pdfrs::parallel` unconditionally; the import and `test_parallel_merge_pdfs` are now `#[cfg(feature = "parallel")]`-gated. Silent since the CI workflows were removed.
+3. **Portability regression: wasm32 build failed to compile.** `src/raster/fonts.rs::system_font_candidates` defined `paths` only for macOS/Linux/Windows; an empty fallback was added for other targets. Silent since the CI workflows were removed.
+4. **(2026-10-06 #1, partial — documentation path) Signature semantics documented.** `sign_pdf`, `sign_pdf_bytes`, and `verify_pdf_signature` now carry prominent warnings that signing is structural placeholder generation (no private-key operation; `valid` is always `false`). A real CMS/PKCS#7 signer remains the full-resolution option.
+5. **(2026-10-06 #6) Metadata drift reconciled.** One current score (this section); test counts aligned to 519 across README/SPEC/TODO; WASM worker-first/async TODO items (TODO.md #19 and the audit-deferrals entry) closed as shipped (`render_markdown_to_pdf_async` + `wasm/worker.js` / `worker-client.js`).
+
+### Remaining priority findings
+
+1. **High — digital signing is not cryptographic signing.** `sign_pdf_bytes` emits a placeholder PKCS#7/CMS container; `verify_pdf_signature` always reports `valid: false`. Semantics are now documented unmissably, but the full fix is a real CMS signer or a breaking rename. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/pdf_ops/security.rs" lines="663-690" />
+2. **Medium — API exposure is intentionally unauthenticated and rate-limit-free.** Documented prominently as a deployment-boundary requirement; enforcement belongs at the reverse proxy. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/api.rs" lines="1-26" />
+3. **Low — binary-to-text parsing remains lossy in security paths.** `String::from_utf8_lossy` over full PDF bytes in signature/catalog discovery; acceptable for best-effort inspection. <ref_snippet file="/Users/yingkitw/Desktop/myproject/pdfrs/src/pdf_ops/security.rs" lines="719-734" />
+4. **Low — unmaintained crates.** Direct `ttf-parser 0.25.1` (RUSTSEC-2026-0192), transitive `bincode 1.3.3` and `yaml-rust 0.4.5` via `syntect`. Replacement or explicit risk decision pending.
+5. **Low — no CI workflows in-repo (intentional).** GitHub Actions workflows were deliberately removed (2026-10); this is a project decision, not an oversight. Verification is the documented local gate (ARCHITECTURE.md "CI/CD Infrastructure"); the 2026-10-25 run executed it fully green. Risk to monitor: portability gates previously regressed silently without a CI runner (fixed this run), so keep running the full gate before releases.
+
+---
+
+## Previous Audit — 2026-10-06 (superseded by 2026-10-25 above; verification completed there)
 
 **Scope:** Rust source, public API, security paths, tests, CI, dependency metadata, and project documentation.
 **Method:** Source review plus `cargo fmt --check` and `cargo audit`; `cargo test`, all-features Clippy, and `cargo doc` were started but could not acquire Cargo's package-cache lock because another user `cargo update`/`cargo test` process was still running. `cargo audit` completed with three unmaintained-crate warnings. No code fixes were made during this audit.
@@ -41,9 +214,9 @@
 **Methodology:** Tool-verified test/doc builds, source review, docs-vs-code cross-check, and release verification.
 **Status:** Strong production baseline with a small set of explicit compatibility and performance follow-ups.
 
-## Codebase Score (2026-09-27)
+## Codebase Score (2026-09-27) — historical
 
-**Overall: 8.9/10** (was 8.8/10 on 2026-09-13)
+**Overall: 8.9/10** (was 8.8/10 on 2026-09-13; superseded by the 2026-10-25 score above)
 
 | Dimension | Score | Evidence / deduction |
 |---|---:|---|

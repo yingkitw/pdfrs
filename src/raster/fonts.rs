@@ -54,6 +54,9 @@ fn system_font_candidates() -> Vec<String> {
         "C:\\Windows\\Fonts\\arial.ttf",
         "C:\\Windows\\Fonts\\segoeui.ttf",
     ];
+    // Other targets (e.g. wasm32) have no filesystem font locations.
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let paths: [&str; 0] = [];
     paths.iter().map(|s| s.to_string()).collect()
 }
 

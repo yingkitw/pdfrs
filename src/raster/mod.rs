@@ -26,10 +26,14 @@
 //! | `rg` / `RG` / `g` / `G` / `k` / `K` | Color | ✅ |
 //! | `m` / `l` / `c` / `h` / `re` | Path construction | ✅ |
 //! | `S` / `s` / `f` / `B` / `b` / `n` | Path painting | ✅ |
+//! | `W` / `W*` | Clipping path (non-zero / even-odd) | ✅ |
+//! | `gs` | `/ExtGState` (`/ca`, `/CA`, `/LW`) | ✅ |
 //! | `BT` / `ET` | Text object | ✅ |
 //! | `Tf` | Text font/size | ✅ |
 //! | `Tm` / `Td` / `TD` / `T*` | Text matrix / position | ✅ |
 //! | `Tj` / `TJ` / `'` / `"` | Show text | ✅ |
+//! | `Tr` | Text rendering mode (fill/stroke/invisible) | ✅ |
+//! | `Do` | Image XObject (Flate, DCT/JPEG, ASCIIHex, ASCII85, RunLength) | ✅ |
 //!
 //! ## Limits
 //!
@@ -41,25 +45,36 @@
 //!   unless a substitute system font (or `PDFRS_UNICODE_FONT_PATH`) is
 //!   available, in which case its letterforms are used with the base-14
 //!   width tables.
-//! - Type 3 fonts, patterns, shadings, transparency groups, clipping paths,
-//!   and images are not yet rendered.
+//! - Image XObjects are decoded for `/DeviceGray`, `/DeviceRGB`,
+//!   `/DeviceCMYK`, `/Indexed` and `/ICCBased` colour spaces at 1, 2, 4, 8 and
+//!   16 bits per component, with `/SMask` soft masks and `/ImageMask`
+//!   stencils. `DCTDecode` payloads are decoded by a built-in baseline JPEG
+//!   decoder; progressive and arithmetic-coded JPEGs are skipped.
+//! - Type 3 fonts, Form XObjects, tiling/shading patterns, transparency
+//!   groups and soft masks (`/SMask` as a luminosity mask) are not rendered.
 //!
 //! [`flate2`]: https://docs.rs/flate2
 
 mod base14;
+mod clip;
 mod fonts;
+mod images;
 mod interpreter;
+mod jpeg;
 mod pdf_access;
 mod png;
+mod raw;
+mod resources;
 mod surface;
 
 use crate::error::{PdfError, Result};
 use crate::pdf::{PdfDocument, PdfObject};
 use crate::search::{decompress_stream, page_content_streams};
 use fonts::collect_font_metrics_with_raw;
-use interpreter::render_content_stream;
+use interpreter::{RenderContext, render_content_stream};
 use pdf_access::page_media_box;
 use png::encode_png;
+use resources::collect_page_resources;
 use surface::Surface;
 
 /// A rasterised page.
@@ -118,12 +133,14 @@ pub fn rasterize_page(pdf_bytes: &[u8], page_index: usize, dpi: u32) -> Result<R
 
     let content_ids = page_content_streams(&doc, page_id)?;
     let font_metrics = collect_font_metrics_with_raw(&doc, pdf_bytes, page_id);
+    let page_resources = collect_page_resources(pdf_bytes, page_id);
 
     let mut surface = Surface::new(width_px * aa, height_px * aa);
     // PDF origin is bottom-left; flip Y so we can paint top-down.
     let aa_scale = scale * aa as f32;
     surface.transform = [aa_scale, 0.0, 0.0, -aa_scale, 0.0, height_pt * aa_scale];
 
+    let mut image_cache = std::collections::HashMap::new();
     for cid in content_ids {
         let raw = match doc.objects.get(&cid) {
             Some(PdfObject::Stream { data, .. }) => data.clone(),
@@ -131,7 +148,13 @@ pub fn rasterize_page(pdf_bytes: &[u8], page_index: usize, dpi: u32) -> Result<R
         };
         let decompressed = decompress_stream(&raw);
         let text = String::from_utf8_lossy(&decompressed).into_owned();
-        render_content_stream(&mut surface, &text, &font_metrics);
+        let mut ctx = RenderContext {
+            fonts: &font_metrics,
+            resources: &page_resources,
+            pdf_bytes,
+            images: &mut image_cache,
+        };
+        render_content_stream(&mut surface, &text, &mut ctx);
     }
 
     let (pixels, width, height) = if aa > 1 {
@@ -314,6 +337,31 @@ mod tests {
             intermediate >= 30,
             "expected anti-aliased edge pixels on rect boundary, got {intermediate}"
         );
+    }
+
+    #[test]
+    fn glyph_counters_stay_hollow() {
+        // A letter "O" is an outer contour plus a counter wound the other
+        // way. Filling the contours separately would fill the counter solid;
+        // the non-zero winding rule keeps it hollow.
+        let outer: Vec<(f32, f32)> = vec![(2.0, 2.0), (18.0, 2.0), (18.0, 18.0), (2.0, 18.0)];
+        let inner: Vec<(f32, f32)> = vec![(6.0, 6.0), (6.0, 14.0), (14.0, 14.0), (14.0, 6.0)];
+        let mut surface = Surface::new(20, 20);
+        surface::fill_polygons_raw(
+            &mut surface,
+            &[outer.clone(), inner.clone()],
+            surface::Color::from_gray(0.0),
+        );
+        let at = |x: u32, y: u32| surface.pixels[((y * 20 + x) * 4) as usize];
+
+        // The stroke of the "O" is painted.
+        assert!(at(3, 10) < 128, "the stroke should be painted");
+        assert!(at(17, 10) < 128, "the stroke should be painted");
+        assert!(at(10, 3) < 128, "the stroke should be painted");
+        // The counter is not.
+        assert!(at(10, 10) > 200, "the counter should stay hollow");
+        // Outside the glyph is not.
+        assert!(at(0, 0) > 200, "outside should stay white");
     }
 
     #[test]

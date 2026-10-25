@@ -1,6 +1,6 @@
 {
   "name": "pdfrs",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "WebAssembly PDF generation from Markdown — powered by Rust",
   "main": "pdfrs.js",
   "types": "pdfrs.d.ts",

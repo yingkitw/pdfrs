@@ -15,7 +15,6 @@
 [![docs.rs](https://docs.rs/pdfrs/badge.svg)](https://docs.rs/pdfrs)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](Cargo.toml)
-[![CI](https://github.com/yingkitw/pdfrs/actions/workflows/ci.yml/badge.svg)](https://github.com/yingkitw/pdfrs/actions/workflows/ci.yml)
 
 **See what it can generate:** [**comprehensive.pdf**](comprehensive.pdf)  
 Regenerate anytime with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`.
@@ -25,7 +24,7 @@ Regenerate anytime with `pdfcli generate-comprehensive` or `cargo test --test co
 - **Markdown → PDF** and **PDF → Markdown** (structured: headings, lists, code blocks)
 - **PDF manipulation**: merge, split, rotate, reorder, watermark, metadata, annotations
 - **Search** with per-hit bounding boxes; **true redaction** that rewrites content streams
-- **Rasterize** PDF → PNG (pure Rust, no external renderer)
+- **Rasterize** PDF → PNG (pure Rust, no external renderer) — images, clipping paths, transparency and text rendering modes included
 - **Full SVG documents** (`<g transform>`, shapes, `<text>`) → PDF
 - **Unicode / CJK** with embedded TrueType fonts; optional Base-14 compatibility mode
 - **Charts** (` ```chart` `), **multi-column** layout, **thesis** TOC / Roman folios / citations
@@ -250,28 +249,28 @@ This tool is built with a modular architecture:
 - **PDF Parser** (`src/pdf/`): object model + loading (`objects`), parsing (`parser`), text extraction (`text_extract`), sanitization (`sandbox`), diff (`diff`), decoders (`decode`), validation (`validation`)
 - **PDF Generator** (`src/pdf_generator/`): layout, color, alignment, accessibility, syntect highlighting; `content_stream/` split into builder/elements/charts/math/page-assembly/render
 - **Typed errors** (`src/error.rs`): `PdfError` + `pdfrs::Result` across the whole library API
-- **Elements** (`src/elements.rs`): 27 structured element types and markdown parser
+- **Elements** (`src/elements/`): 27 structured element types and markdown parser
 - **Markdown** (`src/markdown.rs`): Markdown-to-PDF pipeline with rich formatting
 - **PDF → Markdown** (`src/pdf_to_md.rs`): Structured reconstruction (headings, lists, code blocks)
 - **Charts / thesis** (`src/chart.rs`, `src/thesis.rs`): Vector charts; TOC, folios, citations
-- **Search** (`src/search.rs`): Full-text search with bounding boxes; shared content-stream walker
+- **Search** (`src/search/`): Full-text search with bounding boxes; shared content-stream walker
 - **Redact** (`src/redact.rs`): True content-stream redaction (text removal + black overlay)
-- **Rasterizer** (`src/raster/`): Pure-Rust anti-aliased PDF → PNG with inline PNG encoder
+- **Rasterizer** (`src/raster/`): Pure-Rust anti-aliased PDF → PNG with inline PNG encoder; renders image XObjects (Flate/JPEG/ASCIIHex/ASCII85/RunLength), clipping paths, `/ExtGState` constant alpha and text rendering modes
 - **PDF Operations** (`src/pdf_ops.rs`): Merge, split, rotate, reorder, watermark, metadata, annotations
 - **Image Handler** (`src/image.rs`): JPEG/PNG/BMP embedding with dimension parsing
 - **Linearize / incremental** (`src/linearize.rs`, `src/incremental.rs`): Fast Web View; append-only updates
 - **Plugins** (`src/plugin.rs`): Parser/generator hooks (e.g. callouts)
 - **Compression** (`src/compression.rs`): PDF stream compression (deflate)
-- **Security** (`src/security.rs`, `src/pdf_ops/security.rs`): Spec-conformant PDF encryption (RC4 40/128-bit, AES-128, AES-256 R6) with random salts/IVs, permissions, digital signatures, certificate store
+- **Security** (`src/security/`, `src/pdf_ops/security.rs`, `src/pdf_ops/signing.rs`): Spec-conformant PDF encryption (RC4 40/128-bit, AES-128, AES-256 R6) with random salts/IVs, permissions, real PKCS#7/CMS digital signatures (RSA or ECDSA P-256 keys, SHA-256, embedded certificate, cryptographic verification), structural placeholder signing, certificate store
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec and backlog: [SPEC.md](SPEC.md), [TODO.md](TODO.md).
 
 ## Testing
 
-~518 tests (`cargo test`), including:
-- **404 lib tests**: Unit tests across all modules (includes 7 new soft-hyphen round-trip tests)
-- **Integration crates**: `tests/integration.rs`, `capabilities_v2`, `comprehensive_pdf`, `roundtrip_test`, `capability_validation`, `unicode_integration_test` (the all-algorithm encryption test is now split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
-- **~35 doctests**: Public API examples
+568 tests (`cargo test`), including:
+- **436 lib tests**: Unit tests across all modules (includes soft-hyphen round-trip, API endpoint, PKCS#7/CMS signing, and rasterizer parity tests)
+- **95 integration tests**: `tests/integration.rs`, `capabilities_v2`, `capability_validation`, `comprehensive_pdf`, `pkcs7_signing`, `raster_parity`, `roundtrip_test`, `unicode_integration_test` (the all-algorithm encryption test is split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
+- **37 doctests**: Public API examples
 
 Round-trip validation tests verify that content survives: generate → validate → parse → verify. The `capabilities_v2` suite exercises rasterize → search → redact end-to-end plus full SVG rendering and structured PDF → Markdown.
 
@@ -295,7 +294,7 @@ Extra material (contributing, validation notes) is under [`docs/`](docs/).
 
 ## Limitations
 
-- **Rasterizer is schematic, with anti-aliased output**: pages render at 3× supersampling and are box-downsampled. Text renders from real glyph outlines when a TrueType program is available (embedded `/FontFile2`, or a substitute system font / `PDFRS_UNICODE_FONT_PATH` for base-14 names); without any font program it falls back to gray rectangles sized to advance width. Layout preview quality — not pixel-perfect typography; use PDFium or Ghostscript for that.
+- **Rasterizer is schematic, with anti-aliased output**: pages render at 3× supersampling and are box-downsampled. Text renders from real glyph outlines when a TrueType program is available (embedded `/FontFile2`, or a substitute system font / `PDFRS_UNICODE_FONT_PATH` for base-14 names); without any font program it falls back to gray rectangles sized to advance width. Image XObjects, clipping paths, constant alpha and text rendering modes are supported; Form XObjects, tiling/shading patterns, transparency groups and progressive JPEGs are not. Layout preview quality — not pixel-perfect typography; use PDFium or Ghostscript for that.
 - **Redaction is content-stream based**: text is removed at character granularity and image XObjects intersecting a region are removed when they are no longer referenced. Complex PDF constructs may still require external validation.
 - **PDF → Markdown** reconstruction is heuristic; very dense tables and multi-column layouts may not round-trip perfectly.
 - Text extraction works best with PDFs generated by this tool or simple Type 1 font PDFs

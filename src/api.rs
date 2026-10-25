@@ -4,6 +4,16 @@
 //! and text extraction. Designed for deployment behind a reverse proxy or as
 //! a serverless function.
 //!
+//! # Security / deployment boundary
+//!
+//! The API is intentionally unauthenticated and rate-limit-free. It performs
+//! CPU- and memory-intensive work on user-supplied input, so **do not expose
+//! it directly to the public internet**. Deploy behind a reverse proxy that
+//! supplies authentication, rate limiting, concurrency limits, and TLS.
+//! Request bodies are capped (`AppState::max_body`, 50 MB default) and heavy
+//! handlers run on the blocking pool, but these are workload controls, not
+//! access controls.
+//!
 //! ## Endpoints
 //!
 //! | Method | Path | Description |
@@ -15,6 +25,13 @@
 //! | POST | `/api/v1/redact` | Redact regions from PDF |
 //! | POST | `/api/v1/extract` | Extract text from PDF |
 //! | GET  | `/api/v1/health` | Health check |
+//!
+//! ## Error model
+//!
+//! Invalid base64 or malformed requests return `400`; processing failures
+//! return `400` or `500` with a JSON `{"error": ...}` body. A failed or
+//! panicked blocking-pool task returns `500` with a `worker task failed`
+//! message rather than an empty success response.
 //!
 //! ## Example
 //!
@@ -301,10 +318,21 @@ async fn search_pdf(State(_state): State<AppState>, Json(req): Json<SearchReques
                 .into_response();
         }
     };
-    let hits =
+    let result =
         tokio::task::spawn_blocking(move || crate::search::search_text(&pdf, &req.query, false))
-            .await
-            .unwrap_or_default();
+            .await;
+    let hits = match result {
+        Ok(hits) => hits,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("worker task failed: {e}"),
+                }),
+            )
+                .into_response();
+        }
+    };
     let total = hits.len();
     let dtos: Vec<SearchHitDto> = hits
         .iter()
@@ -537,6 +565,89 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_search_endpoint_finds_hits() {
+        // Generate a small PDF with known searchable text.
+        let elements = crate::elements::parse_markdown("# Test\n\nFindable needle text");
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&pdf_bytes);
+
+        let app = router();
+        let body = serde_json::json!({ "pdf": b64, "query": "needle" });
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/search")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let total = payload["total_hits"].as_u64().unwrap();
+        assert!(total >= 1, "expected at least one search hit");
+        assert!(
+            payload["hits"][0]["snippet"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("needle")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_endpoint_handles_malformed_pdf_gracefully() {
+        // Valid base64 but not a PDF: the endpoint must not panic or error;
+        // search simply reports zero hits.
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"this is not a pdf");
+        let app = router();
+        let body = serde_json::json!({ "pdf": b64, "query": "anything" });
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/search")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(payload["total_hits"].as_u64().unwrap(), 0);
+        assert!(payload["hits"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_endpoint_rejects_invalid_base64() {
+        let app = router();
+        let body = serde_json::json!({ "pdf": "!!!not base64!!!", "query": "x" });
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/search")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

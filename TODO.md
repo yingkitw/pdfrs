@@ -13,11 +13,19 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ## Codebase Score and Audit Follow-ups (2026-09-13)
 
-- [x] Score the codebase across correctness, security, maintainability, performance, documentation, and CI/portability — **8.8/10**; see [`AUDIT.md`](AUDIT.md).
+- [x] Score the codebase across correctness, security, maintainability, performance, documentation, and CI/portability — **8.8/10** (2026-10-25); see [`AUDIT.md`](AUDIT.md).
+- [x] Fix search-API worker-failure masking — `/api/v1/search` returns explicit `500` on blocking-task failure instead of HTTP 200 with zero hits; 3 new endpoint tests. (2026-10-25)
+- [x] Fix `--no-default-features` test compile (feature-gate `pdfrs::parallel` use in `tests/integration.rs`) and wasm32 build (empty font-path fallback in `src/raster/fonts.rs`) — both regressed silently after CI workflow removal. (2026-10-25)
+- [x] Document signature placeholder semantics prominently (`sign_pdf`, `sign_pdf_bytes`, `verify_pdf_signature` warnings) and API deployment-boundary requirements (`src/api.rs` module docs, SPEC FR27.11). (2026-10-25)
+- [x] **Resolve the High audit finding: real cryptographic signing.** CMS `SignedData` builder + parser (`src/pdf_ops/signing.rs`), RSA/ECDSA P-256 PKCS#8 keys, `/ByteRange`-digest verification with honest `valid` flag, `pdfcli sign --key`; fixed latent sign-time digest bug (digest was computed before the `/ByteRange` splice, so it covered placeholder bytes); restored wasm32 build via getrandom 0.2 `js` backend for rand_core 0.6; fixed `cli`-without-`parallel` build. 13 new tests. (2026-10-25)
+- [x] **Modularize the five largest source files** (public APIs unchanged): `security.rs` → `security/` (encryption/signature/certificates), `html.rs` → `html/` (tokenizer/css/convert), `elements.rs` → `elements/` (types/inline/parser), `search.rs` → `search/` (pages/metrics/walker), `pdf_ops/mod.rs` → `pdf_ops/` (manipulate/imaging). (2026-10-25)
+- [x] **Rasterizer parity batch.** The native rasterizer now renders clipping paths (`W` / `W*`), `/ExtGState` constant alpha and line width, text rendering modes (`Tr`), and image XObjects (`Do`) — including a built-in baseline JPEG decoder for `DCTDecode`, PNG/TIFF predictors, `/Indexed` and `/ICCBased` colour spaces, `/SMask` soft masks and `/ImageMask` stencils. Resources and binary payloads are read from the original PDF bytes with a new nesting-aware scanner (`src/raster/raw.rs`), fixing nested `/Resources` resolution and binary image corruption. (2026-10-25)
+- [x] **Rasterizer glyph-rendering correctness.** Fixed four pre-existing rendering defects found by rendering the project's own `comprehensive.pdf`: (1) the Bézier flatness test went negative for curves bulging away from their chord, collapsing every curve to a straight chord — replaced with the Anti-Grain Geometry flatness test; (2) each glyph contour was filled separately, filling letter counters solid — now filled together with the non-zero winding rule; (3) translucent strokes compounded to opaque through overlapping brush stamps — coverage is now accumulated per pixel and blended once; (4) binary stream payloads were corrupted by a lossy UTF-8 conversion — now read from the original bytes. Glyph outlines are also scaled to the PDF's declared advance width so they cannot overlap. 25 new unit + 9 new integration tests. (2026-10-25)
+- [ ] Modularize the remaining large files: `pdf_generator/mod.rs` (1,350), `pdf/mod.rs` (1,220), `pdf_ops/security.rs` (1,186), `image.rs` (1,008), `redact.rs` (994).
 - [x] Add encrypted object-stream and xref-stream support to `encrypt_pdf_bytes` — compressed objects are expanded and xref streams are replaced with a fresh classic xref table; integration coverage added.
 - [x] Split or optimize the all-algorithm encryption integration test; preserve coverage while reducing its 47–60 second runtime — replaced with 4 per-algorithm `#[test]` functions sharing one helper (`tests/integration.rs::round_trip_encrypt_one_algorithm`); `cargo test`'s parallel runner executes them concurrently, cutting the encryption-test wall time from ~41s to ~16s in debug mode (60% reduction); coverage identical to the previous serial loop.
-- [ ] Make the WASM API worker-first or provide an async export that avoids blocking the browser main thread.
-- [ ] Keep historical audit counts and status tables aligned with the latest verification run.
+- [x] Make the WASM API worker-first or provide an async export that avoids blocking the browser main thread — `wasm/worker.js` + `wasm/worker-client.js` off-main-thread API (recommended path) plus `render_markdown_to_pdf_async` Promise-returning export for main-thread use; documented in `src/wasm.rs` module docs. (2026-10-25)
+- [x] Keep historical audit counts and status tables aligned with the latest verification run — 2026-10-25 audit reconciled scores and test counts (519) across AUDIT/README/SPEC/TODO; stale 2026-09-27 table marked historical.
 
 ## Phase 1: Core Functionality (Current Development)
 
@@ -133,7 +141,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 - [x] Security features
   - [x] Password protection — `PdfSecurity` with user/owner passwords
   - [x] User/owner permissions — `PdfPermissions` with PDF 1.7 compliance
-  - [x] Digital signatures — `DigitalSignature` with `sign`/`verify-signature` CLI commands, SHA-256 content digest, PDF signature dictionary structure
+  - [x] Digital signatures — two tiers: **cryptographic PKCS#7/CMS signing** (`sign` feature: `sign_pdf_cms`/`sign_pdf_cms_bytes`, `pdfcli sign --key`; RSA PKCS#1 v1.5 or ECDSA P-256 PKCS#8 keys, SHA-256, embedded certificate) with true verification in `verify_pdf_signature` (digest recomputed over `/ByteRange`, checked against the embedded cert, honest `valid` flag, no trust-chain evaluation); legacy structural placeholder `sign_pdf` unchanged and documented as not for authentication (2026-10-25)
   - [x] PDF sanitization — `PdfDocument::sanitize()` strips JavaScript, launch actions, external file references, additional actions; `sanitize-pdf` CLI command
 
 - [x] Performance improvements
@@ -311,13 +319,13 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ### 🔴 Critical
 
-- [x] Comprehensive test suite (425 tests: 319 lib + 7 + 5 + 3 + 24 + 22 + 10 + 35 doc-tests)
+- [x] Comprehensive test suite (568 tests as of 2026-10-25: 436 lib + 95 integration + 37 doc-tests, 1 doc-test ignored)
   - [x] Unit tests for all modules (pdf, pdf_generator, pdf_ops, elements, markdown, image, compression)
   - [x] Integration tests for workflows (roundtrip, merge, split, rotate, watermark, reorder, metadata)
   - [x] Round-trip validation tests (generate → validate → parse → verify all element types)
   - [x] Performance benchmarks (criterion-based)
   - [x] Property-based tests (proptest for compression, image, pdf_ops, elements modules)
-  - [x] Automated testing pipeline — GitHub Actions CI (`.github/workflows/ci.yml`): fmt check, clippy, multi-OS test matrix (ubuntu/macos/windows), WASM build, minimal-feature build, benchmark compile check
+  - [x] Automated testing pipeline — GitHub Actions CI was shipped, then **intentionally removed** from the repository (2026-10); verification is local/manual, see ARCHITECTURE.md "CI/CD Infrastructure" for the gate list
 
 - [x] Documentation
   - [x] README.md with all CLI commands and examples
@@ -343,14 +351,14 @@ This document tracks the planned features, improvements, and tasks for the **pdf
     (6 files), `vector.rs` → `vector/` (5 files), `content_stream.rs` →
     `content_stream/` (6 files), `main.rs` → thin entry + `cli/` (9 files);
     public APIs unchanged
-  - [ ] WASM exports: async/worker-first API to avoid main-thread blocking
+  - [x] WASM exports: async/worker-first API to avoid main-thread blocking — `render_markdown_to_pdf_async` Promise export + worker-first `wasm/worker.js` / `wasm/worker-client.js`; worker path is documented as the recommended default
   - [x] Object-stream / xref-stream support in `encrypt_pdf_bytes` — object streams are expanded and xref streams are rebuilt as classic xref tables
 
-- [x] CI/CD improvements
-  - [x] Automated testing on multiple platforms — GitHub Actions matrix (ubuntu/macos/windows)
-  - [x] Automated release process — `.github/workflows/release.yml` (tag-triggered crates.io publish + GitHub Release)
-  - [x] Performance regression testing — `cargo bench --no-run` in CI; criterion benchmarks compile-checked
-  - [x] Dependency vulnerability scanning — `.github/workflows/audit.yml` (cargo-audit, weekly schedule + on-push)
+- [x] CI/CD improvements — workflows shipped, then **intentionally removed** (2026-10); local gate list lives in ARCHITECTURE.md, latest verification evidence in AUDIT.md
+  - [x] Automated testing on multiple platforms — GitHub Actions matrix (ubuntu/macos/windows) (since removed with the rest of CI)
+  - [x] Automated release process — tag-triggered crates.io publish workflow (since removed)
+  - [x] Performance regression testing — `cargo bench --no-run` compile check (benchmarks remain; CI runner removed)
+  - [x] Dependency vulnerability scanning — cargo-audit workflow (since removed; run `cargo audit` locally)
 
 ### 🟢 Medium
 
@@ -403,10 +411,15 @@ Capabilities in peer projects worth prioritizing:
 - **Web Worker offloading** (MantisPDF) — ✅ shipped: `wasm/worker.js` + `wasm/worker-client.js` for off-main-thread PDF generation
 - **IndexedDB WASM module caching** (PDFNova) — ✅ shipped: `wasm/cache.js` with version-keyed cache for instant reloads
 - **Multi-language bindings** (PDF Oxide) — Python/JS/Go/C# from same Rust core
-- **Rasterizer parity items** (PDFium/Ghostscript gap, deferred from the 2026-09-13
-  AA/substitute-font work): clipping paths (`W n`), ExtGState soft masks
-  (`ca`/`CA` alpha), text render modes (`Tr`), tiling/shading patterns, and
-  image XObject drawing in the rasterizer
+- **Rasterizer parity items** (PDFium/Ghostscript gap): ✅ shipped for clipping paths
+  (`W n` / `W* n`), `/ExtGState` constant alpha (`ca`/`CA`) and line width (`LW`),
+  text rendering modes (`Tr`), and image XObject drawing (`Do`) — including a
+  built-in baseline JPEG decoder for `DCTDecode` payloads, PNG/TIFF predictors,
+  `/Indexed` and `/ICCBased` colour spaces, `/SMask` soft masks and `/ImageMask`
+  stencils. Resources and binary payloads are now read from the original PDF
+  bytes with a nesting-aware scanner (`src/raster/raw.rs`). Still open: Form
+  XObjects, tiling/shading patterns, transparency groups, and progressive or
+  arithmetic-coded JPEGs.
 - ~~**Plugin hooks for Element → PDF**~~ — shipped: `ParserPlugin` / `GeneratorPlugin` + `CalloutPlugin`
 
 ### Capability Drop (2026-07-26) — native raster/search/redaction/SVG features
@@ -473,7 +486,7 @@ Capabilities in peer projects worth prioritizing:
 
 - **Core**: Rust (for performance and safety)
 - **Testing**: Rust testing framework, property testing
-- **CI/CD**: GitHub Actions or similar
+- **CI/CD**: none — GitHub Actions workflows intentionally removed (2026-10); local cargo gates (fmt/test/clippy/doc, see ARCHITECTURE.md)
 - **Documentation**: Markdown, mdBook
 - **Distribution**: Cargo, crates.io
 

@@ -210,6 +210,7 @@ pub(crate) fn run() {
             location,
             contact,
             certificate,
+            key,
             cert_id,
             cert_store,
         } => commands::security::cmd_sign(
@@ -220,6 +221,7 @@ pub(crate) fn run() {
             location,
             contact,
             certificate,
+            key,
             cert_id,
             cert_store,
         ),

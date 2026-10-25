@@ -121,11 +121,17 @@
 
 - **FR20.1**: Pure-Rust page rasterizer with no external PDF/font dependencies — `src/raster/`, `raster::rasterize_page`, `raster::rasterize_all`
 - **FR20.2**: Inline PNG encoder (signature, IHDR, zlib-compressed IDAT via `flate2`, IEND) with built-in CRC-32
-- **FR20.3**: Renders PDF content-stream operators emitted by `pdfrs` plus common operators from other producers: `q`/`Q`, `cm`, `w`, `rg`/`RG`/`g`/`G`/`k`/`K`, `m`/`l`/`c`/`h`/`re`, `S`/`s`/`f`/`F`/`B`/`b`/`n`, `BT`/`ET`, `Tf`, `Tm`/`Td`/`TD`/`T*`, `Tj`/`TJ`/`'`/`"`
+- **FR20.3**: Renders PDF content-stream operators emitted by `pdfrs` plus common operators from other producers: `q`/`Q`, `cm`, `w`, `rg`/`RG`/`g`/`G`/`k`/`K`, `m`/`l`/`c`/`h`/`re`, `S`/`s`/`f`/`F`/`B`/`b`/`n`, `W`/`W*`, `gs`, `BT`/`ET`, `Tf`, `Tm`/`Td`/`TD`/`T*`, `Tj`/`TJ`/`'`/`"`, `Tr`, `Do`
 - **FR20.4**: Base-14 PDF font width tables (Helvetica, Times-Roman, Courier) and `/W` array handling for CIDFont
 - **FR20.5**: Page size honoured via the page's `/MediaBox`; DPI parameter scales pixel dimensions
 - **FR20.6**: CLI command `rasterize-pdf` (single page → PNG file or all pages → directory)
 - **FR20.7**: Text uses embedded or substitute TrueType glyph outlines when available, with gray glyph-block fallback when no font program is available; output is anti-aliased but not pixel-perfect typography
+- **FR20.8**: Clipping paths (`W` non-zero, `W*` even-odd) are rasterized into device-space coverage masks and intersected with the active clip; the clip is part of the graphics state and is restored by `Q`
+- **FR20.9**: `/ExtGState` constant alpha (`/ca` fill, `/CA` stroke) and line width (`/LW`) are applied to painting; strokes accumulate coverage per pixel and blend exactly once, so a translucent stroke is not compounded by overlapping segments
+- **FR20.10**: Text rendering modes (`Tr`) are honoured — 0 fill, 1 stroke, 2 fill+stroke, 3 invisible (no pixels painted, advance still applied)
+- **FR20.11**: Image XObjects (`Do`) are decoded and painted through the current transformation matrix: `FlateDecode` (with PNG/TIFF predictors), `DCTDecode` (baseline JPEG via a built-in decoder), `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode`; colour spaces `/DeviceGray`, `/DeviceRGB`, `/DeviceCMYK`, `/Indexed` and `/ICCBased` at 1/2/4/8/16 bits per component; `/SMask` soft masks and `/ImageMask` stencils are supported. Progressive and arithmetic-coded JPEGs, Form XObjects, tiling/shading patterns and transparency groups are not rendered
+- **FR20.12**: Resources and binary stream payloads are read from the original PDF bytes with a nesting-aware scanner, so nested `/Resources` dictionaries and binary image data are read correctly
+- **FR20.13**: Glyph outlines are flattened with the standard Anti-Grain Geometry flatness test (a curve is split until its control points lie within tolerance of the chord), and all contours of a glyph are filled together with the non-zero winding rule — so counters stay hollow and curved glyphs are not collapsed into straight chords
 
 #### FR21: Full-Text Search with Bounding Boxes
 
@@ -200,6 +206,7 @@
 - **FR27.8**: `GET /api/v1/health` — health check endpoint
 - **FR27.9**: CORS is opt-in via `router_with_cors(state, cors)`; no permissive default. Request bodies are limited (`AppState.max_body`, 50 MB default, 413 on excess); heavy handlers run on the blocking pool
 - **FR27.10**: `api::serve(host, port)` starts the server; `api::router()` returns a standalone `Router`
+- **FR27.11**: API error model — invalid base64 or malformed requests return `400`; processing failures return `400` or `500` with a JSON `{"error": ...}` body; a failed or panicked blocking-pool task returns `500` with a `worker task failed` message rather than an empty success response
 
 #### FR28: WASM Polish
 
@@ -285,7 +292,7 @@ PdfObject
 - Create page tree and catalog
 - Write valid PDF format
 
-#### 3. Markdown Parser (`src/elements.rs`, `src/markdown.rs`)
+#### 3. Markdown Parser (`src/elements/`, `src/markdown.rs`)
 
 ```
 MarkdownParser
@@ -499,7 +506,7 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 - Security (password protection, permissions)
 - Library API (in-memory generation, validation)
 - 27 element types with round-trip validation
-- ~507 tests (`cargo test`, including unit, integration, and doctest coverage)
+- ~568 tests (`cargo test`, including unit, integration, and doctest coverage)
 - Charts, multi-column layout, thesis TOC/citations, linearized + incremental PDF
 - WebAssembly (`wasm` feature) + canvas viewer demo
 - Native PDF → PNG rasterizer (no external renderer dependency)
@@ -511,8 +518,7 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 ### Remaining Features
 
 - Pixel-perfect PDF rendering parity with PDFium/Ghostscript
-- Object-stream and xref-stream support in `encrypt_pdf_bytes` (currently rejected with a clear error)
-- Digital signature verification / richer signing UX
+- Signature trust-chain evaluation (current verification covers digest + signature validity; no CA chain building or revocation checking)
 - Expanded rustdoc API examples
 
 ### Advanced Features (Surpassing Ghostscript)
@@ -580,7 +586,9 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 
 - **FR19.1**: Malformed PDF detection and sanitization
 - **FR19.2**: JavaScript sandbox for PDF actions — ✅ `sandbox()` / `sandbox-pdf` detects and neutralizes JS actions, `javascript:` URIs, and document script trees
-- **FR19.3**: Digital signature creation and verification
+- **FR19.3**: Digital signature creation and verification — ✅ two tiers:
+  - **Cryptographic PKCS#7/CMS signing** (`sign` feature, default): `sign_pdf_cms` / `sign_pdf_cms_bytes` build a detached CMS `SignedData` (SHA-256, embedded certificate) with an RSA (PKCS#1 v1.5) or ECDSA P-256 PKCS#8 PEM key; `verify_pdf_signature` recomputes the digest over `/ByteRange` and verifies against the embedded certificate, reporting `SignatureInfo::valid` honestly (no trust-chain evaluation). CLI `pdfcli sign --key <pem>`; `verify-signature` prints validity.
+  - **Structural placeholder** (legacy, `sign_pdf`): signature-dict structure with SHA-256 digest only, no private-key operation — always verifies as `valid: false` and is documented as not for authentication use.
 - **FR19.4**: Certificate management — ✅ PEM certificate store, import/list CLI, `/Cert` embedding on sign, extraction from signed PDFs
 - **FR19.5**: DRM and permission enforcement
 

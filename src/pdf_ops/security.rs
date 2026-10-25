@@ -666,6 +666,15 @@ fn encrypt_strings_in_dict(
 /// content digest over the signed byte ranges. The actual PKCS#7/CMS
 /// container is stored as a placeholder; external tools can replace it.
 ///
+/// # Warning — structural signature, not cryptographic
+///
+/// The output is **not** a cryptographically verifiable signature. The
+/// `/Contents` holds a placeholder PKCS#7/CMS container (digest only, no
+/// private-key signing), and [`verify_pdf_signature`] reports
+/// [`SignatureInfo::valid`] as `false` for it. Do not use this for legal,
+/// compliance, or authentication purposes — use [`sign_pdf_cms`] with a
+/// real private key instead.
+///
 /// # Arguments
 /// * `input_file` - Path to the original PDF
 /// * `output_file` - Path for the signed PDF output
@@ -711,10 +720,88 @@ pub fn sign_pdf_with_certificate(
 }
 
 /// In-memory variant of [`sign_pdf_with_certificate`].
+///
+/// # Warning — structural signature, not cryptographic
+///
+/// See [`sign_pdf`]: the emitted `/Contents` is a placeholder PKCS#7/CMS
+/// container (SHA-256 digest only, no private-key operation). The result is
+/// not a verifiable digital signature. For a genuine signature use
+/// [`sign_pdf_cms_bytes`].
 pub fn sign_pdf_bytes(
     pdf_bytes: &[u8],
     signature: &crate::security::DigitalSignature,
     certificate: Option<&crate::security::SigningCertificate>,
+) -> Result<Vec<u8>> {
+    assemble_signature_update(pdf_bytes, signature, certificate, &|digest| {
+        Ok(digest.to_vec())
+    })
+}
+
+/// Sign a PDF with a real cryptographic PKCS#7/CMS signature.
+///
+/// Builds a detached CMS `SignedData` (SHA-256, embedded signer certificate)
+/// over the `/ByteRange`-covered bytes using the provided private key, and
+/// splices it into the `/Contents` placeholder of an incremental update. RSA
+/// and ECDSA P-256 PKCS#8 PEM keys are supported; the output is verifiable by
+/// [`verify_pdf_signature`] and external tools.
+///
+/// # Arguments
+/// * `input_file` - Path to the original PDF
+/// * `output_file` - Path for the signed PDF output
+/// * `signature` - Digital signature metadata (signer, reason, location, etc.)
+/// * `material` - PEM certificate and PKCS#8 private key
+///
+/// # Example
+/// ```no_run
+/// use pdfrs::{security::DigitalSignature, pdf_ops::signing::SigningKeyMaterial};
+/// use pdfrs::pdf_ops::sign_pdf_cms;
+///
+/// let material = SigningKeyMaterial {
+///     cert_pem: std::fs::read_to_string("signer.pem").unwrap(),
+///     key_pem: std::fs::read_to_string("signer.key.pem").unwrap(),
+/// };
+/// let sig = DigitalSignature::new("Alice");
+/// sign_pdf_cms("input.pdf", "signed.pdf", &sig, &material).unwrap();
+/// ```
+#[cfg(feature = "sign")]
+pub fn sign_pdf_cms(
+    input_file: &str,
+    output_file: &str,
+    signature: &crate::security::DigitalSignature,
+    material: &crate::pdf_ops::signing::SigningKeyMaterial,
+) -> Result<()> {
+    let pdf_bytes = fs::read(input_file)?;
+    let signed = sign_pdf_cms_bytes(&pdf_bytes, signature, material)?;
+    fs::write(output_file, signed)?;
+    println!(
+        "[sign] Signed {input_file} -> {output_file} (cryptographic CMS signature, signer: {})",
+        signature.signer_name
+    );
+    Ok(())
+}
+
+/// In-memory variant of [`sign_pdf_cms`].
+#[cfg(feature = "sign")]
+pub fn sign_pdf_cms_bytes(
+    pdf_bytes: &[u8],
+    signature: &crate::security::DigitalSignature,
+    material: &crate::pdf_ops::signing::SigningKeyMaterial,
+) -> Result<Vec<u8>> {
+    crate::pdf_ops::signing::sign_with_cms(pdf_bytes, signature, material)
+}
+
+/// Shared incremental-update assembly used by both the structural placeholder
+/// signer and the CMS signer.
+///
+/// Builds the signature dictionary, widget field, and catalog objects as an
+/// incremental update, computes the SHA-256 digest over the
+/// `/ByteRange`-covered bytes, and splices `contents_filler(digest)` into the
+/// fixed-width `/Contents` placeholder as zero-padded hex.
+pub(crate) fn assemble_signature_update(
+    pdf_bytes: &[u8],
+    signature: &crate::security::DigitalSignature,
+    certificate: Option<&crate::security::SigningCertificate>,
+    contents_filler: &dyn Fn(&[u8]) -> Result<Vec<u8>>,
 ) -> Result<Vec<u8>> {
     let objects = scan_pdf_objects(pdf_bytes)?;
     let mut max_obj = 0u32;
@@ -882,17 +969,8 @@ pub fn sign_pdf_bytes(
     }
     let total = output.len();
 
-    let mut hasher = Sha256::new();
-    hasher.update(&output[..lt]);
-    hasher.update(&output[gt + 1..]);
-    let hash = hasher.finalize();
-    let hash_hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-
-    // Splice hash into the placeholder (same width).
-    let padded_hash = format!("{hash_hex:0<8192}");
-    output[lt + 1..gt].copy_from_slice(padded_hash.as_bytes());
-
-    // Splice real ByteRange values over the fixed-width zeros.
+    // Splice the real ByteRange values FIRST: they live inside the first
+    // covered region, so the digest must be computed over the final bytes.
     let br_marker = format!("/ByteRange {byte_range}");
     let br_pos = find_from(&output, br_marker.as_bytes(), 0)
         .ok_or_else(|| PdfError::Crypto("ByteRange placeholder not found".into()))?;
@@ -904,6 +982,24 @@ pub fn sign_pdf_bytes(
         width = BR_WIDTH
     );
     output[nums_start..nums_start + real_br.len()].copy_from_slice(real_br.as_bytes());
+
+    // Digest over the covered bytes (the /Contents region between the angle
+    // brackets is excluded, so filling it afterwards does not change it).
+    let mut hasher = Sha256::new();
+    hasher.update(&output[..lt]);
+    hasher.update(&output[gt + 1..]);
+    let hash = hasher.finalize();
+
+    // Splice the filler's contents into the placeholder (same width).
+    let contents = contents_filler(&hash)?;
+    if contents.len() > contents_placeholder.len() / 2 {
+        return Err(PdfError::Crypto(
+            "signature contents exceed the /Contents placeholder".into(),
+        ));
+    }
+    let contents_hex: String = contents.iter().map(|b| format!("{b:02x}")).collect();
+    let padded_contents = format!("{contents_hex:0<8192}");
+    output[lt + 1..gt].copy_from_slice(padded_contents.as_bytes());
 
     Ok(output)
 }
@@ -925,20 +1021,38 @@ pub struct SignatureInfo {
     pub certificate_subject: Option<String>,
     /// SHA-256 fingerprint of embedded certificate DER
     pub certificate_fingerprint: Option<String>,
-    /// Whether the signature is cryptographically valid (always false in this simplified check)
+    /// Whether the signature is cryptographically valid.
+    ///
+    /// `true` means the `/Contents` held a CMS `SignedData` whose signature
+    /// verified against an embedded certificate over the `/ByteRange` ranges
+    /// (no trust-chain evaluation). `false` means no CMS container was found
+    /// (e.g. the legacy [`sign_pdf`] placeholder) or validation failed.
     pub valid: bool,
 }
 
-/// Verify that a PDF contains a digital signature structure.
+/// Verify the digital signatures in a PDF.
 ///
-/// This checks for the presence of signature fields and reports
-/// basic signature metadata. It does NOT cryptographically verify
-/// the signature against a certificate chain.
+/// Checks for the presence of signature fields and reports basic signature
+/// metadata. When `/Contents` holds a CMS `SignedData` container with an
+/// embedded certificate (as produced by [`sign_pdf_cms`]), the signature is
+/// **cryptographically validated**: the digest is recomputed over the
+/// `/ByteRange` ranges and verified against the embedded certificate's public
+/// key (RSA PKCS#1 v1.5 or ECDSA P-256, SHA-256).
 ///
-/// Returns a list of signature info found in the document.
+/// For non-CMS contents (e.g. signatures produced by [`sign_pdf`]) no
+/// cryptographic check is possible and [`SignatureInfo::valid`] stays
+/// `false`. Note that `valid: false` does not prove tampering for such
+/// legacy placeholder signatures, and a `true` value validates the signature
+/// over the covered byte ranges — it does not build a trust chain to a
+/// trusted root CA.
 pub fn verify_pdf_signature(input_file: &str) -> Result<Vec<SignatureInfo>> {
     let pdf_bytes = fs::read(input_file)?;
-    let text = String::from_utf8_lossy(&pdf_bytes);
+    verify_pdf_signature_bytes(&pdf_bytes)
+}
+
+/// In-memory variant of [`verify_pdf_signature`].
+pub fn verify_pdf_signature_bytes(pdf_bytes: &[u8]) -> Result<Vec<SignatureInfo>> {
+    let text = String::from_utf8_lossy(pdf_bytes);
     let mut results = Vec::new();
 
     // Find all "N 0 obj" blocks and check for signature dictionaries
@@ -952,12 +1066,32 @@ pub fn verify_pdf_signature(input_file: &str) -> Result<Vec<SignatureInfo>> {
             let location = super::extract_pdf_dict_value(dict_content, "/Location");
             let date = super::extract_pdf_dict_value(dict_content, "/M");
             let byte_range = super::extract_pdf_dict_value(dict_content, "/ByteRange");
+            let contents_hex = super::extract_pdf_dict_value(dict_content, "/Contents");
             let cert_hex = super::extract_pdf_dict_value(dict_content, "/Cert");
             let (certificate_subject, certificate_fingerprint) = cert_hex
                 .as_ref()
                 .and_then(|hex| parse_cert_hex_metadata(hex))
                 .map(|(subject, fp)| (Some(subject), Some(fp)))
                 .unwrap_or((None, None));
+
+            // Cryptographic validation when a CMS container is present.
+            let valid = if let (Some(range), Some(contents)) = (&byte_range, &contents_hex) {
+                #[cfg(feature = "sign")]
+                let valid = super::signing::try_cryptographic_validation(
+                    pdf_bytes,
+                    Some(range.as_str()),
+                    contents,
+                )?
+                .unwrap_or_default();
+                #[cfg(not(feature = "sign"))]
+                let valid = {
+                    let _ = (range, contents);
+                    false
+                };
+                valid
+            } else {
+                false
+            };
 
             results.push(SignatureInfo {
                 signer_name: name,
@@ -967,7 +1101,7 @@ pub fn verify_pdf_signature(input_file: &str) -> Result<Vec<SignatureInfo>> {
                 byte_range,
                 certificate_subject,
                 certificate_fingerprint,
-                valid: false,
+                valid,
             });
         }
     }

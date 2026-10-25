@@ -1,6 +1,6 @@
 [package]
 name = "pdfrs"
-version = "0.1.13"
+version = "0.2.0"
 edition = "2024"
 description = "Pure Rust PDF toolkit: Markdown to PDF, merge/split/validate, search/redact, rasterize, full SVG, Unicode/CJK, charts, thesis layout, CLI (pdfcli) and WASM — no Poppler, PDFium, or LaTeX"
 authors = ["Ying Kit WONG"]
@@ -32,7 +32,7 @@ wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 subsetter = "0.2"
 flate2 = "1.0"
-sha2 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
 md-5 = "0.10"
 aes = "0.8"
 cbc = "0.1"
@@ -44,6 +44,18 @@ serde_json = { version = "1.0", optional = true }
 axum = { version = "0.7", optional = true }
 tower-http = { version = "0.6", features = ["cors", "limit"], optional = true }
 base64 = { version = "0.22", optional = true }
+# PKCS#7/CMS signing (feature `sign`): RSA + ECDSA P-256 keys, X.509 parsing.
+rsa = { version = "0.9", features = ["pem"], optional = true }
+p256 = { version = "0.13", default-features = false, features = [
+    "alloc",
+    "arithmetic",
+    "ecdsa",
+    "pem",
+    "pkcs8",
+    "std",
+], optional = true }
+x509-cert = { version = "0.2", features = ["pem"], optional = true }
+der = { version = "0.7", optional = true }
 
 # Secure randomness for encryption (salts, IVs, file keys).
 # wasm32-unknown-unknown has no backend without extra wiring; encryption
@@ -51,17 +63,29 @@ base64 = { version = "0.22", optional = true }
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 getrandom = "0.3"
 
+# The `sign` feature pulls rsa/p256 -> rand_core 0.6, whose `std` feature
+# hard-depends on getrandom 0.2. Enable its `js` backend so
+# wasm32-unknown-unknown builds (uses crypto.getRandomValues in browsers).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 [features]
-default = ["parallel", "cli"]
+default = ["parallel", "cli", "sign"]
 async = ["tokio"]
 parallel = ["rayon"]
 wasm = ["wasm-bindgen", "dep:wasm-bindgen-futures"]
 cli = ["dep:clap", "dep:serde_json"]
 api = ["dep:axum", "dep:tower-http", "dep:base64", "dep:serde_json", "tokio/net"]
+sign = ["dep:rsa", "dep:p256", "dep:x509-cert", "dep:der"]
 
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1.4"
+rcgen = "0.13"
+# Used by the signing tests to generate an RSA key pair at run time, so that
+# no private key material is ever checked into the repository.
+rsa = { version = "0.9", features = ["pem"] }
+rand = "0.8"
 tokio = { version = "1.0", features = ["rt", "macros", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }
 

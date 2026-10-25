@@ -1,5 +1,6 @@
 //! `manipulate` subcommand handlers.
 
+#[cfg(feature = "parallel")]
 use pdfrs::parallel;
 use pdfrs::{image, incremental, linearize, optimization, pdf, pdf_ops};
 

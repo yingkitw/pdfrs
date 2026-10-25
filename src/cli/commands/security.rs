@@ -11,6 +11,7 @@ pub(crate) fn cmd_sign(
     location: Option<String>,
     contact: Option<String>,
     certificate: Option<String>,
+    key: Option<String>,
     cert_id: Option<String>,
     cert_store: String,
 ) {
@@ -61,6 +62,53 @@ pub(crate) fn cmd_sign(
         } else {
             sig
         };
+
+        // A private key switches to real cryptographic PKCS#7/CMS signing.
+        if let Some(key_path) = &key {
+            #[cfg(feature = "sign")]
+            {
+                let cert_pem = match &certificate {
+                    Some(path) => std::fs::read_to_string(path),
+                    None => match &cert {
+                        Some(c) => Ok(c.pem.clone()),
+                        None => {
+                            eprintln!(
+                                "Error: --key requires a certificate (--certificate or --cert-id)"
+                            );
+                            return;
+                        }
+                    },
+                };
+                let key_pem = std::fs::read_to_string(key_path);
+                let (cert_pem, key_pem) = match (cert_pem, key_pem) {
+                    (Ok(c), Ok(k)) => (c, k),
+                    (Err(e), _) | (_, Err(e)) => {
+                        eprintln!("Error reading signing material: {e}");
+                        return;
+                    }
+                };
+                let material = pdf_ops::signing::SigningKeyMaterial { cert_pem, key_pem };
+                match pdf_ops::sign_pdf_cms(&input, &output, &sig, &material) {
+                    Ok(_) => println!("Successfully signed {input} -> {output}"),
+                    Err(e) => eprintln!("Error signing PDF: {e}"),
+                }
+                return;
+            }
+            #[cfg(not(feature = "sign"))]
+            {
+                let _ = key_path;
+                eprintln!("Error: cryptographic signing requires building with the `sign` feature");
+                return;
+            }
+        }
+
+        if cert.is_none() {
+            eprintln!(
+                "Warning: signing without a private key produces a STRUCTURE-ONLY placeholder \
+                 signature that cannot be verified. Pass --key and --certificate for a real \
+                 cryptographic signature."
+            );
+        }
         match pdf_ops::sign_pdf_with_certificate(&input, &output, &sig, cert.as_ref()) {
             Ok(_) => {
                 println!("Successfully signed {} -> {}", input, output);
@@ -124,6 +172,14 @@ pub(crate) fn cmd_verify_signature(input: String) {
                 for (i, sig) in sigs.iter().enumerate() {
                     println!("  Signature #{}:", i + 1);
                     println!("    Signer: {}", sig.signer_name);
+                    println!(
+                        "    Valid: {}",
+                        if sig.valid {
+                            "yes (cryptographically verified)"
+                        } else {
+                            "no (not a CMS signature or validation failed)"
+                        }
+                    );
                     if let Some(ref reason) = sig.reason {
                         println!("    Reason: {}", reason);
                     }

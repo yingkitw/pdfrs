@@ -371,6 +371,11 @@ pub(crate) enum Commands {
         contact: Option<String>,
         #[arg(long, help = "Path to signing certificate PEM file")]
         certificate: Option<String>,
+        #[arg(
+            long,
+            help = "Path to PKCS#8 private key PEM (enables real cryptographic PKCS#7/CMS signing)"
+        )]
+        key: Option<String>,
         #[arg(long, help = "Certificate id in store (alternative to --certificate)")]
         cert_id: Option<String>,
         #[arg(long, help = "Certificate store directory", default_value = "certs")]

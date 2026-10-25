@@ -8,6 +8,112 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ### Added
 
+- **Rasterizer parity: images, clipping paths, transparency and text rendering
+  modes.** The native PDF → PNG rasterizer (`src/raster/`) now renders:
+  - **Image XObjects** (`Do`) — decoded from `FlateDecode` (with PNG/TIFF
+    predictors), `DCTDecode` (a new built-in baseline JPEG decoder),
+    `ASCIIHexDecode`, `ASCII85Decode` and `RunLengthDecode` payloads, in
+    `/DeviceGray`, `/DeviceRGB`, `/DeviceCMYK`, `/Indexed` and `/ICCBased`
+    colour spaces at 1, 2, 4, 8 and 16 bits per component, with `/SMask` soft
+    masks and `/ImageMask` stencils. Images are painted through the current
+    transformation matrix, exactly as PDF defines placement.
+  - **Clipping paths** (`W` / `W*`) — rasterized into device-space coverage
+    masks (non-zero and even-odd fill rules) and intersected with the active
+    clip. The clip is part of the graphics state, so `q` / `Q` save and
+    restore it.
+  - **`/ExtGState`** (`gs`) — constant alpha (`/ca` fill, `/CA` stroke) and
+    line width (`/LW`).
+  - **Text rendering modes** (`Tr`) — fill, stroke, fill+stroke, and
+    invisible (mode 3 paints nothing but still advances the cursor).
+- **Raw PDF scanning for the rasterizer** (`src/raster/raw.rs`,
+  `src/raster/resources.rs`) — a nesting-aware dictionary parser and
+  byte-accurate object/stream lookup. The crate's general-purpose dictionary
+  parser is whitespace-tokenised and flattens nested dictionaries, so
+  `/Resources << /XObject << /Im1 7 0 R >> >>` could not be resolved by it;
+  resources and binary stream payloads are now read from the original PDF
+  bytes instead of a lossy UTF-8 conversion.
+
+### Fixed
+
+- **Curved glyphs are no longer collapsed into straight chords.** The Bézier
+  flattening used a "control-polygon length minus chord length" flatness test,
+  which goes negative for a curve that bulges away from its chord — so whole
+  curve halves were emitted as single straight segments. Glyph outlines came
+  out as crude polygons and rendered as blobs with stray marks. The flattening
+  now uses the standard Anti-Grain Geometry flatness test (the perpendicular
+  distance of the control points from the chord), and the subdivided halves are
+  emitted in path order. Text in the rasterizer now has accurate letterforms.
+- **Glyph counters stay hollow.** Each contour of a glyph was filled
+  separately, so the counter of an "o", "e" or "p" was filled solid. All
+  contours of a glyph are now filled together with the non-zero winding rule,
+  which is what TrueType outlines are designed for.
+- **Strokes no longer compound translucency.** The rasterizer stamped a round
+  brush along each path segment, so overlapping stamps blended repeatedly and
+  a partially transparent stroke converged to an opaque one. Stroke coverage
+  is now accumulated per pixel (maximum over all segments) and blended exactly
+  once, which also improves anti-aliasing of wide strokes.
+- **Binary stream payloads are no longer corrupted.** The rasterizer now reads
+  image data from the original PDF bytes rather than from a lossy UTF-8
+  conversion of the whole file.
+- **Glyph outlines no longer overflow their advance width.** A glyph is now
+  scaled horizontally to occupy exactly the advance width the PDF declares for
+  it, so a mismatch between the font program's metrics and the PDF width table
+  cannot make neighbouring glyphs overlap.
+
+## [0.2.0] - 2026-10-25
+
+### Added
+
+- **Real cryptographic PKCS#7/CMS PDF signing** (`sign` cargo feature, enabled
+  by default). New `sign_pdf_cms` / `sign_pdf_cms_bytes` APIs and
+  `pdfcli sign --key <pem>` build a detached CMS `SignedData` (SHA-256,
+  embedded signer certificate) over the `/ByteRange`-covered bytes with an
+  RSA (PKCS#1 v1.5) or ECDSA P-256 PKCS#8 PEM key, spliced into an
+  `/adbe.pkcs7.detached` incremental update. `verify_pdf_signature` now
+  performs true cryptographic validation: it parses the CMS container,
+  recomputes the digest over the declared `/ByteRange` ranges, and verifies
+  the signature against the embedded certificate — `SignatureInfo::valid` is
+  honest (`true` = cryptographically verified over the covered ranges, no
+  trust-chain evaluation; `false` = not a CMS signature or validation
+  failed). The legacy `sign_pdf` placeholder path is unchanged and still
+  documented as structure-only. CLI `verify-signature` prints validity.
+  Implementation: hand-rolled minimal DER reader/writer for the fixed
+  `SignedData` shape (`src/pdf_ops/signing.rs`), `rsa` + `p256` +
+  `x509-cert` crates for key/certificate handling, `rcgen` as dev-only test
+  certificate generator. 7 unit + 6 integration tests cover ECDSA/RSA
+  round-trips, tamper detection, placeholder honesty, and unsupported-key
+  errors.
+
+### Removed
+
+- **GitHub Actions workflows removed from the repository** (`ci.yml`,
+  `audit.yml`, `release.yml`; the `.github/` directory no longer exists).
+  This is an intentional project decision. Verification is the documented
+  local gate: `cargo fmt --check`, `cargo test` (default + `--no-default-features`
+  + `--features api`), wasm32 build, `cargo doc --no-deps`, and strict clippy —
+  see ARCHITECTURE.md "CI/CD Infrastructure". The 2026-10-25 audit run executed
+  the full gate green. The README CI badge and other current-state
+  CI references were removed with it.
+
+### Fixed
+
+- **`cargo test --no-default-features` compiles again.** `tests/integration.rs`
+  imported `pdfrs::parallel` unconditionally; the import and
+  `test_parallel_merge_pdfs` are now gated behind the `parallel` feature.
+- **`cargo build --features wasm` (wasm32-unknown-unknown) compiles again.**
+  `src/raster/fonts.rs::system_font_candidates` defined font paths only for
+  macOS/Linux/Windows; a fallback empty list was added for other targets.
+  Both gates had regressed silently after the GitHub Actions workflows were
+  removed from the repository.
+- **API `/api/v1/search` no longer masks worker failures.** A panicked or
+  failed blocking task previously collapsed into HTTP 200 with zero hits
+  (`.unwrap_or_default()`); the handler now returns an explicit
+  `500 Internal Server Error` with a `worker task failed` message, matching
+  the error handling of every other endpoint. Added endpoint tests for hit
+  results, malformed-PDF input (graceful zero hits), and invalid base64.
+
+### Added
+
 - Removed the `anyhow` runtime dependency. CLI examples and handlers now use standard `Box<dyn Error>`, and the API server returns `std::io::Result<()>`.
 
 - Soft hyphen (U+00AD) round-trip support: the Markdown parser, PDF text encoder, base-14 fallback, and `pdf_to_markdown_bytes` extractor all preserve U+00AD so hand-crafted break points survive the Markdown → PDF → Markdown loop. `encode_pdf_text` now emits UTF-16BE hex (with BOM) for strings containing U+00AD, and `normalize_for_base14_font` (used by `PDFRS_BASE14_NORMALIZE`) renders U+00AD as a visible `-`.
@@ -15,6 +121,16 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ### Changed
 
+- **Large modules split into cohesive submodules** (public APIs unchanged — every
+  path below still resolves exactly as before):
+  - `src/security.rs` (1,678 LOC) → `src/security/` (`encryption`, `signature`,
+    `certificates`, plus `mod.rs` with the shared test module)
+  - `src/html.rs` (1,648 LOC) → `src/html/` (`tokenizer`, `css`, `convert`)
+  - `src/elements.rs` (1,462 LOC) → `src/elements/` (`types`, `inline`,
+    `parser`)
+  - `src/search.rs` (1,393 LOC) → `src/search/` (`pages`, `metrics`, `walker`)
+  - `src/pdf_ops/mod.rs` (1,366 LOC) → `src/pdf_ops/` (`manipulate`,
+    `imaging`; `mod.rs` now holds only wiring, shared helpers, and tests)
 - All-algorithm encryption round-trip integration test split into 4 per-algorithm `#[test]` functions (`tests/integration.rs`) so `cargo test`'s parallel runner executes them concurrently. Wall time for the encryption round-trip drops from ~41s to ~16s in debug mode (AES-256 R6 key derivation dominates); coverage is identical to the previous serial loop.
 
 ### Changed (breaking)

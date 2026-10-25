@@ -40,7 +40,17 @@ cargo build
 cargo test
 ```
 
-Run the full suite locally before submitting changes.
+There is **no CI pipeline** (GitHub Actions workflows were intentionally
+removed). Run the full local gate before submitting changes:
+
+```bash
+cargo fmt --check
+cargo test                                     # default features
+cargo test --no-default-features
+cargo build --features wasm --target wasm32-unknown-unknown   # if wasm installed
+cargo doc --no-deps
+cargo clippy --all-targets --all-features -- -D warnings
+```
 
 ### Code Style
 

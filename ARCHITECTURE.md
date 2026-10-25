@@ -160,9 +160,14 @@ Text Input → Page Builder → Content Stream Generator → Object Manager → 
 - Content stream optimization
 - PDF compliance with version 1.4 specification
 
-### 4. Structured Elements (`src/elements.rs`)
+### 4. Structured Elements (`src/elements/`)
 
 **Purpose**: Define and parse structured document elements from Markdown
+
+**Modules**: `types.rs` (element model: `Element`, `TextSegment`, chart/table types) ·
+`inline.rs` (inline Markdown formatting → text segments) · `parser.rs`
+(block-level `parse_markdown` / `parse_markdown_with_hook`) · `mod.rs`
+(shared regex helpers, re-exports, tests).
 
 **Architecture Pattern**: Line Scanner → Element Classifier → Element Tree
 
@@ -232,9 +237,14 @@ Markdown Text → elements::parse_markdown() → Vec<Element> → pdf_generator:
 - `markdown_to_pdf_with_options()`: Convert with styling via structured elements
 - `elements_to_text()`: Render elements back to plain text
 
-### 5b. HTML Converter (`src/html.rs`)
+### 5b. HTML Converter (`src/html/`)
 
 **Purpose**: Parse HTML documents and convert to PDF via the existing Element pipeline
+
+**Modules**: `tokenizer.rs` (tags/attributes/entities → simplified DOM `Node`) ·
+`css.rs` (stylesheet + inline style parsing, selectors, cascade) ·
+`convert.rs` (DOM → `Element` conversion, `parse_html`, `html_to_pdf*`) ·
+`mod.rs` (re-exports, tests).
 
 **Architecture**: Lightweight HTML tokenizer → simplified DOM tree (`Node`) → `Element` vector → existing `pdf_generator` renderer
 
@@ -278,7 +288,9 @@ Bundled multi-feature document used by `generate-comprehensive` and `tests/compr
 
 **Module Structure**:
 
-- `mod.rs`: Core operations — `merge_pdfs`, `split_pdf`, `rotate_pdf`, `reorder_pages`, `watermark_pdf`, `overlay_image_on_pdf`, `create_pdf_with_images`, `extract_images_from_pdf`; shared helpers (`extract_page_streams`, `build_page_streams`, `escape_pdf_meta`, `extract_pdf_dict_value`)
+- `mod.rs`: Module wiring, shared helpers (`extract_page_streams`, `build_page_streams`, `escape_pdf_meta`, `extract_pdf_dict_value`), re-exports, tests
+- `manipulate.rs`: Page-level operations — `merge_pdfs`, `split_pdf`, `rotate_pdf`, `reorder_pages`
+- `imaging.rs`: `watermark_pdf`, `watermark_pdf_advanced`, `overlay_image_on_pdf`, `create_pdf_with_images`, `extract_images_from_pdf`
 - `metadata.rs`: `PdfMetadata` struct, `create_pdf_with_metadata`, `extract_metadata_from_pdf`, `merge_metadata`, `assemble_pdf_with_metadata`
 - `annotations.rs`: `TextAnnotation`, `LinkAnnotation`, `HighlightAnnotation`, `ThreeDAnnotation`, `create_pdf_with_annotations`, `create_pdf_with_3d_annotation`
 - `forms.rs`: `FormField`, `FormFieldType`, `DetectedFormField`, `create_pdf_with_form_fields`, `detect_form_fields`, `fill_form_fields`
@@ -354,7 +366,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
   `std::error::Error`, so `?` converts into `anyhow::Error` /
   `Box<dyn Error>` for callers that use them
 - `src/vector/` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`); submodules: `path` (SVG path parser), `svg_document` (document model + renderer), `xml` (minimal XML parser), `transform` (matrix transforms), `emit` (content-stream emission + entry points)
-- `src/security.rs` — PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass
+- `src/security/` — PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass. Submodules: `encryption` (standard security handler + key derivation), `signature` (`DigitalSignature` metadata), `certificates` (PEM store, fingerprints, `/Cert` hex)
 
 ### 15b. Rasterization (`src/raster/`)
 
@@ -364,7 +376,11 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 `surface` (pixel buffer, fills, strokes, Bézier flattening, glyph outline
 builder), `interpreter` (content-stream walker), `fonts` (width tables +
 embedded/substitute TTF extraction), `base14` (base-14 width tables),
-`png` (inline PNG encoder), `pdf_access` (page/media-box accessors).
+`png` (inline PNG encoder), `pdf_access` (page/media-box accessors),
+`raw` (raw-PDF byte scanning: object/stream lookup and a nesting-aware
+dictionary parser), `resources` (page `/Resources` → `/ExtGState`,
+`/XObject`), `clip` (device-space clipping masks), `images` (image XObject
+decoding and painting), `jpeg` (baseline JPEG decoder for `DCTDecode`).
 
 **Key Functions**:
 
@@ -372,11 +388,27 @@ embedded/substitute TTF extraction), `base14` (base-14 width tables),
 - `rasterize_all(pdf_bytes, dpi) -> Vec<RasterPage>`
 - `RasterPage::to_png() -> Vec<u8>` (inline PNG encoder: signature + IHDR + zlib IDAT via `flate2` + IEND, built-in CRC-32)
 
-**Scope**: renders the operators emitted by `pdfrs` plus the common content-stream subset from other producers (`q`/`Q`, `cm`, color ops, path construction, path painting, `BT`/`ET`, `Tf`, text-positioning ops, `Tj`/`TJ`). Output is **anti-aliased** via 3× supersampling (budget-capped 2× for very large pages). Text renders from real glyph outlines when a TrueType program is available — embedded `/FontFile2` streams, or a substitute system font (`PDFRS_UNICODE_FONT_PATH`) for base-14 names; without any font program, text falls back to gray glyph-block rectangles sized to advance widths (schematic rasterizer — not pixel-perfect typography).
+**Scope**: renders the operators emitted by `pdfrs` plus the common content-stream subset from other producers (`q`/`Q`, `cm`, color ops, path construction, path painting, `W`/`W*` clipping paths, `gs` constant alpha, `BT`/`ET`, `Tf`, text-positioning ops, `Tj`/`TJ`, `Tr` text rendering modes, `Do` image XObjects). Output is **anti-aliased** via 3× supersampling (budget-capped 2× for very large pages). Text renders from real glyph outlines when a TrueType program is available — embedded `/FontFile2` streams, or a substitute system font (`PDFRS_UNICODE_FONT_PATH`) for base-14 names; without any font program, text falls back to gray glyph-block rectangles sized to advance widths (schematic rasterizer — not pixel-perfect typography).
 
-### 15c. Search (`src/search.rs`)
+**Resource resolution**: the crate's general-purpose dictionary parser is
+whitespace-tokenised and flattens nested dictionaries, so the rasterizer
+resolves `/Resources` from the **original PDF bytes** with the small
+nesting-aware parser in `raw.rs`. Binary stream payloads are likewise read
+from the original bytes, never through a lossy UTF-8 conversion.
+
+**Images**: image XObjects are decoded from `FlateDecode` (with PNG/TIFF
+predictors), `DCTDecode` (baseline JPEG, built-in decoder), `ASCIIHexDecode`,
+`ASCII85Decode` and `RunLengthDecode` payloads, in `/DeviceGray`,
+`/DeviceRGB`, `/DeviceCMYK`, `/Indexed` and `/ICCBased` colour spaces at 1, 2,
+4, 8 and 16 bits per component, with `/SMask` soft masks and `/ImageMask`
+stencils. Progressive and arithmetic-coded JPEGs, Form XObjects, tiling and
+shading patterns, and transparency groups are not rendered.
+
+### 15c. Search (`src/search/`)
 
 **Purpose**: Full-text search with per-hit bounding boxes. Also the **shared content-stream helpers hub** used by `raster`, `redact`, and `pdf_to_md`.
+
+**Submodules**: `pages` (page discovery, PDF-object helpers, stream decompression) · `metrics` (font width collection, base-14 tables) · `walker` (content-stream walker, hit collection, TJ extraction, tokenization) · `mod.rs` (public API + re-exports + tests).
 
 **Key Functions / Types**:
 
@@ -613,18 +645,24 @@ benches/
 
 ### CI/CD Infrastructure
 
-```
-.github/workflows/
-├── ci.yml              # fmt, clippy, multi-OS test matrix, WASM build, minimal build, bench compile
-├── audit.yml           # cargo-audit (on push/PR + weekly schedule)
-└── release.yml         # tag-triggered crates.io publish + GitHub Release
-rust-toolchain.toml     # pins stable Rust + rustfmt + clippy
+GitHub Actions workflows were **intentionally removed** from the repository
+(2026-10). There is no `.github/` directory and no automated CI/CD.
+
+Verification is performed locally before each release. The full gate is:
+
+```bash
+cargo fmt --check
+cargo test                                     # default features
+cargo test --no-default-features
+cargo test --features api
+cargo build --features wasm --target wasm32-unknown-unknown
+cargo doc --no-deps
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-- **CI** runs on every push/PR to `main`/`master`
-- **Test matrix**: ubuntu-latest, macos-latest, windows-latest
-- **WASM**: `cargo build --lib --no-default-features --features wasm --target wasm32-unknown-unknown`
-- **Release**: push a `v*.*.*` tag to trigger crates.io publish + GitHub Release
+Latest fully verified run: **2026-10-25** (567 tests passed, 1 ignored doctest; all gates green) —
+see `AUDIT.md` for the evidence record. `rust-toolchain.toml` still pins the
+stable toolchain with rustfmt and clippy components.
 
 ### Test Strategies
 
