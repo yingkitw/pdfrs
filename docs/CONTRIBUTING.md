@@ -135,7 +135,7 @@ The project is organized into several modules (see [`ARCHITECTURE.md`](../ARCHIT
 - `compression/`: Stream compression utilities (deflate)
 - `optimization/`: Web/print/archive/ebook profiles
 - `linearize/`, `incremental/`: Fast Web View + append-only updates
-- `security/`: PDF permissions and spec-conformant encryption; certificate-backed signing helpers
+- `security/`: PDF permissions and spec-conformant encryption; PKCS#7/CMS signing helpers; certificate trust-chain evaluation (`trust`)
 - `plugin/`: Parser/generator hooks (e.g. `CalloutPlugin`)
 
 When adding features, consider which module they belong to or if a new module is needed.

@@ -107,8 +107,9 @@ All commands are invoked via the `pdfcli` binary. Run `pdfcli --help` for the fu
 | `sanitize-pdf <input.pdf> -o <output.pdf>` | Remove JavaScript, launch actions, external refs |
 | `sandbox-pdf <input.pdf> -o <output.pdf>` | Strip JavaScript actions with report |
 | `protect <input.pdf> -o <output.pdf> --user-password secret` | Add password protection |
-| `sign <input.pdf> <output.pdf> --signer "Alice" --reason "Approved"` | Add digital signature |
-| `verify-signature <input.pdf>` | Verify digital signatures |
+| `sign <input.pdf> <output.pdf> --key key.pem --certificate cert.pem` | Cryptographic PKCS#7/CMS signature (`--key` required) |
+| `verify-signature <input.pdf>` | Cryptographic signature check (digest + embedded cert) |
+| `verify-signature <input.pdf> --trusted-cert root.pem` | Also validate the certificate chain to a trusted root (repeatable; or `--trust-dir`) |
 | `import-certificate <id> <cert.pem> --store certs/` | Import X.509 certificate |
 | `list-certificates --store certs/` | List stored certificates |
 

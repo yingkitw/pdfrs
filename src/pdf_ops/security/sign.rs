@@ -109,10 +109,10 @@ pub fn sign_pdf_bytes(
 /// use pdfrs::{security::DigitalSignature, pdf_ops::signing::SigningKeyMaterial};
 /// use pdfrs::pdf_ops::sign_pdf_cms;
 ///
-/// let material = SigningKeyMaterial {
-///     cert_pem: std::fs::read_to_string("signer.pem").unwrap(),
-///     key_pem: std::fs::read_to_string("signer.key.pem").unwrap(),
-/// };
+/// let material = SigningKeyMaterial::new(
+///     std::fs::read_to_string("signer.pem").unwrap(),
+///     std::fs::read_to_string("signer.key.pem").unwrap(),
+/// );
 /// let sig = DigitalSignature::new("Alice");
 /// sign_pdf_cms("input.pdf", "signed.pdf", &sig, &material).unwrap();
 /// ```

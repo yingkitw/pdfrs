@@ -443,7 +443,6 @@ impl PdfTableHelper {
             })
             .collect()
     }
-
 }
 
 impl Default for PdfTableHelper {

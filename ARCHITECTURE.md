@@ -308,7 +308,7 @@ Bundled multi-feature document used by `generate-comprehensive` and `tests/compr
 - `metadata.rs`: `PdfMetadata` struct, `create_pdf_with_metadata`, `extract_metadata_from_pdf`, `merge_metadata`, `assemble_pdf_with_metadata`
 - `annotations.rs`: `TextAnnotation`, `LinkAnnotation`, `HighlightAnnotation`, `ThreeDAnnotation`, `create_pdf_with_annotations`, `create_pdf_with_3d_annotation`
 - `forms.rs`: `FormField`, `FormFieldType`, `DetectedFormField`, `create_pdf_with_form_fields`, `detect_form_fields`, `fill_form_fields`
-- `security/` (re-exported through `pdf_ops::*`): `protect_pdf` and `encrypt_pdf_bytes*` (`encrypt`), raw PDF object scanning for the encryption path (`objects`), legacy structural signing (`sign`), `verify_pdf_signature*` (`verify`), `extract_certificates_from_pdf*` (`certificates`)
+- `security/` (re-exported through `pdf_ops::*`): `protect_pdf` and `encrypt_pdf_bytes*` (`encrypt`), raw PDF object scanning for the encryption path (`objects`), legacy structural signing (`sign`), `verify_pdf_signature*` / `verify_pdf_signature_bytes_with_trust` (`verify`), `extract_certificates_from_pdf*` (`certificates`); CMS builder lives in sibling `pdf_ops/signing.rs`
 - `tables.rs`: `extract_tables_from_pdf` (heuristic CSV extraction from content streams)
 - `structure.rs`: `detect_document_structure`, `DocumentStructure`, `DetectedHeading`, `DetectedSection`
 - `portfolio.rs`: `create_portfolio_pdf` (PDF Collection with embedded files)
@@ -321,7 +321,8 @@ Bundled multi-feature document used by `generate-comprehensive` and `tests/compr
 - `HighlightAnnotation`: Colored highlight rectangle with QuadPoints
 - `ThreeDAnnotation`: U3D 3D annotation rectangle + activation (`/3DA`)
 - `FormField` / `FormFieldType`: Interactive AcroForm fields
-- `SignatureInfo`: Detected digital signature metadata
+- `SignatureInfo`: Detected digital signature metadata (cryptographic `valid` flag)
+- `TrustedSignatureInfo`: Signature plus trust-chain decision (`trusted`, `chain`, `reason`)
 - `DocumentStructure`: Headings, sections, and body font size detected from PDF
 - `WatermarkType` / `WatermarkPosition`: Watermark styling and placement
 
@@ -380,7 +381,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
   `std::error::Error`, so `?` converts into `anyhow::Error` /
   `Box<dyn Error>` for callers that use them
 - `src/vector/` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`); submodules: `path` (SVG path parser), `svg_document/` (`context`, `shapes`, `style`), `xml` (minimal XML parser), `transform` (matrix transforms), `emit` (content-stream emission + entry points)
-- `src/security/` — PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass. Submodules: `encryption/` (`permissions`, `types`, `handler`, `crypto`), `signature` (`DigitalSignature` metadata), `certificates` (PEM store, fingerprints, `/Cert` hex)
+- `src/security/` — trust chains (`trust`: `TrustStore`, `TrustEvaluation`, chain building) plus the PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass. Submodules: `encryption/` (`permissions`, `types`, `handler`, `crypto`), `signature` (`DigitalSignature` metadata), `certificates` (PEM store, fingerprints, `/Cert` hex), `trust` (trusted roots and certificate chain building)
 
 ### 15b. Rasterization (`src/raster/`)
 
@@ -686,7 +687,7 @@ cargo doc --no-deps
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Latest fully verified run: **2026-10-25** (559 tests passed, 1 ignored doctest; all gates green) —
+Latest fully verified run: **2026-10-25** (570 tests passed, 1 ignored doctest; all gates green) —
 see `AUDIT.md` for the evidence record. `rust-toolchain.toml` still pins the
 stable toolchain with rustfmt and clippy components.
 

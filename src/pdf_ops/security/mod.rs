@@ -26,3 +26,5 @@ pub use sign::{sign_pdf, sign_pdf_bytes, sign_pdf_with_certificate};
 #[cfg(feature = "sign")]
 pub use sign::{sign_pdf_cms, sign_pdf_cms_bytes};
 pub use verify::{SignatureInfo, verify_pdf_signature, verify_pdf_signature_bytes};
+#[cfg(feature = "sign")]
+pub use verify::{TrustedSignatureInfo, verify_pdf_signature_bytes_with_trust};

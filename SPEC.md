@@ -507,7 +507,7 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 - Security (password protection, permissions)
 - Library API (in-memory generation, validation)
 - 27 element types with round-trip validation
-- ~560 tests (`cargo test`, including unit, integration, and doctest coverage)
+- ~571 tests (`cargo test`, including unit, integration, and doctest coverage)
 - Charts, multi-column layout, thesis TOC/citations, linearized + incremental PDF
 - WebAssembly (`wasm` feature) + canvas viewer demo
 - Native PDF → PNG rasterizer (no external renderer dependency)
@@ -519,7 +519,7 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 ### Remaining Features
 
 - Pixel-perfect PDF rendering parity with PDFium/Ghostscript
-- Signature trust-chain evaluation (current verification covers digest + signature validity; no CA chain building or revocation checking)
+- Signature revocation checking (CRL/OCSP) — trust chains are built and verified, but revocation needs network access
 - Expanded rustdoc API examples
 
 ### Advanced Features (Surpassing Ghostscript)
@@ -588,7 +588,8 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 - **FR19.1**: Malformed PDF detection and sanitization
 - **FR19.2**: JavaScript sandbox for PDF actions — ✅ `sandbox()` / `sandbox-pdf` detects and neutralizes JS actions, `javascript:` URIs, and document script trees
 - **FR19.3**: Digital signature creation and verification — ✅ two tiers:
-  - **Cryptographic PKCS#7/CMS signing** (`sign` feature, default): `sign_pdf_cms` / `sign_pdf_cms_bytes` build a detached CMS `SignedData` (SHA-256, embedded certificate) with an RSA (PKCS#1 v1.5) or ECDSA P-256 PKCS#8 PEM key; `verify_pdf_signature` recomputes the digest over `/ByteRange` and verifies against the embedded certificate, reporting `SignatureInfo::valid` honestly (no trust-chain evaluation). CLI `pdfcli sign --key <pem>`; `verify-signature` prints validity.
+  - **Cryptographic PKCS#7/CMS signing** (`sign` feature, default): `sign_pdf_cms` / `sign_pdf_cms_bytes` build a detached CMS `SignedData` (SHA-256, embedded certificate) with an RSA (PKCS#1 v1.5) or ECDSA P-256 PKCS#8 PEM key; `verify_pdf_signature` recomputes the digest over `/ByteRange` and verifies against the embedded certificate, reporting `SignatureInfo::valid` honestly. CLI `pdfcli sign --key <pem>`; `verify-signature` prints validity.
+  - **Certificate trust chains** (`sign` feature, default): `SigningKeyMaterial::with_chain` embeds the issuing CA certificates with the signature, and `verify_pdf_signature_bytes_with_trust` chains the signer certificate up to a root in a `TrustStore` — each link verified with the issuer's public key and each certificate checked against its validity window. CLI `pdfcli verify-signature --trusted-cert <pem>` / `--trust-dir <dir>`. Revocation (CRL/OCSP) is **not** evaluated: it needs network access.
   - **Structural placeholder** (legacy, `sign_pdf`): signature-dict structure with SHA-256 digest only, no private-key operation — always verifies as `valid: false` and is documented as not for authentication use.
 - **FR19.4**: Certificate management — ✅ PEM certificate store, import/list CLI, `/Cert` embedding on sign, extraction from signed PDFs
 - **FR19.5**: DRM and permission enforcement

@@ -87,7 +87,7 @@ pub(crate) fn cmd_sign(
                         return;
                     }
                 };
-                let material = pdf_ops::signing::SigningKeyMaterial { cert_pem, key_pem };
+                let material = pdf_ops::signing::SigningKeyMaterial::new(cert_pem, key_pem);
                 match pdf_ops::sign_pdf_cms(&input, &output, &sig, &material) {
                     Ok(_) => println!("Successfully signed {input} -> {output}"),
                     Err(e) => eprintln!("Error signing PDF: {e}"),
@@ -162,7 +162,71 @@ pub(crate) fn cmd_list_certificates(store: String) {
     }
 }
 
-pub(crate) fn cmd_verify_signature(input: String) {
+pub(crate) fn cmd_verify_signature(
+    input: String,
+    trusted_cert: Vec<String>,
+    trust_dir: Option<String>,
+) {
+    // A trust store turns the report from "the bytes were signed by the
+    // embedded key" into "the key belongs to a trusted issuer".
+    #[cfg(feature = "sign")]
+    if !trusted_cert.is_empty() || trust_dir.is_some() {
+        let trust = match build_trust_store(&trusted_cert, trust_dir.as_deref()) {
+            Ok(trust) => trust,
+            Err(e) => {
+                eprintln!("Error building the trust store: {}", e);
+                return;
+            }
+        };
+        match pdf_ops::verify_pdf_signature_bytes_with_trust(&read_input(&input), &trust) {
+            Ok(sigs) => {
+                if sigs.is_empty() {
+                    println!("No digital signatures found in {}", input);
+                } else {
+                    println!("Found {} signature(s) in {}:", sigs.len(), input);
+                    for (i, sig) in sigs.iter().enumerate() {
+                        println!("  Signature #{}:", i + 1);
+                        println!("    Signer: {}", sig.signature.signer_name);
+                        println!(
+                            "    Valid: {}",
+                            if sig.signature.valid {
+                                "yes (cryptographically verified)"
+                            } else {
+                                "no (not a CMS signature or validation failed)"
+                            }
+                        );
+                        println!(
+                            "    Trusted: {}",
+                            if sig.trusted {
+                                "yes (chains to a trusted root)"
+                            } else {
+                                "no"
+                            }
+                        );
+                        if let Some(reason) = &sig.reason {
+                            println!("    Trust detail: {}", reason);
+                        }
+                        for cert in &sig.chain {
+                            println!(
+                                "    Chain: {}{}",
+                                cert.subject,
+                                if cert.is_trust_anchor {
+                                    " [trusted root]"
+                                } else {
+                                    ""
+                                }
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("Error verifying signatures: {}", e),
+        }
+        return;
+    }
+    #[cfg(not(feature = "sign"))]
+    let _ = (&trusted_cert, &trust_dir);
+
     match pdf_ops::verify_pdf_signature(&input) {
         Ok(sigs) => {
             if sigs.is_empty() {
@@ -200,6 +264,30 @@ pub(crate) fn cmd_verify_signature(input: String) {
         }
         Err(e) => eprintln!("Error verifying signatures: {}", e),
     }
+}
+
+/// Build a trust store from PEM files and/or a directory of PEM files.
+#[cfg(feature = "sign")]
+fn build_trust_store(
+    trusted_cert: &[String],
+    trust_dir: Option<&str>,
+) -> Result<pdfrs::security::TrustStore, pdfrs::error::PdfError> {
+    let mut store = pdfrs::security::TrustStore::new();
+    for path in trusted_cert {
+        let pem = std::fs::read_to_string(path)?;
+        store.add_pem(&pem)?;
+    }
+    if let Some(dir) = trust_dir {
+        let from_dir = pdfrs::security::TrustStore::from_directory(dir)?;
+        store.extend(&from_dir);
+    }
+    Ok(store)
+}
+
+/// Read a PDF file into memory.
+#[cfg(feature = "sign")]
+fn read_input(path: &str) -> Vec<u8> {
+    std::fs::read(path).unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]

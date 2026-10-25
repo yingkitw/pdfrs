@@ -401,6 +401,16 @@ pub(crate) enum Commands {
     VerifySignature {
         #[arg(help = "Input PDF file")]
         input: String,
+        #[arg(
+            long,
+            help = "Trusted root certificate PEM (repeatable); enables chain validation"
+        )]
+        trusted_cert: Vec<String>,
+        #[arg(
+            long,
+            help = "Directory of trusted root certificate PEM files; enables chain validation"
+        )]
+        trust_dir: Option<String>,
     },
     #[command(about = "Add password protection and permissions to PDF")]
     Protect {

@@ -3,8 +3,8 @@
 > **Note:** This document was originally written for the v0.1.0 unicode/math/code
 > work and is retained for historical context. For current test counts and the
 > full feature list, see [`../CHANGELOG.md`](../CHANGELOG.md) and
-> [`../README.md`](../README.md). The current baseline is **395 tests passing**
-> (289 lib + 71 integration + 35 doctests + 1 ignored).
+> [`../README.md`](../README.md). As of 2026-10-25 the live baseline is
+> **570 tests passing** (428 lib + 106 integration + 36 doctests; 1 ignored).
 
 ## Overview
 

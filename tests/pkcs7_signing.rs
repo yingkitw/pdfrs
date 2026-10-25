@@ -71,7 +71,7 @@ fn test_signature() -> DigitalSignature {
 #[test]
 fn cms_signature_round_trips_and_verifies() {
     let (cert_pem, key_pem) = make_signing_material();
-    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial { cert_pem, key_pem };
+    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial::new(cert_pem, key_pem);
     let pdf = make_test_pdf();
 
     let signed =
@@ -94,7 +94,7 @@ fn cms_signature_round_trips_and_verifies() {
 #[test]
 fn tampered_cms_signature_fails_verification() {
     let (cert_pem, key_pem) = make_signing_material();
-    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial { cert_pem, key_pem };
+    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial::new(cert_pem, key_pem);
     let pdf = make_test_pdf();
 
     let mut signed =
@@ -119,7 +119,7 @@ fn tampered_cms_signature_fails_verification() {
 fn rsa_cms_signature_round_trips_and_verifies() {
     // RSA path: a self-signed certificate and key generated at run time.
     let (cert_pem, key_pem) = make_rsa_signing_material();
-    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial { cert_pem, key_pem };
+    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial::new(cert_pem, key_pem);
     let pdf = make_test_pdf();
 
     let signed =
@@ -170,7 +170,7 @@ fn unsupported_key_type_is_rejected_with_clear_error() {
     let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).expect("ed25519 key");
     let key_pem = key_pair.serialize_pem();
     let cert_pem = String::from("-----BEGIN CERTIFICATE-----\nMA==\n-----END CERTIFICATE-----\n");
-    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial { cert_pem, key_pem };
+    let material = pdfrs::pdf_ops::signing::SigningKeyMaterial::new(cert_pem, key_pem);
     let pdf = make_test_pdf();
 
     let err = sign_pdf_cms_bytes(&pdf, &test_signature(), &material)

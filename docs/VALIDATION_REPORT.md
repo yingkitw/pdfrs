@@ -6,8 +6,9 @@
 
 > **Note:** This report originally covered the v0.1.0 unicode/math/code work.
 > It is retained for historical context. The current state of the project is
-> captured in [`../CHANGELOG.md`](../CHANGELOG.md) and the test counts below
-> reflect the v0.2.0 baseline (389 tests).
+> captured in [`../CHANGELOG.md`](../CHANGELOG.md) / [`../AUDIT.md`](../AUDIT.md);
+> as of 2026-10-25 the live baseline is **570 tests passing** (1 ignored doctest).
+> Counts in the body below are the historical v0.2.0 snapshot.
 
 ## Addendum (Unicode glyph mapping fix)
 

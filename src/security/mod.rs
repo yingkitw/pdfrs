@@ -6,10 +6,14 @@
 mod certificates;
 mod encryption;
 mod signature;
+#[cfg(feature = "sign")]
+mod trust;
 
 pub use certificates::*;
 pub use encryption::*;
 pub use signature::*;
+#[cfg(feature = "sign")]
+pub use trust::{TrustEvaluation, TrustStore, TrustedCertificate, evaluate_chain};
 
 #[cfg(test)]
 pub(crate) use encryption::{

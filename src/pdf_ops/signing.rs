@@ -38,6 +38,29 @@ pub struct SigningKeyMaterial {
     /// PEM PKCS#8 private key (`-----BEGIN PRIVATE KEY-----`), RSA or ECDSA
     /// P-256. Encrypted keys are not supported.
     pub key_pem: String,
+    /// PEM certificates of the issuing CAs, leaf-most first.
+    ///
+    /// They are embedded alongside the signer certificate so that a verifier
+    /// can build the chain up to a trusted root. Leaving this empty produces a
+    /// signature that only carries the signer certificate.
+    pub chain_pem: Vec<String>,
+}
+
+impl SigningKeyMaterial {
+    /// Signing material with just a certificate and a private key.
+    pub fn new(cert_pem: String, key_pem: String) -> Self {
+        SigningKeyMaterial {
+            cert_pem,
+            key_pem,
+            chain_pem: Vec::new(),
+        }
+    }
+
+    /// Add the issuing CA certificates, leaf-most first.
+    pub fn with_chain(mut self, chain_pem: Vec<String>) -> Self {
+        self.chain_pem = chain_pem;
+        self
+    }
 }
 
 // ----- minimal DER writer -----------------------------------------------------
@@ -245,19 +268,25 @@ fn sign_digest(key: &SigningKey, digest: &[u8; 32]) -> Result<Vec<u8>> {
 }
 
 /// Build a detached CMS `ContentInfo` wrapping a `SignedData` with one
-/// signer, one embedded certificate, and no signed attributes.
+/// signer, the embedded certificate chain, and no signed attributes.
 fn build_cms_signed_data(
     digest: &[u8; 32],
     key: &SigningKey,
     cert: &SignerCert,
+    chain: &[Vec<u8>],
 ) -> Result<Vec<u8>> {
     let version = der_positive_integer(&[1]);
     let sha256_alg = der_sequence(&[&der_oid(OID_SHA256)]);
     let digest_algorithms = der_set(&[&sha256_alg]);
     let encap_content = der_sequence(&[&der_oid(OID_ID_DATA)]);
     // [0] IMPLICIT SET OF Certificate — the SET tag is replaced by the
-    // context tag, and the set contents are the certificate TLVs.
-    let certificates = tlv(0xA0, &der_set(&[&cert.der]));
+    // context tag, and the set contents are the certificate TLVs. The signer
+    // certificate comes first, followed by the issuing CAs, so that a verifier
+    // can build the chain up to a trusted root.
+    let mut all_certs = vec![cert.der.clone()];
+    all_certs.extend_from_slice(chain);
+    let cert_refs: Vec<&[u8]> = all_certs.iter().map(|der| der.as_slice()).collect();
+    let certificates = tlv(0xA0, &der_set(&cert_refs));
     let issuer_and_serial = der_sequence(&[&cert.issuer_der, &der_positive_integer(&cert.serial)]);
     let signature = sign_digest(key, digest)?;
     let signature_algorithm = signature_algorithm(key);
@@ -290,11 +319,17 @@ pub(crate) fn sign_with_cms(
 ) -> Result<Vec<u8>> {
     let key = load_private_key(&material.key_pem)?;
     let cert = parse_signer_cert(&material.cert_pem)?;
+    // The issuing CAs travel with the signature so a verifier can build the
+    // chain up to a trusted root.
+    let mut chain = Vec::new();
+    for pem in &material.chain_pem {
+        chain.push(parse_signer_cert(pem)?.der);
+    }
     super::security::assemble_signature_update(pdf_bytes, signature, None, &|digest| {
         let d: &[u8; 32] = digest
             .try_into()
             .map_err(|_| PdfError::Crypto("unexpected digest length".into()))?;
-        build_cms_signed_data(d, &key, &cert)
+        build_cms_signed_data(d, &key, &cert, &chain)
     })
 }
 
@@ -398,6 +433,16 @@ pub(crate) fn parse_cms_signed_data(der: &[u8]) -> Result<ParsedCms> {
     })
 }
 
+/// The outcome of validating one signature's CMS container.
+pub(crate) struct CmsValidation {
+    /// Whether the signature verified against the embedded certificate.
+    pub valid: bool,
+    /// DER of the certificate whose key verified the signature.
+    pub signer_certificate: Option<Vec<u8>>,
+    /// Every certificate carried by the CMS container.
+    pub certificates: Vec<Vec<u8>>,
+}
+
 /// Attempt cryptographic validation of one signature dictionary.
 ///
 /// Returns `Some(true/false)` when `/Contents` holds a parseable CMS
@@ -409,6 +454,16 @@ pub(crate) fn try_cryptographic_validation(
     byte_range: Option<&str>,
     contents_hex: &str,
 ) -> Result<Option<bool>> {
+    Ok(validate_cms(pdf_bytes, byte_range, contents_hex)?.map(|validation| validation.valid))
+}
+
+/// Validate the CMS container of one signature, reporting which certificate
+/// verified it so the chain can be built.
+pub(crate) fn validate_cms(
+    pdf_bytes: &[u8],
+    byte_range: Option<&str>,
+    contents_hex: &str,
+) -> Result<Option<CmsValidation>> {
     let br = byte_range.and_then(parse_byte_range);
     let br = match br {
         Some(br) => br,
@@ -450,10 +505,18 @@ pub(crate) fn try_cryptographic_validation(
         )
         .unwrap_or(false)
         {
-            return Ok(Some(true));
+            return Ok(Some(CmsValidation {
+                valid: true,
+                signer_certificate: Some(cert_der.clone()),
+                certificates: parsed.certificates.clone(),
+            }));
         }
     }
-    Ok(Some(false))
+    Ok(Some(CmsValidation {
+        valid: false,
+        signer_certificate: None,
+        certificates: parsed.certificates.clone(),
+    }))
 }
 
 fn verify_with_certificate(

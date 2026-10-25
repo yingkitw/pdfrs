@@ -13,7 +13,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ## Codebase Score and Audit Follow-ups (2026-09-13)
 
-- [x] Score the codebase across correctness, security, maintainability, performance, documentation, and CI/portability — **9.1/10** (2026-10-25); see [`AUDIT.md`](AUDIT.md).
+- [x] Score the codebase across correctness, security, maintainability, performance, documentation, and CI/portability — **9.3/10** (2026-10-25); see [`AUDIT.md`](AUDIT.md).
 - [x] **Ponytail audit** — delete duplicate `unescape_pdf_string` in `pdf_ops/metadata` and unused `PdfTableHelper` escape wrappers; leave linearize serializers / sub-800 LOC splits / CI rebuild alone. (2026-10-25)
 - [x] Fix search-API worker-failure masking — `/api/v1/search` returns explicit `500` on blocking-task failure instead of HTTP 200 with zero hits; 3 new endpoint tests. (2026-10-25)
 - [x] Fix `--no-default-features` test compile (feature-gate `pdfrs::parallel` use in `tests/integration.rs`) and wasm32 build (empty font-path fallback in `src/raster/fonts.rs`) — both regressed silently after CI workflow removal. (2026-10-25)
@@ -23,6 +23,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 - [x] **Rasterizer parity batch.** The native rasterizer now renders clipping paths (`W` / `W*`), `/ExtGState` constant alpha and line width, text rendering modes (`Tr`), and image XObjects (`Do`) — including a built-in baseline JPEG decoder for `DCTDecode`, PNG/TIFF predictors, `/Indexed` and `/ICCBased` colour spaces, `/SMask` soft masks and `/ImageMask` stencils. Resources and binary payloads are read from the original PDF bytes with a new nesting-aware scanner (`src/raster/raw.rs`), fixing nested `/Resources` resolution and binary image corruption. (2026-10-25)
 - [x] **Rasterizer Form XObject support.** A `/Subtype /Form` object invoked with `Do` is rendered: `/Matrix` composed onto the CTM, `/BBox` clipping, own `/Resources` (fonts, nested XObjects, `/ExtGState`), caller graphics state restored on return, nesting limited to 8 levels. 2 new unit + 4 new integration tests. (2026-10-25)
 - [x] **Rasterizer glyph-rendering correctness.** Fixed four pre-existing rendering defects found by rendering the project's own `comprehensive.pdf`: (1) the Bézier flatness test went negative for curves bulging away from their chord, collapsing every curve to a straight chord — replaced with the Anti-Grain Geometry flatness test; (2) each glyph contour was filled separately, filling letter counters solid — now filled together with the non-zero winding rule; (3) translucent strokes compounded to opaque through overlapping brush stamps — coverage is now accumulated per pixel and blended once; (4) binary stream payloads were corrupted by a lossy UTF-8 conversion — now read from the original bytes. Glyph outlines are also scaled to the PDF's declared advance width so they cannot overlap. 25 new unit + 9 new integration tests. (2026-10-25)
+- [x] **Signature trust-chain evaluation** (the last Medium audit finding). `SigningKeyMaterial::with_chain` embeds the issuing CA certificates with the signature, and `verify_pdf_signature_bytes_with_trust` chains the signer certificate up to a root in a `TrustStore` — every link verified with the issuer's public key (RSA PKCS#1 v1.5 / ECDSA P-256, SHA-256) and every certificate checked against its validity window. `pdfcli verify-signature --trusted-cert <pem>` / `--trust-dir <dir>` reports the decision. Revocation (CRL/OCSP) stays open: it needs network access. 7 new integration tests with a real 3-level chain. (2026-10-25)
 - [x] **Modularize the remaining large files** (public APIs unchanged; re-exported exactly as before):
   - `pdf_generator/mod.rs` (1,350) → `objects` (`PdfGenerator`/`PdfObj`), `fonts` (shared font resources), `pipeline` (all `generate_pdf_bytes*` entry points + `render_page_range`), `assembly` (PDF object assembly, outlines, catalog)
   - `pdf/mod.rs` (1,220) → a 61-line facade; its 1,158-line test module was co-located with the owning submodules (`decode`, `parser`, `validation`, `sandbox`, `diff`, `objects`), which surfaced **14 byte-identical duplicate tests** that were dropped
@@ -150,7 +151,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 - [x] Security features
   - [x] Password protection — `PdfSecurity` with user/owner passwords
   - [x] User/owner permissions — `PdfPermissions` with PDF 1.7 compliance
-  - [x] Digital signatures — two tiers: **cryptographic PKCS#7/CMS signing** (`sign` feature: `sign_pdf_cms`/`sign_pdf_cms_bytes`, `pdfcli sign --key`; RSA PKCS#1 v1.5 or ECDSA P-256 PKCS#8 keys, SHA-256, embedded certificate) with true verification in `verify_pdf_signature` (digest recomputed over `/ByteRange`, checked against the embedded cert, honest `valid` flag, no trust-chain evaluation); legacy structural placeholder `sign_pdf` unchanged and documented as not for authentication (2026-10-25)
+  - [x] Digital signatures — **cryptographic PKCS#7/CMS signing** (`sign` feature: `sign_pdf_cms`/`sign_pdf_cms_bytes`, `pdfcli sign --key`; RSA PKCS#1 v1.5 or ECDSA P-256 PKCS#8 keys, SHA-256, embedded certificate) with true verification in `verify_pdf_signature` (digest over `/ByteRange`, honest `valid` flag); **trust-chain evaluation** via `TrustStore` / `verify_pdf_signature_bytes_with_trust` / `SigningKeyMaterial::with_chain` and `pdfcli verify-signature --trusted-cert` / `--trust-dir` (revocation still open); legacy structural placeholder `sign_pdf` unchanged and documented as not for authentication (2026-10-25)
   - [x] PDF sanitization — `PdfDocument::sanitize()` strips JavaScript, launch actions, external file references, additional actions; `sanitize-pdf` CLI command
 
 - [x] Performance improvements
@@ -328,7 +329,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ### 🔴 Critical
 
-- [x] Comprehensive test suite (560 tests as of 2026-10-25: 424 lib + 99 integration + 37 doc-tests, 1 doc-test ignored; 14 byte-identical duplicate tests removed when the `pdf` test module was co-located with its owning submodules)
+- [x] Comprehensive test suite (571 tests as of 2026-10-25: 428 lib + 106 integration + 37 doc-tests, 1 doc-test ignored; 14 byte-identical duplicate tests removed when the `pdf` test module was co-located with its owning submodules)
   - [x] Unit tests for all modules (pdf, pdf_generator, pdf_ops, elements, markdown, image, compression)
   - [x] Integration tests for workflows (roundtrip, merge, split, rotate, watermark, reorder, metadata)
   - [x] Round-trip validation tests (generate → validate → parse → verify all element types)

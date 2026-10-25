@@ -156,6 +156,12 @@ fn pem_to_der(pem: &str) -> Result<Vec<u8>> {
         .lines()
         .filter(|line| !line.starts_with("-----"))
         .collect();
+    pem_body_to_der(&b64)
+}
+
+/// Decode the base64 body of a PEM block (without the `-----` markers).
+pub(crate) fn pem_body_to_der(body: &str) -> Result<Vec<u8>> {
+    let b64: String = body.chars().filter(|c| !c.is_ascii_whitespace()).collect();
     decode_base64(&b64)
 }
 

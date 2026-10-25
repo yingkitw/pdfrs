@@ -232,7 +232,11 @@ pub(crate) fn run() {
             store,
         } => commands::security::cmd_import_certificate(id, file, subject, store),
         Commands::ListCertificates { store } => commands::security::cmd_list_certificates(store),
-        Commands::VerifySignature { input } => commands::security::cmd_verify_signature(input),
+        Commands::VerifySignature {
+            input,
+            trusted_cert,
+            trust_dir,
+        } => commands::security::cmd_verify_signature(input, trusted_cert, trust_dir),
         Commands::Protect {
             input,
             output,

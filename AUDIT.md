@@ -1,6 +1,75 @@
 # pdfrs Codebase Audit Report
 
-## Current Audit — 2026-10-25 (ponytail pass)
+## Current Audit — 2026-10-25 (eighth pass: signature trust chains)
+
+**Scope:** Certificate trust-chain validation — the last Medium-severity
+finding of the 2026-09-13 audit, which the ponytail pass left open.
+**Method:** Full tool verification on final source: `cargo fmt --check` (clean),
+`cargo test` (**570 passed / 0 failed**, 1 ignored doctest: 428 lib + 106
+integration + 37 doc), `cargo test --no-default-features` (green), `cargo test
+--features api` (green), `cargo build --no-default-features --features cli`
+(green), `cargo build --lib --no-default-features --features wasm --target
+wasm32-unknown-unknown` (green, 0 warnings), `cargo doc --no-deps` (0 warnings),
+`cargo clippy --all-targets --all-features -- -D warnings` (0 warnings).
+
+### Changes
+
+Cryptographic validation proved that the bytes covered by `/ByteRange` were
+signed by the key in the embedded certificate. It said nothing about *who* that
+key belongs to — a self-signed certificate verified just as well as one issued
+by a trusted CA. That gap is now closed:
+
+- **The signer can embed its chain.** `SigningKeyMaterial::with_chain` carries
+  the issuing CA certificates, which are placed in the CMS `certificates` bag
+  alongside the signer certificate.
+- **The verifier can build and check the chain.** `verify_pdf_signature_bytes_with_trust`
+  links the signer certificate to its issuers — matching issuer/subject names
+  and verifying each link with the issuer's public key (RSA PKCS#1 v1.5 or
+  ECDSA P-256, SHA-256) — until it reaches a root in a `TrustStore`. Every
+  certificate is checked against its validity window. The result reports
+  whether the chain is trusted and, when it is not, why.
+- **CLI.** `pdfcli verify-signature --trusted-cert <pem>` (repeatable) and
+  `--trust-dir <dir>` print the trust decision and the chain.
+- 7 new integration tests build a real three-level chain (root → intermediate
+  → leaf) at run time and cover the trusted, untrusted, unrelated-root and
+  wrong-anchor cases, plus the CLI path.
+
+Two implementation details were found the hard way and are worth recording:
+the signed `tbsCertificate` bytes must be taken from the original DER (a
+re-encoding of the parsed structure can differ), and ECDSA signatures must be
+accepted both as the DER `ECDSA-Sig-Value` that RFC 5758 requires and as the
+fixed-length `r||s` pair that some producers emit.
+
+### Score
+
+**9.3/10** overall; security 9.3 → **9.6/10** (the trust chain is built and
+every link is cryptographically verified — revocation remains the only
+uncovered part, and it needs network access, which a library should not
+perform). Correctness holds at **9.7/10**, maintainability at **9.0/10**,
+performance at **8.5/10**, documentation and release hygiene at **9.1/10**, CI
+and portability at **8.4/10** (CI remains intentionally absent).
+
+### Remaining priority findings
+
+1. **Medium — signature revocation is not evaluated.** CRL/OCSP checking needs
+   network access; a chain that validates here may still have been revoked.
+   Documented in SPEC "Remaining Features".
+2. **Medium — API exposure is intentionally unauthenticated and rate-limit-free.**
+   Deployment-boundary requirement documented; enforcement belongs at the
+   reverse proxy.
+3. **Low — rasterizer gaps that remain.** Tiling/shading patterns, transparency
+   groups, soft masks used as luminosity masks, and progressive/arithmetic-coded
+   JPEGs are not rendered; such images are skipped rather than mis-rendered.
+4. **Low — binary-to-text parsing remains lossy in security paths.** Unchanged;
+   acceptable for best-effort inspection.
+5. **Low — unmaintained crates.** Direct `ttf-parser 0.25.1`, transitive
+   `bincode`/`yaml-rust`. Replacement or explicit risk decision pending.
+6. **Low — no CI workflows in-repo (intentional).** Local gate documented; keep
+   running it before releases.
+
+---
+
+## Prior Audit — 2026-10-25 (ponytail pass)
 
 **Scope:** YAGNI / duplication / “does this need to exist?” — not another feature tour.
 **Method:** Full `cargo test` green prior to edits; targeted deletions below; `cargo test -q` + clippy after.
@@ -20,7 +89,7 @@
 ### Still open (documented elsewhere; no code in this pass)
 
 - API auth/rate-limit = reverse-proxy job (intentional).
-- Signing: no trust-chain/revocation evaluation.
+- Signing: trust chains are now built and verified; revocation (CRL/OCSP) still needs network access.
 - Rasterizer: tiling/shading, transparency groups, progressive JPEG.
 - Unmaintained transitive risk via `syntect` (`bincode`/`yaml-rust`); direct `ttf-parser` pinned.
 

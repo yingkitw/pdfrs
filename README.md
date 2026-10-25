@@ -184,6 +184,7 @@ pdfcli rasterize-pdf doc.pdf -o pages/              # all pages → pages/page-N
 pdfcli search-pdf doc.pdf "needle" --case-insensitive --json hits.json
 pdfcli redact-pdf doc.pdf -o out.pdf --region 0,100,700,200,20
 pdfcli draw-svg-file drawing.svg -o drawing.pdf     # full SVG document
+pdfcli verify-signature signed.pdf --trusted-cert root.pem
 pdfcli --help                              # full command list
 ```
 
@@ -261,15 +262,15 @@ This tool is built with a modular architecture:
 - **Linearize / incremental** (`src/linearize.rs`, `src/incremental.rs`): Fast Web View; append-only updates
 - **Plugins** (`src/plugin.rs`): Parser/generator hooks (e.g. callouts)
 - **Compression** (`src/compression.rs`): PDF stream compression (deflate)
-- **Security** (`src/security/`, `src/pdf_ops/security.rs`, `src/pdf_ops/signing.rs`): Spec-conformant PDF encryption (RC4 40/128-bit, AES-128, AES-256 R6) with random salts/IVs, permissions, real PKCS#7/CMS digital signatures (RSA or ECDSA P-256 keys, SHA-256, embedded certificate, cryptographic verification), structural placeholder signing, certificate store
+- **Security** (`src/security/`, `src/pdf_ops/security/`, `src/pdf_ops/signing.rs`): Spec-conformant PDF encryption (RC4 40/128-bit, AES-128, AES-256 R6) with random salts/IVs, permissions, real PKCS#7/CMS digital signatures (RSA or ECDSA P-256 keys, SHA-256, embedded certificate, cryptographic verification), certificate trust-chain evaluation (`TrustStore`, `verify-signature --trusted-cert` / `--trust-dir`; no CRL/OCSP), structural placeholder signing, certificate store
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec and backlog: [SPEC.md](SPEC.md), [TODO.md](TODO.md).
 
 ## Testing
 
-560 tests (`cargo test`), including:
-- **424 lib tests**: Unit tests across all modules (includes soft-hyphen round-trip, API endpoint, PKCS#7/CMS signing, and rasterizer parity tests)
-- **99 integration tests**: `tests/integration.rs`, `capabilities_v2`, `capability_validation`, `comprehensive_pdf`, `pkcs7_signing`, `raster_parity`, `roundtrip_test`, `unicode_integration_test` (the all-algorithm encryption test is split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
+571 tests (`cargo test`), including:
+- **428 lib tests**: Unit tests across all modules (includes soft-hyphen round-trip, API endpoint, PKCS#7/CMS signing, and rasterizer parity tests)
+- **106 integration tests**: `tests/integration.rs`, `capabilities_v2`, `capability_validation`, `comprehensive_pdf`, `pkcs7_signing`, `raster_parity`, `roundtrip_test`, `trust_chain`, `unicode_integration_test` (the all-algorithm encryption test is split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
 - **37 doctests**: Public API examples
 
 Round-trip validation tests verify that content survives: generate → validate → parse → verify. The `capabilities_v2` suite exercises rasterize → search → redact end-to-end plus full SVG rendering and structured PDF → Markdown.
@@ -294,7 +295,8 @@ Extra material (contributing, validation notes) is under [`docs/`](docs/).
 
 ## Limitations
 
-- **Rasterizer is schematic, with anti-aliased output**: pages render at 3× supersampling and are box-downsampled. Text renders from real glyph outlines when a TrueType program is available (embedded `/FontFile2`, or a substitute system font / `PDFRS_UNICODE_FONT_PATH` for base-14 names); without any font program it falls back to gray rectangles sized to advance width. Image XObjects, clipping paths, constant alpha and text rendering modes are supported; Form XObjects, tiling/shading patterns, transparency groups and progressive JPEGs are not. Layout preview quality — not pixel-perfect typography; use PDFium or Ghostscript for that.
+- **Rasterizer is schematic, with anti-aliased output**: pages render at 3× supersampling and are box-downsampled. Text renders from real glyph outlines when a TrueType program is available (embedded `/FontFile2`, or a substitute system font / `PDFRS_UNICODE_FONT_PATH` for base-14 names); without any font program it falls back to gray rectangles sized to advance width. Image XObjects, Form XObjects, clipping paths, constant alpha and text rendering modes are supported; tiling/shading patterns, transparency groups and progressive JPEGs are not. Layout preview quality — not pixel-perfect typography; use PDFium or Ghostscript for that.
+- **Signature trust chains validate locally; revocation does not**: `verify-signature --trusted-cert` / `--trust-dir` builds and checks the CA chain. CRL/OCSP are out of scope (need network access).
 - **Redaction is content-stream based**: text is removed at character granularity and image XObjects intersecting a region are removed when they are no longer referenced. Complex PDF constructs may still require external validation.
 - **PDF → Markdown** reconstruction is heuristic; very dense tables and multi-column layouts may not round-trip perfectly.
 - Text extraction works best with PDFs generated by this tool or simple Type 1 font PDFs

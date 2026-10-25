@@ -7,6 +7,9 @@ use super::certificates::parse_cert_hex_metadata;
 use super::regexes::re_sig_obj;
 use crate::error::Result;
 
+#[cfg(feature = "sign")]
+use crate::security::{TrustEvaluation, TrustStore, TrustedCertificate, evaluate_chain};
+
 /// Information about a detected digital signature in a PDF
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureInfo {
@@ -31,6 +34,24 @@ pub struct SignatureInfo {
     /// (no trust-chain evaluation). `false` means no CMS container was found
     /// (e.g. the legacy [`sign_pdf`](crate::pdf_ops::sign_pdf) placeholder) or validation failed.
     pub valid: bool,
+}
+
+/// A signature together with the result of validating its certificate chain.
+#[cfg(feature = "sign")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedSignatureInfo {
+    /// The signature metadata and its cryptographic validity.
+    pub signature: SignatureInfo,
+    /// Whether the signer's certificate chains to a trusted root.
+    ///
+    /// This is `false` when no issuer could be found for the signer's
+    /// certificate, when a link in the chain did not verify, or when the
+    /// certificate was outside its validity window.
+    pub trusted: bool,
+    /// The validated chain, signer certificate first.
+    pub chain: Vec<TrustedCertificate>,
+    /// Why the chain was rejected, when it was.
+    pub reason: Option<String>,
 }
 
 /// Verify the digital signatures in a PDF.
@@ -110,4 +131,98 @@ pub fn verify_pdf_signature_bytes(pdf_bytes: &[u8]) -> Result<Vec<SignatureInfo>
     }
 
     Ok(results)
+}
+
+/// Verify the digital signatures in a PDF and validate their certificate
+/// chains against `trust`.
+///
+/// This extends [`verify_pdf_signature`] with the trust decision that
+/// cryptographic validation alone cannot make: the signer's certificate is
+/// chained through its issuers — each link verified with the issuer's public
+/// key — until a certificate in `trust` is reached.
+///
+/// Revocation is **not** checked: CRL and OCSP lookups need network access.
+/// A signature reported as trusted may still have been revoked by its issuer.
+#[cfg(feature = "sign")]
+pub fn verify_pdf_signature_bytes_with_trust(
+    pdf_bytes: &[u8],
+    trust: &TrustStore,
+) -> Result<Vec<TrustedSignatureInfo>> {
+    let signatures = verify_pdf_signature_bytes(pdf_bytes)?;
+    let mut out = Vec::with_capacity(signatures.len());
+
+    for signature in signatures {
+        let evaluation = evaluate_signature_chain(pdf_bytes, &signature, trust)?;
+        out.push(TrustedSignatureInfo {
+            signature,
+            trusted: evaluation.trusted,
+            chain: evaluation.chain,
+            reason: evaluation.reason,
+        });
+    }
+    Ok(out)
+}
+
+/// Build and evaluate the certificate chain of one signature.
+#[cfg(feature = "sign")]
+fn evaluate_signature_chain(
+    pdf_bytes: &[u8],
+    signature: &SignatureInfo,
+    trust: &TrustStore,
+) -> Result<TrustEvaluation> {
+    let Some(range) = signature.byte_range.as_deref() else {
+        return Ok(TrustEvaluation {
+            trusted: false,
+            chain: Vec::new(),
+            reason: Some("signature has no /ByteRange".to_string()),
+        });
+    };
+    let Some(contents) = extract_signature_contents(pdf_bytes, range) else {
+        return Ok(TrustEvaluation {
+            trusted: false,
+            chain: Vec::new(),
+            reason: Some("signature has no readable /Contents".to_string()),
+        });
+    };
+
+    let Some(validation) =
+        crate::pdf_ops::signing::validate_cms(pdf_bytes, Some(range), &contents)?
+    else {
+        return Ok(TrustEvaluation {
+            trusted: false,
+            chain: Vec::new(),
+            reason: Some("signature is not a CMS SignedData container".to_string()),
+        });
+    };
+
+    let Some(signer) = validation.signer_certificate else {
+        return Ok(TrustEvaluation {
+            trusted: false,
+            chain: Vec::new(),
+            reason: Some("no embedded certificate verified the signature".to_string()),
+        });
+    };
+    Ok(evaluate_chain(&signer, &validation.certificates, trust))
+}
+
+/// Read the `/Contents` hex of the signature dictionary covering `range`.
+///
+/// The signature dictionary is the object that declares the `/ByteRange`;
+/// its `/Contents` holds the CMS container.
+#[cfg(feature = "sign")]
+fn extract_signature_contents(pdf_bytes: &[u8], byte_range: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(pdf_bytes);
+    for caps in re_sig_obj().captures_iter(&text) {
+        let dict_content = &caps[2];
+        if !dict_content.contains("/Type /Sig") && !dict_content.contains("/Type/Sig") {
+            continue;
+        }
+        if extract_pdf_dict_value(dict_content, "/ByteRange").as_deref() != Some(byte_range) {
+            continue;
+        }
+        if let Some(contents) = extract_pdf_dict_value(dict_content, "/Contents") {
+            return Some(contents);
+        }
+    }
+    None
 }

@@ -35,6 +35,19 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ### Added
 
+- **Certificate trust-chain validation** (the `sign` feature). Cryptographic
+  validation proved that the covered bytes were signed by the key in the
+  embedded certificate, but said nothing about *who* that key belongs to. The
+  signer can now embed the issuing CA certificates with the signature
+  (`SigningKeyMaterial::with_chain`), and `verify_pdf_signature_bytes_with_trust`
+  chains the signer certificate up to a root in a `TrustStore` — each link
+  verified with the issuer's public key (RSA PKCS#1 v1.5 or ECDSA P-256,
+  SHA-256) and each certificate checked against its validity window. The
+  result reports whether the chain reaches a trusted root, and why not when it
+  does not. CLI: `pdfcli verify-signature --trusted-cert <pem>` (repeatable)
+  and `--trust-dir <dir>`. Revocation (CRL/OCSP) is **not** evaluated: it
+  needs network access. Covered by 7 `trust_chain` integration tests (3-level
+  chain, wrong-anchor, empty store, CLI path).
 - **Form XObject rendering in the native rasterizer.** A `/Subtype /Form`
   object invoked with `Do` is now rendered instead of being skipped: its
   `/Matrix` is composed onto the current transformation matrix, its `/BBox`
