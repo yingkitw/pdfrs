@@ -60,6 +60,8 @@ inline_regex!(re_link_strip, r"\[([^\]]+)\]\([^\)]+\)");
 inline_regex!(re_code_strip, r"`([^`]+)`");
 inline_regex!(re_cite, r"\[@([^\]]+)\]");
 inline_regex!(re_link, r"\[([^\]]+)\]\(([^\)]+)\)");
+// Display math first so `$$...$$` is not eaten as `$` + `$...$` + `$`.
+inline_regex!(re_display_math, r"\$\$([^$\n]+)\$\$");
 inline_regex!(re_math, r"\$([^$\n]+)\$");
 inline_regex!(re_strike_parse, r"~~(.+?)~~");
 inline_regex!(re_code_parse, r"`([^`]+)`");
@@ -528,6 +530,31 @@ See [@smith2020].\n\
                 );
             }
             _ => panic!("Expected RichParagraph with inline math segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_display_math_dollars_inside_paragraph() {
+        let md = "Another block with sets: $$A \\subseteq B \\cup C$$";
+        let elements = parse_markdown(md);
+        assert_eq!(elements.len(), 1);
+        match &elements[0] {
+            Element::RichParagraph { segments } => {
+                let math = segments.iter().find_map(|s| match s {
+                    TextSegment::MathInline(expr) => Some(expr.as_str()),
+                    _ => None,
+                });
+                assert_eq!(math, Some(r"A \subseteq B \cup C"));
+                // Must not leave orphan `$` text segments from partial `$...$` matches.
+                assert!(
+                    !segments
+                        .iter()
+                        .any(|s| matches!(s, TextSegment::Plain(t) if t.contains('$'))),
+                    "unexpected leftover dollars: {:?}",
+                    segments
+                );
+            }
+            _ => panic!("Expected RichParagraph, got {:?}", elements[0]),
         }
     }
 

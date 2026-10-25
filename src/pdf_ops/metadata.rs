@@ -342,58 +342,13 @@ pub(super) fn extract_pdf_string_field(content: &str, field: &str) -> Option<Str
             }
             let value = &content[value_start..value_end];
             // Unescape the string
-            Some(unescape_pdf_string(value))
+            Some(crate::pdf::unescape_pdf_string(value))
         } else {
             None
         }
     } else {
         None
     }
-}
-
-/// Unescape a PDF string (handle escape sequences)
-pub(super) fn unescape_pdf_string(s: &str) -> String {
-    let mut result = String::new();
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            if let Some(next) = chars.next() {
-                match next {
-                    'n' => result.push('\n'),
-                    'r' => result.push('\r'),
-                    't' => result.push('\t'),
-                    'b' => result.push('\x08'),
-                    'f' => result.push('\x0c'),
-                    '(' | ')' | '\\' => result.push(next),
-                    '0'..='7' => {
-                        // Octal escape sequence (up to 3 digits)
-                        let mut octal = String::from(next);
-                        if let Some(&c) = chars.peek()
-                            && ('0'..='7').contains(&c)
-                        {
-                            chars.next();
-                            octal.push(c);
-                            if let Some(&c) = chars.peek()
-                                && ('0'..='7').contains(&c)
-                            {
-                                chars.next();
-                                octal.push(c);
-                            }
-                        }
-                        if let Ok(code) = u8::from_str_radix(&octal, 8) {
-                            result.push(code as char);
-                        }
-                    }
-                    _ => result.push(next),
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
 }
 
 /// Merge metadata from two sources, with new_metadata taking precedence
@@ -524,16 +479,6 @@ mod tests {
             merged.get_custom_field("NewField"),
             Some(&"NewValue".to_string())
         ); // Added
-    }
-
-    #[test]
-    fn test_unescape_pdf_string() {
-        assert_eq!(unescape_pdf_string("hello"), "hello");
-        assert_eq!(unescape_pdf_string(r"hello\(world\)"), "hello(world)");
-        assert_eq!(unescape_pdf_string(r"line1\nline2"), "line1\nline2");
-        assert_eq!(unescape_pdf_string(r"tab\there"), "tab\there");
-        assert_eq!(unescape_pdf_string(r"\050"), "("); // Octal for '('
-        assert_eq!(unescape_pdf_string(r"\051"), ")"); // Octal for ')'
     }
 
     #[test]

@@ -61,7 +61,7 @@ The interface lives in `src/cli/`:
 
 - `src/pdf/mod.rs` — facade: shared regex cache (`pdf_regex!`) and public
   re-exports
-- `src/pdf/objects.rs` — `PdfDocument`/`PdfObject`/`PdfValue` model,
+- `src/pdf/objects/` — `PdfDocument`/`PdfObject`/`PdfValue` model (`types`, `document`),
   loading, serialization, reference rewriting, object deduplication,
   embedded-file attachment; document round-trip tests
 - `src/pdf/parser.rs` — object/xref/object-stream parsing, `decompress_stream`,
@@ -141,7 +141,7 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 - `src/pdf_generator/layout.rs` — `PageLayout`, `PageOrientation`, `PdfVersion`, `Color`, `TextAlign`, font-size / text-width helpers
 - `src/pdf_generator/code_highlight.rs` — syntect-based syntax highlighting for code blocks
 - `src/pdf_generator/math_layout.rs` — math layout helpers
-- `src/pdf_generator/text_support.rs` — math-to-text conversion and PDF text encoding helpers
+- `src/pdf_generator/text_support/` — math-to-text conversion (`math`) and PDF text encoding helpers (`encode`)
 - `src/pdf_generator/unicode_support.rs` — Unicode TTF discovery/loading and glyph-ID encoder for embedded Type0/CIDFont paths
 - `src/pdf_generator/accessibility.rs` — tagged PDF structure types / `AccessibilityOptions`
 
@@ -379,8 +379,8 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
   and `pdfrs::Result<T>`; returned by every fallible library API. Implements
   `std::error::Error`, so `?` converts into `anyhow::Error` /
   `Box<dyn Error>` for callers that use them
-- `src/vector/` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`); submodules: `path` (SVG path parser), `svg_document` (document model + renderer), `xml` (minimal XML parser), `transform` (matrix transforms), `emit` (content-stream emission + entry points)
-- `src/security/` — PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass. Submodules: `encryption` (standard security handler + key derivation), `signature` (`DigitalSignature` metadata), `certificates` (PEM store, fingerprints, `/Cert` hex)
+- `src/vector/` — vector paths, SVG `d` import, **and full SVG document rendering** (`<g transform>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`, `<text>`); submodules: `path` (SVG path parser), `svg_document/` (`context`, `shapes`, `style`), `xml` (minimal XML parser), `transform` (matrix transforms), `emit` (content-stream emission + entry points)
+- `src/security/` — PDF Standard Security Handler, spec-conformant: Algorithms 2/3.3/3.4/3.5 (V1-V4, MD5) and revision 6 (V5/R6: random file key + salts, hardened Algorithm 2.B hash with SHA-256/384/512, `/UE`/`/OE`) for AES-256; random per-object IVs via `getrandom`; `generate_encryption_materials` produces the file key and `/Encrypt` dict in one pass. Submodules: `encryption/` (`permissions`, `types`, `handler`, `crypto`), `signature` (`DigitalSignature` metadata), `certificates` (PEM store, fingerprints, `/Cert` hex)
 
 ### 15b. Rasterization (`src/raster/`)
 
@@ -388,7 +388,7 @@ Document bookmarks (`/Outlines`) are produced automatically from headings during
 
 **Internal Submodules**: `mod` (entry points + supersampled compositing),
 `surface` (pixel buffer, fills, strokes, Bézier flattening, glyph outline
-builder), `interpreter` (content-stream walker), `fonts` (width tables +
+builder), `interpreter/` (content-stream walker: `tokens`, `text`), `fonts` (width tables +
 embedded/substitute TTF extraction), `base14` (base-14 width tables),
 `png` (inline PNG encoder), `pdf_access` (page/media-box accessors),
 `raw` (raw-PDF byte scanning: object/stream lookup and a nesting-aware

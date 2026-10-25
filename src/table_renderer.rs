@@ -444,15 +444,6 @@ impl PdfTableHelper {
             .collect()
     }
 
-    /// Escape special PDF string characters (public static helper)
-    pub fn escape_pdf_string_static(text: &str) -> String {
-        crate::pdf_generator::escape_pdf_string(text)
-    }
-
-    /// Escape special PDF string characters (instance method)
-    pub fn escape_pdf_string(&self, text: &str) -> String {
-        Self::escape_pdf_string_static(text)
-    }
 }
 
 impl Default for PdfTableHelper {
@@ -525,9 +516,10 @@ mod tests {
 
     #[test]
     fn test_escape_pdf_string() {
-        let helper = PdfTableHelper::default();
-        let escaped = helper.escape_pdf_string("test(string)");
-        assert_eq!(escaped, "test\\(string\\)");
+        assert_eq!(
+            crate::pdf_generator::escape_pdf_string("test(string)"),
+            "test\\(string\\)"
+        );
     }
 
     #[test]

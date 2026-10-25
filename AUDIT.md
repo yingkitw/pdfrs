@@ -1,6 +1,36 @@
 # pdfrs Codebase Audit Report
 
-## Current Audit — 2026-10-25 (sixth pass: rasterizer Form XObjects)
+## Current Audit — 2026-10-25 (ponytail pass)
+
+**Scope:** YAGNI / duplication / “does this need to exist?” — not another feature tour.
+**Method:** Full `cargo test` green prior to edits; targeted deletions below; `cargo test -q` + clippy after.
+
+### Deleted (real duplicates)
+
+- `pdf_ops/metadata::unescape_pdf_string` (~40 LOC + twin test) → call `crate::pdf::unescape_pdf_string` (already covered in `pdf/decode` tests).
+- `PdfTableHelper::escape_pdf_string(_static)` — wrappers that only forwarded to `pdf_generator::escape_pdf_string`; no external callers.
+
+### Leave alone (not worth the diff)
+
+- `linearize::serialize_*` vs `pdf/objects` serializers — similar but not identical; merging is a refactor, not a one-liner.
+- Further mega-file splits under ~800 LOC (`jpeg`, `validation`, `surface`) — stop; public API already stable.
+- Rebuilding in-repo CI — still absent; re-add when someone runs PRs, not for audit theatre.
+- Trimming historical `AUDIT.md` / `TODO.md` archives — keep for archaeology; don’t rewrite history in this pass.
+
+### Still open (documented elsewhere; no code in this pass)
+
+- API auth/rate-limit = reverse-proxy job (intentional).
+- Signing: no trust-chain/revocation evaluation.
+- Rasterizer: tiling/shading, transparency groups, progressive JPEG.
+- Unmaintained transitive risk via `syntect` (`bincode`/`yaml-rust`); direct `ttf-parser` pinned.
+
+### Score
+
+**9.1/10** overall (unchanged). Maintainability nudge only: less duplicate string escaping. Correctness/security unchanged.
+
+---
+
+## Prior Audit — 2026-10-25 (sixth pass: rasterizer Form XObjects)
 
 **Scope:** Rasterizer Form XObject support — the last of the four rasterizer
 parity gaps tracked since the 2026-09-13 audit.

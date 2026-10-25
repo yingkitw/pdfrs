@@ -1,8 +1,8 @@
 //! Inline Markdown formatting: bold/italic/code/links/math/citation segments.
 use super::{
     TextSegment, re_b_stars, re_b_under, re_bi_stars, re_bi_under, re_bold, re_bold_italic,
-    re_bold2, re_cite, re_code_parse, re_code_strip, re_i_stars, re_i_under, re_italic, re_italic2,
-    re_link, re_link_strip, re_math, re_strike, re_strike_parse,
+    re_bold2, re_cite, re_code_parse, re_code_strip, re_display_math, re_i_stars, re_i_under,
+    re_italic, re_italic2, re_link, re_link_strip, re_math, re_strike, re_strike_parse,
 };
 
 pub fn strip_inline_formatting(text: &str) -> String {
@@ -99,6 +99,20 @@ pub(super) fn parse_inline_formatting_after_cites(text: &str) -> Vec<TextSegment
 fn parse_formatting_no_links(text: &str) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     let mut remaining = text.to_string();
+
+    // $$...$$ before $...$ so double-dollar math is not split into leftover `$`.
+    while let Some(caps) = re_display_math().captures(&remaining) {
+        let full_match = caps.get(0).unwrap();
+        let before = &remaining[..full_match.start()];
+        let math_expr = caps.get(1).unwrap().as_str();
+
+        if !before.is_empty() {
+            segments.extend(parse_code_and_bold_italic(before));
+        }
+
+        segments.push(TextSegment::MathInline(math_expr.to_string()));
+        remaining = remaining[full_match.end()..].to_string();
+    }
 
     // Inline math (higher priority than bold/italic)
     while let Some(caps) = re_math().captures(&remaining) {

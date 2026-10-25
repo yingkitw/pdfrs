@@ -13,7 +13,8 @@ This document tracks the planned features, improvements, and tasks for the **pdf
 
 ## Codebase Score and Audit Follow-ups (2026-09-13)
 
-- [x] Score the codebase across correctness, security, maintainability, performance, documentation, and CI/portability — **8.8/10** (2026-10-25); see [`AUDIT.md`](AUDIT.md).
+- [x] Score the codebase across correctness, security, maintainability, performance, documentation, and CI/portability — **9.1/10** (2026-10-25); see [`AUDIT.md`](AUDIT.md).
+- [x] **Ponytail audit** — delete duplicate `unescape_pdf_string` in `pdf_ops/metadata` and unused `PdfTableHelper` escape wrappers; leave linearize serializers / sub-800 LOC splits / CI rebuild alone. (2026-10-25)
 - [x] Fix search-API worker-failure masking — `/api/v1/search` returns explicit `500` on blocking-task failure instead of HTTP 200 with zero hits; 3 new endpoint tests. (2026-10-25)
 - [x] Fix `--no-default-features` test compile (feature-gate `pdfrs::parallel` use in `tests/integration.rs`) and wasm32 build (empty font-path fallback in `src/raster/fonts.rs`) — both regressed silently after CI workflow removal. (2026-10-25)
 - [x] Document signature placeholder semantics prominently (`sign_pdf`, `sign_pdf_bytes`, `verify_pdf_signature` warnings) and API deployment-boundary requirements (`src/api.rs` module docs, SPEC FR27.11). (2026-10-25)
@@ -29,6 +30,7 @@ This document tracks the planned features, improvements, and tasks for the **pdf
   - `image.rs` (1,008) → `model` (`ImageInfo`/`ImageFormat`/`ImageFilter`), `load` (file parsing: PNG/BMP/JPEG), `filters` (pixel filters + PNG scanline reconstruction), `embed` (PDF image XObject creation)
   - `redact.rs` (994) → `model` (`RedactionRegion`/`RedactionStyle`), `apply` (document-level redaction pass), `document` (object/XObject helpers), `rewrite` (content-stream rewriter)
   All files now below ~1,000 LOC; 554 tests pass, clippy `-D warnings` clean. (2026-10-25)
+- [x] **Modularize the next-largest files** (public APIs unchanged): `raster/interpreter.rs` → `interpreter/{mod,tokens,text}`, `security/encryption.rs` → `encryption/{permissions,types,handler,crypto}`, `vector/svg_document.rs` → `svg_document/{context,shapes,style}`, `pdf/objects.rs` → `objects/{types,document}`, `pdf_generator/text_support.rs` → `text_support/{math,encode}`; 425 lib tests + clippy `-D warnings` green. (2026-10-25)
 - [x] Add encrypted object-stream and xref-stream support to `encrypt_pdf_bytes` — compressed objects are expanded and xref streams are replaced with a fresh classic xref table; integration coverage added.
 - [x] Split or optimize the all-algorithm encryption integration test; preserve coverage while reducing its 47–60 second runtime — replaced with 4 per-algorithm `#[test]` functions sharing one helper (`tests/integration.rs::round_trip_encrypt_one_algorithm`); `cargo test`'s parallel runner executes them concurrently, cutting the encryption-test wall time from ~41s to ~16s in debug mode (60% reduction); coverage identical to the previous serial loop.
 - [x] Make the WASM API worker-first or provide an async export that avoids blocking the browser main thread — `wasm/worker.js` + `wasm/worker-client.js` off-main-thread API (recommended path) plus `render_markdown_to_pdf_async` Promise-returning export for main-thread use; documented in `src/wasm.rs` module docs. (2026-10-25)

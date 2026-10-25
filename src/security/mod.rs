@@ -12,6 +12,12 @@ pub use encryption::*;
 pub use signature::*;
 
 #[cfg(test)]
+pub(crate) use encryption::{
+    PADDING, aes_cbc_decrypt, aes_cbc_encrypt, derive_object_key_rc4, hash_r6, pad_password,
+    random_vec,
+};
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
