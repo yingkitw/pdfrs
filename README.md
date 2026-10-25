@@ -267,8 +267,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation. Spec a
 
 ## Testing
 
-568 tests (`cargo test`), including:
-- **436 lib tests**: Unit tests across all modules (includes soft-hyphen round-trip, API endpoint, PKCS#7/CMS signing, and rasterizer parity tests)
+554 tests (`cargo test`), including:
+- **422 lib tests**: Unit tests across all modules (includes soft-hyphen round-trip, API endpoint, PKCS#7/CMS signing, and rasterizer parity tests)
 - **95 integration tests**: `tests/integration.rs`, `capabilities_v2`, `capability_validation`, `comprehensive_pdf`, `pkcs7_signing`, `raster_parity`, `roundtrip_test`, `unicode_integration_test` (the all-algorithm encryption test is split into 4 per-algorithm tests that run in parallel, cutting wall time from ~41s to ~16s in debug mode)
 - **37 doctests**: Public API examples
 

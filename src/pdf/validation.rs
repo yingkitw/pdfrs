@@ -530,4 +530,209 @@ mod tests {
         // Smoke-test that re-exported regex helpers from the parent module compile and run.
         result.compliant = false;
     }
+
+    #[test]
+    fn test_validate_pdf_bytes_valid() {
+        // Generate a valid PDF via the library
+        let elements = vec![
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Test Title".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Hello world paragraph.".into(),
+            },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_bytes(&pdf_bytes);
+        assert!(
+            result.valid,
+            "Generated PDF should be valid. Errors: {:?}",
+            result.errors
+        );
+        assert!(result.page_count >= 1, "Should have at least 1 page");
+        assert!(result.object_count > 0, "Should have objects");
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_pdf_bytes_invalid_header() {
+        let result = validate_pdf_bytes(b"NOT A PDF FILE");
+        assert!(!result.valid);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("Missing PDF header"))
+        );
+    }
+
+    #[test]
+    fn test_validate_pdf_bytes_empty() {
+        let result = validate_pdf_bytes(b"");
+        assert!(!result.valid);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("Missing PDF header"))
+        );
+    }
+
+    #[test]
+    fn test_validate_pdf_bytes_missing_eof() {
+        let result = validate_pdf_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("%%EOF")));
+    }
+
+    #[test]
+    fn test_validate_pdf_a_generated_pdf() {
+        let elements = vec![
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "PDF/A Test".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Testing PDF/A validation.".into(),
+            },
+        ];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_a_bytes(&pdf_bytes);
+        // Generated PDFs use Base-14 fonts without embedding, so they won't be fully PDF/A compliant
+        // but should have no encryption, no JS, no external references
+        assert!(
+            !result.has_encryption,
+            "Generated PDF should not have encryption"
+        );
+        assert!(
+            !result.errors.iter().any(|e| e.contains("JavaScript")),
+            "No JS expected"
+        );
+        assert!(
+            !result.errors.iter().any(|e| e.contains("external")),
+            "No external refs expected"
+        );
+    }
+
+    #[test]
+    fn test_validate_pdf_a3_fails_without_embedded_files() {
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "No attachments".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_a3_bytes(&pdf_bytes);
+        assert!(
+            result.errors.iter().any(|e| e.contains("embedded file")),
+            "PDF/A-3 should fail without embedded files: {:?}",
+            result.errors
+        );
+        assert!(
+            !result.compliant,
+            "Should not be PDF/A-3 compliant without attachments"
+        );
+    }
+
+    #[test]
+    fn test_validate_pdf_a3_passes_with_embedded_files() {
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "With attachment".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        doc.embed_file("data.csv", b"a,b,c\n1,2,3").unwrap();
+        let output_bytes = doc.to_bytes();
+
+        let result = validate_pdf_a3_bytes(&output_bytes);
+        // Still may fail on other PDF/A checks (fonts, XMP) but should NOT fail on embedded files
+        assert!(
+            !result.errors.iter().any(|e| e.contains("embedded file")),
+            "PDF/A-3 should not complain about embedded files when present: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_validate_pdf_ua_detects_missing_accessibility() {
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Untagged doc".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let result = validate_pdf_ua_bytes(&pdf_bytes);
+        // Our generated PDFs don't have MarkInfo, StructTreeRoot, Lang, or Title yet
+        assert!(
+            !result.compliant,
+            "Untagged PDF should not be PDF/UA compliant"
+        );
+        assert!(!result.has_mark_info, "Should detect missing MarkInfo");
+        assert!(
+            !result.has_struct_tree,
+            "Should detect missing StructTreeRoot"
+        );
+        assert!(!result.has_lang, "Should detect missing Lang");
+        assert!(!result.has_title, "Should detect missing Title");
+    }
+
+    #[test]
+    fn test_check_screen_reader_compliance_tagged_vs_untagged() {
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let elements = vec![
+            crate::elements::Element::Heading {
+                level: 1,
+                text: "Accessible".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Screen reader test content.".into(),
+            },
+        ];
+
+        let untagged =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+        let untagged_report = check_screen_reader_compliance_bytes(&untagged);
+        assert!(
+            !untagged_report.compliant,
+            "Untagged PDF should fail screen reader compliance"
+        );
+        assert!(!untagged_report.issues.is_empty());
+
+        let opts = crate::pdf_generator::AccessibilityOptions::new()
+            .with_tagged_pdf(true)
+            .with_language("en-US".to_string())
+            .with_title("Accessible Doc".to_string());
+        let tagged = crate::pdf_generator::generate_tagged_pdf_bytes(
+            &elements,
+            "Helvetica",
+            12.0,
+            layout,
+            opts,
+        )
+        .unwrap();
+        let tagged_report = check_screen_reader_compliance_bytes(&tagged);
+        assert!(
+            tagged_report.compliant,
+            "Tagged PDF should pass: {:?}",
+            tagged_report.issues
+        );
+        assert!(tagged_report.text_extractable);
+        assert!(
+            tagged_report
+                .structure_element_types
+                .contains(&"Document".to_string())
+        );
+    }
 }

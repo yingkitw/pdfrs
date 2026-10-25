@@ -388,3 +388,155 @@ pub fn sandbox_pdf_bytes(data: &[u8]) -> Result<(Vec<u8>, JavaScriptSandboxRepor
     let report = doc.sandbox();
     Ok((doc.to_bytes(), report))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_removes_dangerous_objects() {
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Safe document".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+        let original_count = doc.objects.len();
+
+        // Inject a fake JavaScript object
+        let mut js_dict = HashMap::new();
+        js_dict.insert(
+            "JS".to_string(),
+            PdfValue::Object(PdfObject::String("app.alert('xss')".to_string())),
+        );
+        doc.objects.insert(999, PdfObject::Dictionary(js_dict));
+
+        // Inject a fake launch action
+        let mut launch_dict = HashMap::new();
+        launch_dict.insert(
+            "S".to_string(),
+            PdfValue::Object(PdfObject::String("/Launch".to_string())),
+        );
+        launch_dict.insert(
+            "F".to_string(),
+            PdfValue::Object(PdfObject::String("(malware.exe)".to_string())),
+        );
+        doc.objects.insert(998, PdfObject::Dictionary(launch_dict));
+
+        // Add OpenAction to catalog
+        if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get_mut(&doc.catalog) {
+            catalog_dict.insert(
+                "OpenAction".to_string(),
+                PdfValue::Object(PdfObject::String("999 0 R".to_string())),
+            );
+        }
+
+        assert_eq!(
+            doc.objects.len(),
+            original_count + 2,
+            "Should have injected 2 dangerous objects"
+        );
+
+        // Sanitize
+        doc.sanitize();
+
+        // JS object should be removed entirely
+        assert!(
+            !doc.objects.contains_key(&999),
+            "JavaScript object should be removed"
+        );
+
+        // Launch action should be removed entirely
+        assert!(
+            !doc.objects.contains_key(&998),
+            "Launch action object should be removed"
+        );
+
+        // Catalog should no longer have OpenAction
+        if let Some(PdfObject::Dictionary(catalog_dict)) = doc.objects.get(&doc.catalog) {
+            assert!(
+                !catalog_dict.contains_key("OpenAction"),
+                "OpenAction should be stripped from catalog"
+            );
+        } else {
+            panic!("Catalog should remain a dictionary");
+        }
+
+        // Safe objects should still be present
+        assert_eq!(
+            doc.objects.len(),
+            original_count,
+            "Only dangerous objects should be removed"
+        );
+
+        // Verify PDF still serializes correctly
+        let output_bytes = doc.to_bytes();
+        assert!(
+            !output_bytes.is_empty(),
+            "Sanitized PDF should still serialize"
+        );
+        let content = String::from_utf8_lossy(&output_bytes);
+        assert!(
+            !content.contains("app.alert"),
+            "JS payload should not remain in output"
+        );
+    }
+
+    #[test]
+    fn test_javascript_sandbox_detects_and_strips_actions() {
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Sandbox test".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let pdf_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let mut doc = PdfDocument::load_from_bytes(&pdf_bytes).unwrap();
+
+        let mut js_action = HashMap::new();
+        js_action.insert(
+            "S".to_string(),
+            PdfValue::Object(PdfObject::String("/JavaScript".to_string())),
+        );
+        js_action.insert(
+            "JS".to_string(),
+            PdfValue::Object(PdfObject::String("app.alert('x')".to_string())),
+        );
+
+        let mut annot = HashMap::new();
+        annot.insert(
+            "A".to_string(),
+            PdfValue::Object(PdfObject::Dictionary(js_action)),
+        );
+        doc.objects.insert(997, PdfObject::Dictionary(annot));
+
+        let mut uri_action = HashMap::new();
+        uri_action.insert(
+            "URI".to_string(),
+            PdfValue::Object(PdfObject::String("(javascript:alert(1))".to_string())),
+        );
+        doc.objects.insert(996, PdfObject::Dictionary(uri_action));
+
+        let before = doc.detect_javascript_actions();
+        assert!(
+            before.actions_found.len() >= 2,
+            "Should detect JS action and javascript: URI"
+        );
+
+        let report = doc.sandbox();
+        assert!(report.clean, "Sandboxed PDF should have no JS actions left");
+
+        let output = doc.to_bytes();
+        let content = String::from_utf8_lossy(&output);
+        assert!(
+            !content.contains("javascript:alert"),
+            "javascript: URI should be neutralized"
+        );
+        assert!(
+            !content.contains("app.alert('x')"),
+            "JS payload should be removed"
+        );
+    }
+}

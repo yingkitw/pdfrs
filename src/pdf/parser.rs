@@ -424,3 +424,95 @@ impl LazyPdfDocument {
         self.stream_objects.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_dict_entries() {
+        let raw = "<< /Type /Page /Length 42 >>";
+        let dict = parse_dict_entries(raw);
+        assert!(dict.contains_key("Type"));
+        assert!(dict.contains_key("Length"));
+    }
+
+    #[test]
+    fn test_decompress_stream_passthrough() {
+        let data = b"BT /F1 12 Tf (Hello) Tj ET";
+        let result = decompress_stream(data);
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_read_xref_field() {
+        // 1-byte field
+        assert_eq!(read_xref_field(&[0x01], 0, 1), 1);
+        assert_eq!(read_xref_field(&[0xFF], 0, 1), 255);
+
+        // 2-byte field (big-endian)
+        assert_eq!(read_xref_field(&[0x01, 0x00], 0, 2), 256);
+        assert_eq!(read_xref_field(&[0x00, 0x2A], 0, 2), 42);
+
+        // 3-byte field
+        assert_eq!(read_xref_field(&[0x01, 0x00, 0x00], 0, 3), 65536);
+
+        // 0-width field
+        assert_eq!(read_xref_field(&[0xFF], 0, 0), 0);
+    }
+
+    #[test]
+    fn test_parse_xref_stream_basic() {
+        // W = [1, 2, 1], size = 3
+        // Entry 0: type=0, offset=0x0000, gen=0xFF (free)
+        // Entry 1: type=1, offset=0x0100, gen=0x00 (normal at offset 256)
+        // Entry 2: type=2, offset=0x0005, gen=0x02 (compressed in obj 5, index 2)
+        let data: Vec<u8> = vec![
+            0x00, 0x00, 0x00, 0xFF, // entry 0: type=0, field2=0, field3=255
+            0x01, 0x01, 0x00, 0x00, // entry 1: type=1, field2=256, field3=0
+            0x02, 0x00, 0x05, 0x02, // entry 2: type=2, field2=5, field3=2
+        ];
+        let w = vec![1, 2, 1];
+        let entries = parse_xref_stream(&data, &w, 3);
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0], (0, 0, 255));
+        assert_eq!(entries[1], (1, 256, 0));
+        assert_eq!(entries[2], (2, 5, 2));
+    }
+
+    #[test]
+    fn test_parse_xref_stream_empty() {
+        let entries = parse_xref_stream(&[], &[1, 2, 1], 0);
+        assert!(entries.is_empty());
+
+        let entries = parse_xref_stream(&[0x01], &[], 1);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_parse_object_stream() {
+        // Object stream with 2 objects:
+        // Header: "10 0 20 14 " (obj 10 at offset 0, obj 20 at offset 14)
+        // First = 10 (offset where object data starts)
+        // Data after first: "<< /Type /Page >>null"
+        let stream = b"10 0 20 14 << /Type /Page >>null";
+        let first = 11; // "10 0 20 14 " is 11 bytes
+        let results = parse_object_stream(stream, 2, first);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, 10); // obj num
+        assert!(results[0].1.contains("/Type"));
+        assert_eq!(results[1].0, 20); // obj num
+    }
+
+    #[test]
+    fn test_parse_object_stream_empty() {
+        let results = parse_object_stream(b"", 0, 0);
+        assert!(results.is_empty());
+
+        // first beyond data length
+        let results = parse_object_stream(b"10 0 ", 1, 100);
+        assert!(results.is_empty());
+    }
+}

@@ -113,3 +113,82 @@ fn jaccard_similarity(a: &str, b: &str) -> f32 {
     let union: std::collections::HashSet<_> = set_a.union(&set_b).collect();
     intersection.len() as f32 / union.len() as f32
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diff_pdf_bytes_detects_changes() {
+        let elements_old = vec![crate::elements::Element::Paragraph {
+            text: "First version".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let old_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements_old, "Helvetica", 12.0, layout)
+                .unwrap();
+
+        let elements_new = vec![
+            crate::elements::Element::Paragraph {
+                text: "Second version with more content".into(),
+            },
+            crate::elements::Element::Paragraph {
+                text: "Extra paragraph".into(),
+            },
+        ];
+        let new_bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements_new, "Helvetica", 12.0, layout)
+                .unwrap();
+
+        let diff = diff_pdf_bytes(&old_bytes, &new_bytes).unwrap();
+
+        // Both should have 1 page
+        assert_eq!(diff.pages_old, 1, "Old PDF should have 1 page");
+        assert_eq!(diff.pages_new, 1, "New PDF should have 1 page");
+
+        // Text should be somewhat similar but not identical
+        assert!(
+            diff.text_similarity > 0.0 && diff.text_similarity < 1.0,
+            "Text similarity should be between 0 and 1 for partially different docs: {}",
+            diff.text_similarity
+        );
+
+        // There should be some modified objects (content streams differ)
+        assert!(
+            !diff.modified_objects.is_empty() || !diff.added_objects.is_empty(),
+            "Should detect structural changes between different PDFs"
+        );
+    }
+
+    #[test]
+    fn test_diff_pdf_bytes_identical() {
+        let elements = vec![crate::elements::Element::Paragraph {
+            text: "Same content".into(),
+        }];
+        let layout = crate::pdf_generator::PageLayout::portrait();
+        let bytes =
+            crate::pdf_generator::generate_pdf_bytes(&elements, "Helvetica", 12.0, layout).unwrap();
+
+        let diff = diff_pdf_bytes(&bytes, &bytes).unwrap();
+
+        // Identical PDFs should have 100% text similarity
+        assert_eq!(
+            diff.text_similarity, 1.0,
+            "Identical PDFs should have 100% text similarity"
+        );
+
+        // No added, removed, or modified objects
+        assert!(
+            diff.added_objects.is_empty(),
+            "Identical PDFs should have no added objects"
+        );
+        assert!(
+            diff.removed_objects.is_empty(),
+            "Identical PDFs should have no removed objects"
+        );
+        assert!(
+            diff.modified_objects.is_empty(),
+            "Identical PDFs should have no modified objects"
+        );
+    }
+}

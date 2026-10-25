@@ -59,19 +59,21 @@ The interface lives in `src/cli/`:
 
 **Internal Submodules**:
 
-- `src/pdf/mod.rs` — facade: shared regex cache (`pdf_regex!`), public
-  re-exports, module tests
+- `src/pdf/mod.rs` — facade: shared regex cache (`pdf_regex!`) and public
+  re-exports
 - `src/pdf/objects.rs` — `PdfDocument`/`PdfObject`/`PdfValue` model,
   loading, serialization, reference rewriting, object deduplication,
-  embedded-file attachment
+  embedded-file attachment; document round-trip tests
 - `src/pdf/parser.rs` — object/xref/object-stream parsing, `decompress_stream`,
-  `LazyPdfDocument` (stream-indexing lazy loader)
+  `LazyPdfDocument` (stream-indexing lazy loader); parser tests
 - `src/pdf/text_extract.rs` — `get_text`, ToUnicode CMap handling,
   glyph-ID reverse mapping
-- `src/pdf/sandbox.rs` — sanitization and JavaScript sandboxing
-- `src/pdf/diff.rs` — structural document diff
-- `src/pdf/decode.rs` — WinAnsi/MacRoman decoders, PDF string/hex/UTF-16 decoding
+- `src/pdf/sandbox.rs` — sanitization and JavaScript sandboxing (tests included)
+- `src/pdf/diff.rs` — structural document diff (tests included)
+- `src/pdf/decode.rs` — WinAnsi/MacRoman decoders, PDF string/hex/UTF-16
+  decoding (tests included)
 - `src/pdf/validation.rs` — PDF / PDF-A / PDF-UA / screen-reader validation
+  (tests included)
 
 **Key Classes**:
 
@@ -117,7 +119,19 @@ PDF File → Header Parser → XRef Parser → Object Parser → Document Builde
 
 **Internal Submodules**:
 
-- `src/pdf_generator/mod.rs` — `PdfGenerator` object model, PDF assembly, font resources, outline tree, tagged PDF, public API entry points
+- `src/pdf_generator/mod.rs` — module wiring and public re-exports (entry-point
+  tests live here)
+- `src/pdf_generator/objects.rs` — the `PdfGenerator`/`PdfObj` low-level object
+  model (object accumulation + serialization with xref)
+- `src/pdf_generator/fonts.rs` — shared font resources: base-14 Type1 fonts and
+  the embedded Type0/CIDFont used for non-ASCII documents
+- `src/pdf_generator/pipeline.rs` — the generation pipeline: `generate_pdf_bytes`,
+  `generate_pdf_bytes_with_image_base`, `generate_pdf_bytes_with_compression`,
+  `generate_tagged_pdf_bytes`, `render_page_range` (and the `pub(crate)`
+  internal variants)
+- `src/pdf_generator/assembly.rs` — assembles per-page content streams into a
+  PDF: page dictionaries, the `/Pages` tree, optional tagged-PDF structures, the
+  `/Outlines` bookmark tree and the catalog
 - `src/pdf_generator/content_stream/` — `ContentStreamBuilder` split by concern:
   `builder` (cursor, page breaks, font switches, operator emission),
   `elements` (element rendering), `charts` (vector chart emission),
@@ -294,7 +308,7 @@ Bundled multi-feature document used by `generate-comprehensive` and `tests/compr
 - `metadata.rs`: `PdfMetadata` struct, `create_pdf_with_metadata`, `extract_metadata_from_pdf`, `merge_metadata`, `assemble_pdf_with_metadata`
 - `annotations.rs`: `TextAnnotation`, `LinkAnnotation`, `HighlightAnnotation`, `ThreeDAnnotation`, `create_pdf_with_annotations`, `create_pdf_with_3d_annotation`
 - `forms.rs`: `FormField`, `FormFieldType`, `DetectedFormField`, `create_pdf_with_form_fields`, `detect_form_fields`, `fill_form_fields`
-- `security.rs`: `protect_pdf`, `sign_pdf`, `verify_pdf_signature`, `SignatureInfo`, `extract_certificates_from_pdf`
+- `security/` (re-exported through `pdf_ops::*`): `protect_pdf` and `encrypt_pdf_bytes*` (`encrypt`), raw PDF object scanning for the encryption path (`objects`), legacy structural signing (`sign`), `verify_pdf_signature*` (`verify`), `extract_certificates_from_pdf*` (`certificates`)
 - `tables.rs`: `extract_tables_from_pdf` (heuristic CSV extraction from content streams)
 - `structure.rs`: `detect_document_structure`, `DocumentStructure`, `DetectedHeading`, `DetectedSection`
 - `portfolio.rs`: `create_portfolio_pdf` (PDF Collection with embedded files)
@@ -419,9 +433,15 @@ shading patterns, and transparency groups are not rendered.
 
 **Design note**: the bundled `parse_dict_entries` in `pdf.rs` is whitespace-token-only and truncates `/Kids [a b c]` to `[a`; `collect_pages_from_doc` accepts an optional raw-bytes slice and falls back to `raw_kids_for_object` to recover the full array.
 
-### 15d. Redaction (`src/redact.rs`)
+### 15d. Redaction (`src/redact/`)
 
 **Purpose**: True content-stream redaction — rewrites streams to mask text instead of relying on opaque overlays.
+
+**Internal Submodules**: `model` (`RedactionRegion`/`RedactionStyle`), `apply`
+(the document-level pass over pages, form XObjects and annotation appearance
+streams), `document` (object-reference and XObject-resource helpers), `rewrite`
+(the content-stream rewriter that masks intersecting text and drops image
+`Do` operators).
 
 **Key Functions / Types**:
 
@@ -660,7 +680,7 @@ cargo doc --no-deps
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Latest fully verified run: **2026-10-25** (567 tests passed, 1 ignored doctest; all gates green) —
+Latest fully verified run: **2026-10-25** (553 tests passed, 1 ignored doctest; all gates green) —
 see `AUDIT.md` for the evidence record. `rust-toolchain.toml` still pins the
 stable toolchain with rustfmt and clippy components.
 

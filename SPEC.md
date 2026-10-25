@@ -506,7 +506,7 @@ CLI layer keeps `anyhow::Result` and relies on that conversion.
 - Security (password protection, permissions)
 - Library API (in-memory generation, validation)
 - 27 element types with round-trip validation
-- ~568 tests (`cargo test`, including unit, integration, and doctest coverage)
+- ~554 tests (`cargo test`, including unit, integration, and doctest coverage)
 - Charts, multi-column layout, thesis TOC/citations, linearized + incremental PDF
 - WebAssembly (`wasm` feature) + canvas viewer demo
 - Native PDF → PNG rasterizer (no external renderer dependency)

@@ -60,6 +60,24 @@ All notable changes to **pdfrs** are documented here. The format follows
   it, so a mismatch between the font program's metrics and the PDF width table
   cannot make neighbouring glyphs overlap.
 
+### Changed
+
+- **The remaining large modules were split into cohesive submodules** (public
+  APIs unchanged — every previously public path resolves exactly as before):
+  - `src/pdf_generator/mod.rs` (1,350 LOC) → `objects` (`PdfGenerator`/
+    `PdfObj`), `fonts` (shared font resources), `pipeline` (the
+    `generate_pdf_bytes*` entry points and `render_page_range`), `assembly`
+    (PDF object assembly, outlines and catalog)
+  - `src/pdf/mod.rs` (1,220 LOC) → a 61-line facade; its 1,158-line test
+    module was co-located with the submodules the tests exercise, which
+    surfaced 14 byte-identical duplicate tests that are now removed
+    (554 tests pass, down from 567, with no loss of coverage)
+  - `src/pdf_ops/security.rs` (1,186 LOC) → `encrypt`, `objects`, `sign`,
+    `verify`, `certificates`, `regexes`
+  - `src/image.rs` (1,008 LOC) → `model`, `load`, `filters`, `embed`
+  - `src/redact.rs` (994 LOC) → `model`, `apply`, `document`, `rewrite`
+  Every file in the crate is now below ~1,000 lines of code.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

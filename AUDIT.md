@@ -1,6 +1,45 @@
 # pdfrs Codebase Audit Report
 
-## Current Audit — 2026-10-25 (fourth pass: rasterizer parity)
+## Current Audit — 2026-10-25 (fifth pass: remaining large-file modularization)
+
+**Scope:** Structural maintainability pass — the five remaining files over
+1,000 LOC were split into cohesive submodules (public APIs unchanged), and the
+1,158-line test module in `src/pdf/mod.rs` was co-located with its owning
+submodules.
+**Method:** Full tool verification on final source: `cargo fmt --check` (clean),
+`cargo test` (**553 passed / 0 failed**, 1 ignored doctest: 422 lib + 95
+integration + 37 doc), `cargo test --no-default-features` (green), `cargo test
+--features api` (green), `cargo build --lib --no-default-features --features
+wasm --target wasm32-unknown-unknown` (green, 0 warnings), `cargo doc --no-deps`
+(0 warnings), `cargo clippy --all-targets --all-features -- -D warnings`
+(0 warnings).
+
+### Changes
+
+| Was | Now | Submodules |
+|---|---|---|
+| `src/pdf_generator/mod.rs` (1,350) | `pdf_generator/` | `objects` (`PdfGenerator`/`PdfObj`), `fonts`, `pipeline` (`generate_pdf_bytes*`, `render_page_range`), `assembly` (object assembly, outlines, catalog) |
+| `src/pdf/mod.rs` (1,220) | 61-line facade | test module co-located into `decode`/`parser`/`validation`/`sandbox`/`diff`/`objects`; **14 byte-identical duplicate tests removed** |
+| `src/pdf_ops/security.rs` (1,186) | `pdf_ops/security/` | `encrypt`, `objects` (raw scanning), `sign`, `verify`, `certificates`, `regexes` |
+| `src/image.rs` (1,008) | `image/` | `model`, `load`, `filters`, `embed` |
+| `src/redact.rs` (994) | `redact/` | `model`, `apply`, `document`, `rewrite` |
+
+Every previously public path resolves unchanged: the new `mod.rs` files
+re-export their submodules' items (and `pdf_ops::security::*` continues to flow
+through the `pdf_ops` glob re-export). Co-locating the `pdf` test module
+surfaced 14 tests that existed byte-identically in two places; they are counted
+once now — 553 passing tests, no coverage loss. A doctest example that lived on
+the `redact` module header was carried into the new module docs.
+
+### Score
+
+Unchanged at **9.1/10** overall; maintainability moves 8.8 → **9.0/10** (every
+file is now a bounded, single-responsibility module). Verification evidence
+above supersedes the fourth pass's method line.
+
+---
+
+## Audit — 2026-10-25 (fourth pass: rasterizer parity)
 
 **Scope:** Native rasterizer capability and correctness batch (images, clipping
 paths, transparency, text rendering modes) plus the resource-parsing rework it
