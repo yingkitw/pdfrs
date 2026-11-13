@@ -50,6 +50,7 @@ cargo test                                     # default features
 cargo test --no-default-features
 cargo build --lib --no-default-features --features wasm --target wasm32-unknown-unknown   # compile check
 ./scripts/build-wasm.sh   # wasm-pack (requires cdylib + rlib in Cargo.toml)
+./scripts/refresh-readme-preview.sh   # after changing comprehensive.pdf
 maturin develop --release && python -m pytest python/tests   # PyPI / PyO3 bindings
 cargo doc --no-deps
 cargo clippy --all-targets --all-features -- -D warnings

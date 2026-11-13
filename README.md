@@ -21,7 +21,21 @@
 | **Python** | [docs/PYPI.md](docs/PYPI.md) | PyO3 bindings (`pip install pdfrs` after publish from GitHub release) |
 | **Browser** | [wasm/README.md](wasm/README.md) | WASM Markdown → PDF — build from [GitHub](https://github.com/yingkitw/pdfrs) |
 
-**Proof output:** [comprehensive.pdf](comprehensive.pdf) (from [comprehensive_document.md](tests/fixtures/comprehensive_document.md)) — regenerate with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`.
+### Sample output
+
+Full document: [**comprehensive.pdf**](comprehensive.pdf) (from [comprehensive_document.md](tests/fixtures/comprehensive_document.md)). Click a page to open the PDF in your viewer.
+
+<p align="center">
+  <a href="comprehensive.pdf">
+    <img src="docs/assets/comprehensive-cover.png" alt="Cover page of the comprehensive.pdf sample" width="420"/>
+  </a>
+  &nbsp;&nbsp;
+  <a href="comprehensive.pdf">
+    <img src="docs/assets/comprehensive-interior.png" alt="Interior page of the comprehensive.pdf sample (charts, layout)" width="420"/>
+  </a>
+</p>
+
+Regenerate the PDF with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`; refresh these thumbnails with `./scripts/refresh-readme-preview.sh`.
 
 ### Trust at a glance
 
@@ -363,7 +377,7 @@ Yes. Non-ASCII documents embed a Unicode TrueType font as Type0/CIDFont by defau
 Yes. Build with the `wasm` feature (`./scripts/build-wasm.sh`) and use the JavaScript API; see [wasm/README.md](wasm/README.md).
 
 ### Where can I see sample output?
-Download or open [comprehensive.pdf](comprehensive.pdf) in this repository.
+Scroll to **Sample output** at the top of this README for inline previews, or open [comprehensive.pdf](comprehensive.pdf) directly.
 
 ## Contributing
 
