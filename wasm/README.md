@@ -12,6 +12,9 @@ Requires [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/):
 wasm-pack build . --target web --out-dir wasm/pkg --features wasm --no-default-features
 ```
 
+The root `Cargo.toml` must list `crate-type = ["cdylib", "rlib"]` under `[lib]`;
+without `cdylib`, `wasm-pack` fails with a crate-type error.
+
 ## Browser Demo
 
 Open `wasm/example.html` with a local HTTP server (required for ES modules):

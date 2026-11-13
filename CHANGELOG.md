@@ -102,6 +102,15 @@ All notable changes to **pdfrs** are documented here. The format follows
   - `src/redact.rs` (994 LOC) → `model`, `apply`, `document`, `rewrite`
   Every file in the crate is now below ~1,000 lines of code.
 
+## [0.2.1] - 2026-11-13
+
+### Fixed
+
+- **WASM `wasm-pack` builds** — set `[lib] crate-type = ["cdylib", "rlib"]` so
+  `wasm-pack` can link browser bindings while native callers still use the
+  `rlib`. Run `./scripts/build-wasm.sh` (or `wasm-pack build … --features wasm
+  --no-default-features`) after pulling this release.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

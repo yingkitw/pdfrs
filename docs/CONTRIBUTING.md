@@ -47,7 +47,8 @@ removed). Run the full local gate before submitting changes:
 cargo fmt --check
 cargo test                                     # default features
 cargo test --no-default-features
-cargo build --features wasm --target wasm32-unknown-unknown   # if wasm installed
+cargo build --lib --no-default-features --features wasm --target wasm32-unknown-unknown   # compile check
+./scripts/build-wasm.sh   # wasm-pack (requires cdylib + rlib in Cargo.toml)
 cargo doc --no-deps
 cargo clippy --all-targets --all-features -- -D warnings
 ```

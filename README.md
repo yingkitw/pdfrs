@@ -236,7 +236,7 @@ let pdf_bytes = pdfrs::vector::svg_document_to_pdf_bytes(
 ## Browser (WASM)
 
 ```bash
-./scripts/build-wasm.sh
+./scripts/build-wasm.sh   # needs [lib] crate-type = ["cdylib", "rlib"] in Cargo.toml
 python3 -m http.server 8080
 # open http://localhost:8080/wasm/example.html
 ```

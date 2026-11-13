@@ -1,6 +1,6 @@
 [package]
 name = "pdfrs"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Pure Rust PDF toolkit: Markdown to PDF, merge/split/validate, search/redact, rasterize, full SVG, Unicode/CJK, charts, thesis layout, CLI (pdfcli) and WASM — no Poppler, PDFium, or LaTeX"
 authors = ["Ying Kit WONG"]
@@ -21,6 +21,7 @@ categories = [
 [lib]
 name = "pdfrs"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 regex = "1.0"

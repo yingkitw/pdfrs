@@ -510,7 +510,11 @@ streams), `document` (object-reference and XObject-resource helpers), `rewrite`
 - `viewer.js` — Canvas-based PDF preview using pdf.js
 - `example.html` — Demo with mode toggle (worker vs main thread + IndexedDB cache)
 
-**Build**: `syntect` uses `default-fancy` (pure Rust regex) for WASM compatibility (no C dependencies).
+**Build**: `wasm-pack` via `./scripts/build-wasm.sh` (`--features wasm
+--no-default-features`). The crate declares `crate-type = ["cdylib", "rlib"]` so
+the WASM glue links as a `cdylib` while Rust dependents still use the `rlib`.
+`syntect` uses `default-fancy` (pure Rust regex) for WASM compatibility (no C
+dependencies).
 
 ### 16. PDF Validation (`src/pdf/validation.rs`)
 
