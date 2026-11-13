@@ -2,14 +2,15 @@
 name = "pdfrs"
 version = "0.2.1"
 edition = "2024"
-description = "Pure Rust PDF toolkit: Markdown to PDF, merge/split/validate, search/redact, rasterize, full SVG, Unicode/CJK, charts, thesis layout, CLI (pdfcli) and WASM — no Poppler, PDFium, or LaTeX"
+rust-version = "1.85"
+description = "Pure Rust PDF toolkit: Markdown to PDF, merge/split/validate, search/redact, rasterize, full SVG, Unicode/CJK, charts, thesis layout, CLI (pdfcli), Python & WASM — no Poppler, PDFium, or LaTeX"
 authors = ["Ying Kit WONG"]
 documentation = "https://docs.rs/pdfrs"
 repository = "https://github.com/yingkitw/pdfrs"
 homepage = "https://github.com/yingkitw/pdfrs"
 readme = "README.md"
 license = "Apache-2.0"
-keywords = ["pdf", "markdown", "wasm", "cli", "unicode"]
+keywords = ["pdf", "markdown", "wasm", "cli", "unicode", "merge", "validation", "python"]
 categories = [
     "command-line-utilities",
     "encoding",
@@ -17,6 +18,10 @@ categories = [
     "text-processing",
     "graphics",
 ]
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["api", "wasm", "python"]
 
 [lib]
 name = "pdfrs"
@@ -31,6 +36,7 @@ rayon = { version = "1.10", optional = true }
 ttf-parser = "0.25"
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
+pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py38"] }
 subsetter = "0.2"
 flate2 = "1.0"
 sha2 = { version = "0.10", features = ["oid"] }
@@ -75,6 +81,7 @@ default = ["parallel", "cli", "sign"]
 async = ["tokio"]
 parallel = ["rayon"]
 wasm = ["wasm-bindgen", "dep:wasm-bindgen-futures"]
+python = ["dep:pyo3"]
 cli = ["dep:clap", "dep:serde_json"]
 api = ["dep:axum", "dep:tower-http", "dep:base64", "dep:serde_json", "tokio/net"]
 sign = ["dep:rsa", "dep:p256", "dep:x509-cert", "dep:der"]

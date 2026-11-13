@@ -182,6 +182,19 @@ pub mod api;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
+#[cfg(feature = "python")]
+mod python;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+#[cfg(feature = "python")]
+#[pymodule]
+#[pyo3(name = "_pdfrs")]
+fn _pdfrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    python::register(m)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::markdown::markdown_to_text;

@@ -13,6 +13,10 @@
     "worker-client.js",
     "cache.js"
   ],
+  "homepage": "https://github.com/yingkitw/pdfrs/tree/main/wasm",
+  "bugs": {
+    "url": "https://github.com/yingkitw/pdfrs/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/yingkitw/pdfrs.git"

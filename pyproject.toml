@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pdfrs"
+description = "Python bindings for pdfrs — pure-Rust Markdown/HTML to PDF, merge, validate (same engine as github.com/yingkitw/pdfrs)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Ying Kit WONG" }]
+keywords = ["pdf", "markdown", "rust", "unicode", "merge", "pdfrs", "validation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Text Processing :: Markup",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/yingkitw/pdfrs"
+Repository = "https://github.com/yingkitw/pdfrs"
+Documentation = "https://docs.rs/pdfrs"
+"Source code" = "https://github.com/yingkitw/pdfrs"
+Changelog = "https://github.com/yingkitw/pdfrs/blob/main/CHANGELOG.md"
+"Issue tracker" = "https://github.com/yingkitw/pdfrs/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.maturin]
+features = ["python"]
+python-source = "python"
+module-name = "pdfrs._pdfrs"

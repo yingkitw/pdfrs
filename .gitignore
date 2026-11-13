@@ -1,5 +1,10 @@
 # Build artifacts
 /target
+/dist
+*.egg-info
+.mypy_cache
+.pytest_cache
+.venv/
 
 # Generated PDF files (keep committed samples like comprehensive.pdf via git -f if needed)
 *.pdf

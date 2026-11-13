@@ -2,6 +2,8 @@
 
 WebAssembly build of **pdfrs** — generate PDFs from Markdown directly in the browser or Node.js.
 
+**Upstream:** [github.com/yingkitw/pdfrs](https://github.com/yingkitw/pdfrs)
+
 ## Build
 
 Requires [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/):

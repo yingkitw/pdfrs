@@ -420,7 +420,7 @@ Capabilities in peer projects worth prioritizing:
 - **PRC 3D / rich media** (Acrobat) — beyond U3D: PRC streams, `/RichMedia` annotations
 - **Web Worker offloading** (MantisPDF) — ✅ shipped: `wasm/worker.js` + `wasm/worker-client.js` for off-main-thread PDF generation
 - **IndexedDB WASM module caching** (PDFNova) — ✅ shipped: `wasm/cache.js` with version-keyed cache for instant reloads
-- **Multi-language bindings** (PDF Oxide) — Python/JS/Go/C# from same Rust core
+- **Multi-language bindings** (PDF Oxide) — ✅ Python via maturin (`pip install pdfrs`); JS/WASM shipped; Go/C# open
 - **Rasterizer parity items** (PDFium/Ghostscript gap): ✅ shipped for clipping paths
   (`W n` / `W* n`), `/ExtGState` constant alpha (`ca`/`CA`) and line width (`LW`),
   text rendering modes (`Tr`), and image XObject drawing (`Do`) — including a

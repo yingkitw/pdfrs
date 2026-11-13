@@ -1,23 +1,35 @@
 # pdfrs — Pure Rust PDF library & CLI (Markdown ↔ PDF)
 
-**pdfrs** is an open-source **Rust PDF toolkit** and command-line tool (`pdfcli`) for **Markdown to PDF**, **PDF to Markdown**, text extraction, merge/split/rotate, validation, Unicode/CJK documents, charts, and academic thesis layout. It is a **self-contained PDF engine** written in Rust — **no Poppler, no PDFium, no LaTeX** — with an optional **WebAssembly (WASM)** build for the browser.
+**pdfrs** is an **Apache-2.0** open-source **Rust PDF toolkit** and CLI (`pdfcli`): **Markdown/HTML → PDF**, **PDF → Markdown**, merge/split/validate, search/redact, rasterize, Unicode/CJK, charts, and thesis layout — **no Poppler, PDFium, or LaTeX**.
 
-| | |
-|---|---|
-| **Crate** | [`pdfrs`](https://crates.io/crates/pdfrs) on crates.io |
-| **Docs** | [docs.rs/pdfrs](https://docs.rs/pdfrs) |
-| **Binary** | `pdfcli` |
-| **License** | [Apache-2.0](LICENSE) |
-| **Sample PDF** | [comprehensive.pdf](comprehensive.pdf) — multi-feature demo output |
-| **Source Markdown** | [comprehensive_document.md](tests/fixtures/comprehensive_document.md) |
+**Canonical source:** [**github.com/yingkitw/pdfrs**](https://github.com/yingkitw/pdfrs) (issues, releases, and the full tree live here.)
 
+[![GitHub](https://img.shields.io/github/stars/yingkitw/pdfrs?style=social&label=Star)](https://github.com/yingkitw/pdfrs)
+[![GitHub repo](https://img.shields.io/badge/source-yingkitw%2Fpdfrs-181717?logo=github)](https://github.com/yingkitw/pdfrs)
 [![crates.io](https://img.shields.io/crates/v/pdfrs.svg)](https://crates.io/crates/pdfrs)
 [![docs.rs](https://docs.rs/pdfrs/badge.svg)](https://docs.rs/pdfrs)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](Cargo.toml)
 
-**See what it can generate:** [**comprehensive.pdf**](comprehensive.pdf)  
-Regenerate anytime with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`.
+### Get it
+
+| Channel | Link | What you get |
+|---|---|---|
+| **GitHub** | [yingkitw/pdfrs](https://github.com/yingkitw/pdfrs) | Source, [CHANGELOG](CHANGELOG.md), [issues](https://github.com/yingkitw/pdfrs/issues), sample PDFs |
+| **crates.io** | [`pdfrs`](https://crates.io/crates/pdfrs) | Rust library + `pdfcli` via `cargo install pdfrs` |
+| **docs.rs** | [docs.rs/pdfrs](https://docs.rs/pdfrs) | API reference (versioned with crates.io) |
+| **Python** | [docs/PYPI.md](docs/PYPI.md) | PyO3 bindings (`pip install pdfrs` after publish from GitHub release) |
+| **Browser** | [wasm/README.md](wasm/README.md) | WASM Markdown → PDF — build from [GitHub](https://github.com/yingkitw/pdfrs) |
+
+**Proof output:** [comprehensive.pdf](comprehensive.pdf) (from [comprehensive_document.md](tests/fixtures/comprehensive_document.md)) — regenerate with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`.
+
+### Trust at a glance
+
+- **License:** [Apache-2.0](LICENSE) — use in products and tooling; see [LICENSE](LICENSE) for terms.
+- **Tests:** 570+ automated tests (`cargo test`); local gate in [CONTRIBUTING](docs/CONTRIBUTING.md).
+- **Engine:** PDF read/write implemented in Rust; optional `sign` feature uses standard crypto crates (RSA/ECDSA P-256, CMS).
+- **No hidden network:** library/CLI do not phone home; signing trust chains are evaluated locally (no CRL/OCSP).
+- **Verify yourself:** `cargo test` and `cargo clippy --all-targets --all-features -- -D warnings` on a checkout from GitHub.
 
 ### At a glance
 
@@ -105,12 +117,27 @@ Most PDF tools specialize in one lane: a typesetter (Typst/LaTeX), a converter t
 
 ## Install
 
+**Recommended (released binary from crates.io):**
+
+```bash
+cargo install pdfrs
+pdfcli --help
+```
+
+**From GitHub (latest `main` or a tag):**
+
 ```bash
 git clone https://github.com/yingkitw/pdfrs.git
 cd pdfrs
 cargo build --release
-# binary: ./target/release/pdfcli
-# optional: cargo install --path .
+./target/release/pdfcli --help
+```
+
+**Library dependency** (pin the version you trust on [crates.io](https://crates.io/crates/pdfrs)):
+
+```toml
+[dependencies]
+pdfrs = "0.2"
 ```
 
 ## Quick start
@@ -243,6 +270,23 @@ python3 -m http.server 8080
 
 Details: [wasm/README.md](wasm/README.md).
 
+## Python (PyPI)
+
+Install the PyO3 bindings (wheels built with [maturin](https://www.maturin.rs/)):
+
+```bash
+pip install pdfrs
+```
+
+```python
+import pdfrs
+
+pdf = pdfrs.render_markdown_to_pdf("# Hello\n\nFrom **pip**.")
+assert pdfrs.validate_pdf_bytes(pdf)["valid"]
+```
+
+Build or publish wheels: `./scripts/build-pypi.sh` — see [docs/PYPI.md](docs/PYPI.md).
+
 ## Architecture
 
 This tool is built with a modular architecture:
@@ -323,7 +367,13 @@ Download or open [comprehensive.pdf](comprehensive.pdf) in this repository.
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guidelines](docs/CONTRIBUTING.md) for details.
+Contributions are welcome on [**GitHub**](https://github.com/yingkitw/pdfrs):
+
+1. Fork and branch from `main`.
+2. Run the [local verification gate](docs/CONTRIBUTING.md) (`fmt`, `test`, `clippy`, optional `wasm`/`maturin` checks).
+3. Open a pull request with a clear description and test evidence.
+
+[Contributing guide](docs/CONTRIBUTING.md) · [Issues](https://github.com/yingkitw/pdfrs/issues)
 
 ## License
 

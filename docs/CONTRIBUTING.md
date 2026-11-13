@@ -40,8 +40,9 @@ cargo build
 cargo test
 ```
 
-There is **no CI pipeline** (GitHub Actions workflows were intentionally
-removed). Run the full local gate before submitting changes:
+Develop on [**github.com/yingkitw/pdfrs**](https://github.com/yingkitw/pdfrs). There is
+**no CI pipeline** (GitHub Actions workflows were intentionally removed). Run the
+full local gate before submitting changes:
 
 ```bash
 cargo fmt --check
@@ -49,6 +50,7 @@ cargo test                                     # default features
 cargo test --no-default-features
 cargo build --lib --no-default-features --features wasm --target wasm32-unknown-unknown   # compile check
 ./scripts/build-wasm.sh   # wasm-pack (requires cdylib + rlib in Cargo.toml)
+maturin develop --release && python -m pytest python/tests   # PyPI / PyO3 bindings
 cargo doc --no-deps
 cargo clippy --all-targets --all-features -- -D warnings
 ```

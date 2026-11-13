@@ -493,6 +493,16 @@ streams), `document` (object-reference and XObject-resource helpers), `rewrite`
 
 **Design**: PDFs exchanged as base64 in JSON; binary PDF responses use `application/pdf` content type. Request bodies limited by `RequestBodyLimitLayer` (`AppState.max_body`, 50 MB default); CPU-heavy handlers offloaded via `tokio::task::spawn_blocking`; CORS is opt-in through `router_with_cors` (no permissive default). Byte-based helpers `merge_pdfs_from_bytes` and `split_pdf_from_bytes` added to `pdf_ops` for filesystem-free operation.
 
+### 15h. Python bindings (PyPI / `python` feature)
+
+**Purpose**: `pip install pdfrs` via maturin + PyO3 (`abi3-py38` wheel).
+
+**Rust** (`src/python.rs`, `python` feature): `render_markdown_to_pdf`,
+`html_to_pdf_bytes`, `merge_pdfs`, `validate_pdf_bytes`, `version`.
+
+**Layout**: `pyproject.toml`, `python/pdfrs/` pure-Python package, native module
+`pdfrs._pdfrs`. Build: `./scripts/build-pypi.sh`; publish: [docs/PYPI.md](docs/PYPI.md).
+
 ### 15g. WASM Bindings (`src/wasm.rs` + `wasm/`)
 
 **Purpose**: Browser-based PDF generation via WebAssembly with worker offloading and caching.

@@ -8,6 +8,12 @@ All notable changes to **pdfrs** are documented here. The format follows
 
 ### Added
 
+- **Python / PyPI package** — `pyproject.toml` + maturin (`pip install pdfrs`):
+  `render_markdown_to_pdf`, `html_to_pdf_bytes`, `merge_pdfs`, `validate_pdf_bytes`,
+  and `version` via PyO3 (`python` Cargo feature). See [docs/PYPI.md](docs/PYPI.md).
+
+### Added
+
 - **Rasterizer parity: images, clipping paths, transparency and text rendering
   modes.** The native PDF → PNG rasterizer (`src/raster/`) now renders:
   - **Image XObjects** (`Do`) — decoded from `FlateDecode` (with PNG/TIFF
