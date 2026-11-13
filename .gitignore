@@ -5,6 +5,8 @@
 .mypy_cache
 .pytest_cache
 .venv/
+python/pdfrs/_pdfrs*.so
+python/pdfrs/*.so
 
 # Generated PDF files (keep committed samples like comprehensive.pdf via git -f if needed)
 *.pdf
