@@ -23,19 +23,54 @@
 
 ### Sample output
 
-Full document: [**comprehensive.pdf**](comprehensive.pdf) (from [comprehensive_document.md](tests/fixtures/comprehensive_document.md)). Click a page to open the PDF in your viewer.
+One fixture drives the test suite: [**comprehensive.pdf**](comprehensive.pdf) ([source](tests/fixtures/comprehensive_document.md)). **Click any thumbnail** to open the full PDF.
 
-<p align="center">
-  <a href="comprehensive.pdf">
-    <img src="docs/assets/comprehensive-cover.png" alt="Cover page of the comprehensive.pdf sample" width="420"/>
-  </a>
-  &nbsp;&nbsp;
-  <a href="comprehensive.pdf">
-    <img src="docs/assets/comprehensive-interior.png" alt="Interior page of the comprehensive.pdf sample (charts, layout)" width="420"/>
-  </a>
-</p>
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-cover.png" alt="Title page and document outline" width="260"/></a><br/>
+      <sub>Cover · bookmarks</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-tables.png" alt="Tables with alignment" width="260"/></a><br/>
+      <sub>Tables · alignment</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-lists.png" alt="Nested lists and task checklist" width="260"/></a><br/>
+      <sub>Lists · tasks</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-math-callouts.png" alt="Display math and callout blocks" width="260"/></a><br/>
+      <sub>Math · callouts</sub>
+    </td>
+    <td align="center">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-columns.png" alt="Multi-column layout" width="260"/></a><br/>
+      <sub>Multi-column</sub>
+    </td>
+    <td align="center">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-code.png" alt="Syntax-highlighted code blocks" width="260"/></a><br/>
+      <sub>Code · highlighting</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-charts.png" alt="Bar chart from chart fence" width="260"/></a><br/>
+      <sub>Chart fences</sub>
+    </td>
+    <td align="center">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-images.png" alt="Embedded images and vector chart figures" width="260"/></a><br/>
+      <sub>Images · figures</sub>
+    </td>
+    <td align="center">
+      <a href="comprehensive.pdf"><img src="docs/assets/readme-preview-cjk.png" alt="Chinese, Japanese, and Korean text" width="260"/></a><br/>
+      <sub>Unicode · CJK · embedded fonts</sub>
+    </td>
+  </tr>
+</table>
 
-Regenerate the PDF with `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`; refresh these thumbnails with `./scripts/refresh-readme-preview.sh`.
+Regenerate: `pdfcli generate-comprehensive` or `cargo test --test comprehensive_pdf`, then `./scripts/refresh-readme-preview.sh`.
 
 ### Trust at a glance
 
